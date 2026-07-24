@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.so
+*.o
+*.bin
+*.par
+*.txt
+neufeld_pop_test/
+*/neufeld_pop_test/
+.ipynb_checkpoints/
+.DS_Store
+*.egg-info/
+dist/
+build/

@@ -1,0 +1,20 @@
+!MOLECULE
+OH
+!NUMBER OF ENERGY LEVELS
+4
+!LEVEL + ENERGIES(cm^-1) + WEIGHT
+1    0.0000    4
+2    0.0560    4
+3  126.2000    2
+4  126.3000    2
+!NUMBER OF RADIATIVE TRANSITIONS
+6
+!TRANSITION + UPPER + LOWER + EINSTEINA(s^-1) + FREQ(GHz)
+1    2    1    7.80e-11      1.667
+2    4    3    7.80e-11      3.000
+3    3    1    8.00e-10   3784.0
+4    4    2    8.00e-10   3786.0
+5    3    2    1.00e-09   3785.0
+6    4    1    1.00e-09   3787.0
+!NUMBER OF COLL PARTNERS
+0
