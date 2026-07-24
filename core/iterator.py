@@ -33,7 +33,7 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         "n_step": str(int(n_step)),
         "n_scat": str(int(n_scat)),
         "ph_mode": str(int(ph_mode)),
-        "n_fld": str(species.n_levels if hasattr(species, "n_levels") else 1),
+        "n_fld": "1",
         "n_cycle_lim": "0",
     }
     if n_photon is not None:
