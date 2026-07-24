@@ -14,8 +14,8 @@ _PAR_TEMPLATE = os.path.join(
 
 
 def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
-            n_step=10000, n_scat=10000, ph_mode=1, par_overrides=None,
-            work_dir=None, callback=None):
+            n_photon=None, n_step=10000, n_scat=10000, ph_mode=1,
+            par_overrides=None, work_dir=None, callback=None):
     if work_dir is None:
         work_dir = os.path.join(os.getcwd(), "iterate_output")
     os.makedirs(work_dir, exist_ok=True)
@@ -36,6 +36,8 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         "n_fld": str(species.n_levels if hasattr(species, "n_levels") else 1),
         "n_cycle_lim": "0",
     }
+    if n_photon is not None:
+        base_overrides["n_photon"] = str(int(n_photon))
     base_overrides.update(par_overrides)
 
     n_tot = mesh["n_tot"]
