@@ -127,18 +127,23 @@ def read_output(filename):
         n_tot = int(np.prod(n_cell))
 
         def _strip_ghosts(full_arr, n_cell, n_gh, n_int):
-            """Extract effective cells from Kratos field including ghosts."""
+            """Extract effective cells from Kratos field including ghosts.
+
+            Kratos stores fields in C++ row-major order: cells[nz][ny][nx],
+            so nx varies fastest in memory.  Reshape accordingly to match
+            hydro_data.get_field() convention.
+            """
             if n_gh is None or np.all(n_gh == 0):
                 return full_arr[:n_tot * n_int]
 
-            nx = int(n_cell[0]) + 2 * int(n_gh[0])
-            ny = int(n_cell[1]) + 2 * int(n_gh[1])
-            nz = int(n_cell[2]) + 2 * int(n_gh[2])
-            rsh = full_arr.reshape(nx, ny, nz, n_int)
-            gh0, gh1, gh2 = int(n_gh[0]), int(n_gh[1]), int(n_gh[2])
-            eff = rsh[gh0:gh0+int(n_cell[0]),
+            nz_w = int(n_cell[2]) + 2 * int(n_gh[2])
+            ny_w = int(n_cell[1]) + 2 * int(n_gh[1])
+            nx_w = int(n_cell[0]) + 2 * int(n_gh[0])
+            rsh = full_arr.reshape(nz_w, ny_w, nx_w, n_int)
+            gh2, gh1, gh0 = int(n_gh[2]), int(n_gh[1]), int(n_gh[0])
+            eff = rsh[gh2:gh2+int(n_cell[2]),
                        gh1:gh1+int(n_cell[1]),
-                       gh2:gh2+int(n_cell[2]), :]
+                       gh0:gh0+int(n_cell[0]), :]
             return eff.reshape(-1).copy()
 
         for key in bio.hmap:
