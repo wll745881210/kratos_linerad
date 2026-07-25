@@ -50,14 +50,16 @@ def species_panel():
 
     def on_load(_):
         species_info.value = f"<b>{w['species_name'].value}</b> — source: {w['data_source'].value} (stub: call molecular.lamda_fetcher)"
+        w["transition_label"].disabled = False
 
     load_button.on_click(on_load)
 
     return widgets.VBox([
-        widgets.HTML("<h3>Species Selection</h3>"),
+        widgets.HTML("<h3>Species & Transition</h3>"),
         w["species_name"],
         w["data_source"],
         w["transition_label"],
+        w["transition_info"],
         widgets.HBox([load_button]),
         species_info,
     ])

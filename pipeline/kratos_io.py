@@ -31,13 +31,16 @@ def write_field_data(filename, fields, mesh):
     dx     = np.asarray(mesh['dx'],     dtype=np.float32)
 
     for prefix in ['mfp_i_sca_0_', 'mfp_i_abs_0_',
-                   'b_sca_', 'b_abs_',
+                   'b_sca_', 'b_abs_', 'temp_',
                    'vel_0_', 'vel_1_', 'vel_2_']:
+        key = prefix.strip('_')
+        if key not in fields:
+            continue
         bio.cache(f'{prefix}n_pts', n_cell, dtype='int32')
         bio.cache(f'{prefix}x0',    x_min,  dtype='float32')
         bio.cache(f'{prefix}dx',    dx,     dtype='float32')
         bio.cache(f'{prefix}data',
-                  np.asarray(fields[prefix.strip('_')], dtype=np.float32),
+                  np.asarray(fields[key], dtype=np.float32),
                   dtype='float32')
     bio.save()
     print(f'Wrote fields: {filename}')
@@ -51,14 +54,20 @@ def write_photon_data(filename, photons, n_col=None):
     ----------
     filename : str
     photons : ndarray (n_ph, n_col)
-        Columns: x, y, z, dir_x, dir_y, dir_z, proper, [vel]
+        Columns: x, y, z, dir_x, dir_y, dir_z, proper, [vel], [sigma, amplitude, dv_c]
     n_col : int, optional
-        Default: photons.shape[1]. Must be 7 or 8.
+        Default: photons.shape[1]. Must be 7, 8, or 11.
     """
-    ph = np.asarray(photons, dtype=np.float32)
+    ph = np.asarray(photons, dtype=np.float64)
+    proper_max = abs(ph[:, 6].max()) if ph.shape[1] >= 7 else 0.0
+    if proper_max > 1e38:
+        scale = 1.0 / proper_max
+        ph[:, 6] *= scale
+        print(f"Warning: proper weight scaled by {scale:.2e} to fit float32")
+    ph = ph.astype(np.float32)
     if n_col is None:
         n_col = ph.shape[1]
-    if n_col not in (7, 8):
+    if n_col not in (7, 8, 11):
         raise ValueError(f'n_col must be 7 or 8, got {n_col}')
 
     bio = binary_io(filename)
@@ -78,7 +87,7 @@ def read_output(filename):
     dict with keys:
       'n_cell', 'x_min', 'dx' — mesh metadata
       'flx' — effective flux array (n_tot + ghosts stripped to n_tot, float32)
-      'fab' — effective absorbed flux array (n_tot, float32)
+      'excitation_flux' — flux for excitation array (n_tot, float32)
       'photons' — dict with keys 'x', 'dir', 'l', 'vel' (escaped photons only)
     """
     import numpy as np
@@ -136,9 +145,12 @@ def read_output(filename):
             if key.startswith('block_') and key.endswith('|rad_flx_field'):
                 full = bio.as_array(key, 'f')
                 result['flx'] = _strip_ghosts(full, n_cell, n_gh, n_int)
-            elif key.startswith('block_') and key.endswith('|rad_fab_field'):
+            elif key.startswith('block_') and key.endswith('|rad_excitation_flux_field'):
                 full = bio.as_array(key, 'f')
-                result['fab'] = _strip_ghosts(full, n_cell, n_gh, n_int)
+                result['excitation_flux'] = _strip_ghosts(full, n_cell, n_gh, n_int)
+            elif key.startswith('block_') and key.endswith('|rad_exc_rate_field'):
+                full = bio.as_array(key, 'f')
+                result['exc_rate'] = _strip_ghosts(full, n_cell, n_gh, n_int)
 
     # Escaped photons
     phot = {}
@@ -151,6 +163,12 @@ def read_output(filename):
             phot['l'] = bio.as_array(raw_key, 'f')
         elif '_rank_' in raw_key and raw_key.endswith('_vel'):
             phot['vel'] = bio.as_array(raw_key, 'f')
+        elif '_rank_' in raw_key and raw_key.endswith('_dv_c'):
+            phot['dv_c'] = bio.as_array(raw_key, 'f')
+        elif '_rank_' in raw_key and raw_key.endswith('_sigma'):
+            phot['sigma'] = bio.as_array(raw_key, 'f')
+        elif '_rank_' in raw_key and raw_key.endswith('_amplitude'):
+            phot['amplitude'] = bio.as_array(raw_key, 'f')
     if phot:
         result['photons'] = phot
 

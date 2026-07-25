@@ -15,7 +15,9 @@ _PAR_TEMPLATE = os.path.join(
 
 def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
             n_photon=None, n_step=10000, n_scat=10000, ph_mode=1,
-            par_overrides=None, work_dir=None, callback=None):
+            par_overrides=None, mol_mass=28.0, work_dir=None,
+            callback=None, n_gas=None, transition_idx=0,
+            n_emission_max=10):
     if work_dir is None:
         work_dir = os.path.join(os.getcwd(), "iterate_output")
     os.makedirs(work_dir, exist_ok=True)
@@ -35,6 +37,8 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         "ph_mode": str(int(ph_mode)),
         "n_fld": "1",
         "n_cycle_lim": "0",
+        "output": "1",
+        "mol_mass": str(float(mol_mass)),
     }
     if n_photon is not None:
         base_overrides["n_photon"] = str(int(n_photon))
@@ -44,11 +48,14 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
     results = []
 
     if hasattr(species, "initial_populations"):
-        populations = species.initial_populations(n_tot)
+        populations = species.initial_populations(n_tot, n_gas=n_gas)
     else:
         populations = {f"n{i}": np.ones(n_tot, dtype=np.float32) for i in range(species.n_levels)}
 
     fields = dict(fields_init)
+
+    if hasattr(species, "make_fields"):
+        fields = species.make_fields(populations, "pre", -1, base_fields=fields)
 
     for cycle in range(n_cycles):
         field_file = os.path.join(work_dir, f"fields_cycle{cycle}.bin")
@@ -70,12 +77,33 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         results.append(output)
 
         if hasattr(species, "update_populations"):
-            fab = output.get("fab_flat", output.get("fab", None))
+            fab = output.get("excitation_flux", output.get("fab_flat", output.get("fab", None)))
             flx = output.get("flx_flat", output.get("flx", None))
             populations = species.update_populations(fab, flx, populations, cycle)
 
         if hasattr(species, "make_fields"):
-            fields = species.make_fields(populations, "post", cycle)
+            fields = species.make_fields(populations, "post", cycle, base_fields=fields,
+                                          transition_idx=transition_idx)
+
+        if hasattr(species, "generate_emission_photons") and cycle < n_cycles - 1:
+            temp_field = fields.get('temp', np.zeros(mesh['n_tot'],
+                                                     dtype=np.float64))
+            emission_ph = species.generate_emission_photons(
+                populations, transition_idx, temp_field, mesh,
+                n_per_cell_max=n_emission_max)
+            if len(emission_ph) > 0:
+                n_ext_cols = source_photons.shape[1]
+                if source_photons.shape[1] < emission_ph.shape[1]:
+                    pad = np.zeros((source_photons.shape[0],
+                                    emission_ph.shape[1]
+                                    - source_photons.shape[1]))
+                    source_photons = np.hstack([source_photons, pad])
+                elif emission_ph.shape[1] < source_photons.shape[1]:
+                    pad = np.zeros((emission_ph.shape[0],
+                                    source_photons.shape[1]
+                                    - emission_ph.shape[1]))
+                    emission_ph = np.hstack([emission_ph, pad])
+                source_photons = np.vstack([source_photons, emission_ph])
         else:
             for key in fields:
                 if key.startswith("mfp"):

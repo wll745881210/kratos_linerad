@@ -38,32 +38,46 @@ The notebook has 5 tabs:
 
 ### 2. Python Module (scripting / automation)
 
+**Mode 1 — direct MFP** (no species data needed):
+
 ```python
-from core.source import point_source, make_cartesian_mesh, Lsun
-from core.fields import uniform_field
-from core.iterator import iterate
-from molecular.lamda_fetcher import fetch_species
-import numpy as np
+from linert import LineRT, SlabSource
 
-mesh = make_cartesian_mesh((32, 8, 8), (-5, 0, 0), (5, 3.14, 6.28))
-photons = point_source(L=0.8 * Lsun, lam=2.35e-4, pos=(0, 0, 0), n_ph=50000)
-
-n_tot = mesh['n_tot']
-fields = {
-    'mfp_i_sca_0': np.ones(n_tot) * 0.1,
-    'mfp_i_abs_0': np.ones(n_tot) * 0.001,
-    'b_sca': np.ones(n_tot) * 1e5,
-    'b_abs': np.ones(n_tot) * 1e5,
-    'vel_0': np.ones(n_tot) * 1e5,
-    'vel_1': np.zeros(n_tot),
-    'vel_2': np.zeros(n_tot),
-}
-
-species = fetch_species('CO')
-results, populations = iterate(photons, species, fields, mesh, n_cycles=5)
+rt = LineRT(
+    source=SlabSource(x0=-5, n_photon=50000),
+    x_min=(-5, 0, 0), x_max=(5, 0.2, 0.2),
+    n_cell=(64, 2, 2),
+    mfp_i_sca=100.0 / 1.496e14,   # τ₀ = 100 over 10 AU
+    mfp_i_abs=0.0,
+    n_photon=50000,
+    n_step=10000, n_scat=100000,
+    n_cycles=3,
+)
+result = rt.run()
 ```
 
-See [docs/examples/plane_parallel.py](docs/examples/plane_parallel.py) for a complete end-to-end example.
+**Mode 2 — physical medium** (species + density + temperature):
+
+```python
+from linert import LineRT, SlabSource
+from molecular.lamda_format import load_lamda
+import numpy as np
+
+co = load_lamda(open('molecular/embedded/co.dat').read())
+
+rt = LineRT(
+    source=SlabSource(x0=-5, n_photon=50000),
+    x_min=(-5, 0, 0), x_max=(5, 0.2, 0.2),
+    n_cell=(64, 2, 2),
+    species=co,
+    n_total=1e4,           # total molecular density [cm⁻³]
+    temperature=50.,        # gas temperature [K] (or array/callable)
+    n_cycles=3,
+)
+result = rt.run()
+```
+
+`LineRT` handles all I/O automatically — no manual field writing, par templating, or subprocess calls.  See [examples/plane_parallel_example.py](https://github.com/username/line_rt/...) for the full example script.
 
 ### 3. Web Dashboard (sharing with collaborators)
 

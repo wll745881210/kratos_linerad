@@ -3,13 +3,13 @@
 Kratos-based population-updating radiative transfer pipeline.
 
 Key insight from mc_ph:
-  effective_flux (fab) → excited population → updated opacity → next RT cycle
+  excitation_flux → excited population → updated opacity → next RT cycle
 
 Flow:
   1. Generate initial field + photon files
   2. Run Kratos(line_rt)
-  3. Read output (flx + fab)
-  4. Update populations from fab
+  3. Read output (flx + excitation_flux)
+  4. Update populations from excitation_flux
   5. Generate new field + photon files
   6. Repeat until convergence
 """
@@ -186,7 +186,9 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
         # Extract fab and flx — keep as flat arrays (include ghosts)
         # The model's make_fields uses the same field size as Kratos output,
         # so we don't need to strip ghost cells.
-        if 'fab' in output:
+        if 'excitation_flux' in output:
+            output['fab_flat'] = output['excitation_flux']
+        elif 'fab' in output:
             output['fab_flat'] = output['fab']
         if 'flx' in output:
             output['flx_flat'] = output['flx']

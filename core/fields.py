@@ -94,7 +94,10 @@ def slice_plot_2d(ax, data, mesh, plane="xy", slice_idx=None, log=True, cmap="tu
     coords = mesh.get("coords", "cartesian")
     nx, ny, nz = int(n_cell[0]), int(n_cell[1]), int(n_cell[2])
 
-    data_3d = data.reshape(nx, ny, nz)
+    if data.size > nx * ny * nz:
+        data_3d = data.reshape(nx, ny, nz, -1)[:, :, :, 0]
+    else:
+        data_3d = data.reshape(nx, ny, nz)
     norm = LogNorm() if log else None
 
     if coords == "cartesian":
@@ -105,15 +108,15 @@ def slice_plot_2d(ax, data, mesh, plane="xy", slice_idx=None, log=True, cmap="tu
         if plane == "xy":
             si = slice_idx if slice_idx is not None else nz // 2
             X, Y = np.meshgrid(xe, ye, indexing="ij")
-            ax.pcolormesh(X, Y, data_3d[:, :, si].T, cmap=cmap, norm=norm, **kwargs)
+            ax.pcolormesh(X, Y, data_3d[:, :, si], cmap=cmap, norm=norm, **kwargs)
         elif plane == "xz":
             si = slice_idx if slice_idx is not None else ny // 2
             X, Z = np.meshgrid(xe, ze, indexing="ij")
-            ax.pcolormesh(X, Z, data_3d[:, si, :].T, cmap=cmap, norm=norm, **kwargs)
+            ax.pcolormesh(X, Z, data_3d[:, si, :], cmap=cmap, norm=norm, **kwargs)
         elif plane == "yz":
             si = slice_idx if slice_idx is not None else nx // 2
             Y, Z = np.meshgrid(ye, ze, indexing="ij")
-            ax.pcolormesh(Y, Z, data_3d[si, :, :].T, cmap=cmap, norm=norm, **kwargs)
+            ax.pcolormesh(Y, Z, data_3d[si, :, :], cmap=cmap, norm=norm, **kwargs)
         else:
             raise ValueError(f"Unknown plane '{plane}' for Cartesian mesh")
 

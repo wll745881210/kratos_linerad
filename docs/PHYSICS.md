@@ -66,16 +66,23 @@ Flux registered in cell i:
   flx[i] = Σ_photons (w × dl / V_i)      [photon path-length / cm³]
 
 Absorbed flux in cell i:
-  fab[i] = Σ_photons (w × (1-e^{-τ_abs}) / V_i)    [absorbed photons / cm³]
+  excitation_flux[i] = Σ_photons (w × (1-e^{-τ_abs}) / V_i)    [absorbed photons / cm³]
 ```
 
 where `dl` is the path length through the cell, `τ_abs` is the absorption optical depth along that segment, and `V_i` is the cell volume in cm³.
 
-**This is the key insight**: `fab[i]` is the "answer" from the MC — it already accounts for all geometric dilution, optical depth effects, velocity gradients, and scattering. No approximate escape probability is needed.
+**This is the key insight**: `excitation_flux[i]` is the "answer" from the MC — it already accounts for all geometric dilution, optical depth effects, velocity gradients, and scattering. No approximate escape probability is needed.
 
 ---
 
 ## 3. Population Number Calculation
+
+### 3.0 High-Level Interface
+
+The `LineRT` class (see [examples/plane_parallel_example.py](#)) encapsulates all steps below:
+- **Mode 1**: pass `mfp_i_sca` directly (quick static slab)
+- **Mode 2**: pass `species`, `n_total`, and `temperature` — opacity is computed
+  from LTE populations via `partition_function(T)` and `compute_opacity()`
 
 ### 3.1 Why We Need Populations
 
@@ -94,13 +101,13 @@ For a simple two-level system with ground state `g` and excited state `e`:
 **Per cell**, the MC tells us how many photons were absorbed:
 
 ```
-fab_e = fab[i]                          # excited-state feeding rate from MC
+exc_flux = excitation_flux[i]                          # excited-state feeding rate from MC
 ```
 
 The excited state population fraction is:
 
 ```
-f_exc = fab_e / n_total_eff             # fraction excited
+f_exc = exc_flux / n_total_eff             # fraction excited
 f_exc = clamp(f_exc, 0, 0.9999)         # never exceed total density
 ```
 
@@ -125,7 +132,7 @@ d(n_i)/dt = 0 = Σ_{j≠i} [n_j × (R_rad[j→i] + R_col[j→i](T))]
 plus the normalization constraint: `Σ_i n_i = n_total`.
 
 Where:
-- **R_rad[j→i]**: radiative transition rate from MC — computed from `fab_i` (the number of photons absorbed into level `i`)
+- **R_rad[j→i]**: radiative transition rate from MC — computed from `excitation_flux` (the number of photons absorbed into level `i`)
 - **R_col[j→i](T)**: collisional (de-)excitation rate = `n_collider × q_ji(T)`, where `q_ji(T)` is the rate coefficient from the LAMDA database, interpolated to temperature `T`
 
 This is a linear system `M·n = 0` with the last row replaced by `Σn_i = n_total`, solved via `numpy.linalg.solve`.
@@ -143,8 +150,8 @@ where β < 1 when τ > 1, accounting for the fact that emitted line photons are 
 **We do NOT use β.** Instead, the Monte Carlo transport iteratively converges to the self-consistent solution:
 
 1. MC tracks photons through the current opacity field (which depends on populations)
-2. MC records exactly where photons are absorbed (`fab[i]`)
-3. Populations are updated from `fab`
+2. MC records exactly where photons are absorbed (`excitation_flux[i]`)
+3. Populations are updated from `excitation_flux`
 4. Opacity is recomputed from updated populations
 5. MC runs again with updated opacity
 
@@ -157,12 +164,13 @@ Because the MC already accounts for all optical depth effects (multiple scatteri
 The iteration process:
 
 ```
-Cycle 0:   Initial populations (n_e = n_g = n_total/2, or LTE)
-           → Run MC → get fab₀
+Cycle 0:   Initial populations from LTE via partition_function(T)
+           (Z(T) = Σ g_i exp(-E_i/kT), n_i = n_total × g_i exp(-E_i/kT) / Z(T))
+           → Run MC → get excitation_flux₀
 
-Cycle 1:   n₁ = f(fab₀)  → Update opacities → Run MC → get fab₁
+Cycle 1:   n₁ = f(excitation_flux₀)  → Update opacities → Run MC → get excitation_flux₁
 
-Cycle 2:   n₂ = f(fab₁)  → Update opacities → Run MC → get fab₂
+Cycle 2:   n₂ = f(excitation_flux₁)  → Update opacities → Run MC → get excitation_flux₂
 
 ...
 

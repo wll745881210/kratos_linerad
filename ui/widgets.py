@@ -37,11 +37,16 @@ def species_widgets():
             value="Embedded",
             description="Data Source:",
         ),
-        "transition_label": widgets.Text(
-            value="",
+        "transition_label": widgets.Dropdown(
+            options=[],
+            value=None,
             description="Transition:",
             disabled=True,
             style={"description_width": "initial"},
+        ),
+        "transition_info": widgets.HTML(
+            value="<i>No transition selected</i>",
+            layout=widgets.Layout(margin="0 0 0 30px"),
         ),
     }
 
@@ -57,6 +62,9 @@ def fields_widgets(mesh=None):
         "mfp_i_abs": widgets.FloatText(value=0.01, description="MFP abs:"),
         "b_sca": widgets.FloatText(value=1e5, description="B sca:"),
         "b_abs": widgets.FloatText(value=1e5, description="B abs:"),
+        "temperature": widgets.FloatText(value=100.0, description="Temp (K):"),
+        "n_fld": widgets.IntText(value=1, description="N Fld:"),
+        "mol_mass": widgets.FloatText(value=28.0, description="Mol Mass:"),
     }
     if mesh is not None:
         w["mesh"] = mesh

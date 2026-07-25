@@ -14,12 +14,11 @@ def solve_populations(species_data, fab_per_level, n_total,
     if n_levels == 2:
         ground = 0
         excited = 1
-        for c in range(n_cells):
-            n_total_c = max(n_total[c], 1e-30)
-            fab_c = abs(fab_per_level[excited, c])
-            n_exc_frac = min(fab_c / max(n_total_c, 1e-40), 0.9999)
-            n[excited, c] = n_exc_frac * n_total_c
-            n[ground, c] = n_total_c - n[excited, c]
+        n_total_c = np.maximum(n_total, 1e-30)
+        fab_exc = np.abs(fab_per_level[excited, :])
+        n_exc_frac = np.clip(fab_exc / n_total_c, 0, 0.9999)
+        n[excited, :] = n_exc_frac * n_total_c
+        n[ground, :] = n_total_c - n[excited, :]
         return n
 
     for c in range(n_cells):
