@@ -92,6 +92,16 @@ panel serve web/app.py --port 5006
 python cli.py --source point,0,0,0,0.8,2.35e-4 --species CO --cycles 5
 ```
 
+## Implementation Notes
+
+### Binary I/O and Field Layout
+
+Kratos stores field data in C++ row-major order: `cells[nz][ny][nx]`, where `nx` varies fastest in memory. The reader in `pipeline/kratos_io.py` reshapes the flat binary as `(nz, ny, nx)` — matching `hydro_data.get_field()` convention — which puts the x-dimension as the fastest-varying axis in the flattened output. This means `excitation_flux[:n_cell_x]` directly yields the full x-profile at `(z=0, y=0)` without any manual reshaping.
+
+### Running in a Headless Environment
+
+The example scripts use `matplotlib` with `plt.show()`. For headless execution (no X server), plots are rendered to non-interactive backends, and `plt.show()` emits only a benign warning that can be ignored. To suppress it, add `import matplotlib; matplotlib.use('Agg')` before importing `matplotlib.pyplot`.
+
 ## Key Features
 
 - **Unit safety** — all quantities in CGS, validated at I/O boundaries

@@ -255,7 +255,28 @@ Suitable for disk/wind geometries. Mesh defined by `(r_face, θ_face, φ_face)` 
 
 ---
 
-## 8. Key References
+## 8. Binary I/O and Field Memory Layout
+
+### Kratos Field Storage
+
+Kratos stores 3D field arrays in C++ row-major order: `cells[nz][ny][nx]`, where `nx` varies fastest in contiguous memory. The binary writer serializes fields as flat arrays in this order (z slowest, x fastest).
+
+### Reading Fields with Correct Axis Ordering
+
+The pipeline reader in `pipeline/kratos_io.py` uses `_strip_ghosts()` to extract only the effective (non-ghost) cells and returns a flat numpy array. The correct reshaping convention, matching `hydro_data.get_field()` in `kratos/visual/hydro_data.py`, is:
+
+| Reader | Reshape order | x varies as |
+|--------|--------------|-------------|
+| `hydro_data.get_field()` | `(nz, ny, nx)` | **fastest** (last axis) |
+| `kratos_io.read_output()` | `(nz, ny, nx)` | **fastest** (last axis) |
+
+With this convention, the flattened output has x as the fastest-varying dimension, so `excitation_flux[:n_cell_x]` directly extracts the full x-axis profile at the first (y,z) coordinate. No manual reshaping is needed in downstream plotting code.
+
+### Ghost Cell Stripping
+
+Each dimension may have `n_gh` ghost cells added on both sides for MPI halo exchange. The stripping logic extracts `[n_gh[2]:n_gh[2]+n_cell[2], n_gh[1]:n_gh[1]+n_cell[1], n_gh[0]:n_gh[0]+n_cell[0]]` from the correctly-reshaped field, then flattens the result. For ghost-free fields (`n_gh = [0,0,0]`), the fast path simply takes the first `n_tot * n_int` elements.
+
+## 9. Key References
 
 - **Monte Carlo line transfer**: Auer (1968), Lucy (1999)
 - **Neufeld CFR solution**: Neufeld (1990, ApJ, 350, 216) — analytic solution for a plane-parallel slab with coherent frequency redistribution
