@@ -172,3 +172,4 @@ python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_paralle
 12. **Boundary cells produce NaN in excitation_flux** — both `iterate()` and `run_pipeline()` filter NaN to 0 before population update.
 13. **`photon.h:gen.h` line 107:** `par.sv = par.sigma` (NOT 0). `sv` = σ_ph is the photon's Gaussian width used in the overlap integral. Initializing it to 0 suppresses the photon's intrinsic profile.
 14. **`base_fields_cgs` must be kept separate** from the code-unit `fields` output to prevent double unit-conversion across cycles.
+15. **Boundary `kinds` MUST specify all 6 faces, not 3.** Kratos expects 6 values: `-x, +x, -y, +y, -z, +z`. Writing only 3 (e.g. `fre per per`) leaves the +x/+y/+z faces undefined, defaulting to periodic — which causes photon wrap-around and non-physical flux profiles. Always write `fre fre per per per per` for a plane-parallel slab with free x-boundaries and periodic y,z.
