@@ -73,9 +73,7 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
             v_factor = unit_t0 / unit_l0
             ph_arr[:, 7] *= v_factor
             ph_arr[:, 8] *= v_factor
-        if ph_arr.shape[1] >= 11:
-            ph_arr[:, 10] *= v_factor
-        write_photon_data(photon_file, ph_arr)
+        scale_factor = write_photon_data(photon_file, ph_arr)
 
         prefix = f"cycle{cycle}"
         output, log_text, elapsed = run_kratos_cycle(
@@ -87,16 +85,35 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
             break
 
         output["cycle"] = cycle
+
+        if 'photons' in output:
+            v_factor = unit_t0 / unit_l0
+            phot = output['photons']
+            for key in ('vel', 'x', 'l', 'sigma'):
+                if key in phot:
+                    arr = np.asarray(phot[key], dtype=np.float64)
+                    if key in ('x', 'l'):
+                        arr *= unit_l0
+                    else:
+                        arr /= v_factor
+                    phot[key] = arr
+
         results.append(output)
 
         if hasattr(species, "update_populations"):
             exc_flux = output.get("excitation_flux", output.get("exc_flux_flat", output.get("fab_flat", output.get("fab", None))))
             flx = output.get("flx_flat", output.get("flx", None))
+            area_factor = unit_l0 * unit_l0 * unit_t0
+            inv_scale = 1.0 / scale_factor
             if exc_flux is not None:
                 exc_flux = np.asarray(exc_flux, dtype=np.float64).ravel()
                 exc_flux = np.nan_to_num(exc_flux, nan=0.0, posinf=0.0, neginf=0.0)
-                area_factor = unit_l0 * unit_l0 * unit_t0
-                exc_flux = exc_flux / area_factor
+                exc_flux = exc_flux * inv_scale / area_factor
+                output['exc_flux_flat'] = exc_flux
+            if flx is not None:
+                flx = np.nan_to_num(np.asarray(flx, dtype=np.float64).ravel(),
+                                    nan=0.0, posinf=0.0, neginf=0.0) * inv_scale / area_factor
+                output['flx'] = flx
             populations = species.update_populations(exc_flux, flx, populations, cycle,
                                                        transition_idx=transition_idx)
 

@@ -31,13 +31,17 @@ def plot_emergent_spectrum(ax, photons, bins=80, xlim=None, label=""):
         ax.legend()
 
 
-def plot_flux_slice(ax, flx, mesh, title="", log=True, cmap="turbo"):
-    slice_plot_2d(ax, flx, mesh, plane="xy", slice_idx=None, log=log, cmap=cmap)
+def plot_flux_slice(ax, flx, mesh, title="", log=True, cmap="turbo", cbar_label=None):
+    pc = slice_plot_2d(ax, flx, mesh, plane="xy", slice_idx=None, log=log, cmap=cmap)
+    label = cbar_label or "flux [photons cm$^{-2}$ s$^{-1}$]"
+    plt.colorbar(pc, ax=ax, label=label)
     ax.set_title(title or "Flux slice (xy)")
 
 
-def plot_population_map(ax, n, mesh, level=0, title="", log=True, cmap="plasma"):
-    slice_plot_2d(ax, n, mesh, plane="xy", slice_idx=None, log=log, cmap=cmap)
+def plot_population_map(ax, n, mesh, level=0, title="", log=True, cmap="plasma", cbar_label=None):
+    pc = slice_plot_2d(ax, n, mesh, plane="xy", slice_idx=None, log=log, cmap=cmap)
+    label = cbar_label or f"n{level} [cm$^{{-3}}]$"
+    plt.colorbar(pc, ax=ax, label=label)
     ax.set_title(title or f"Population level {level} slice (xy)")
 
 

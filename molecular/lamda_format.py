@@ -235,15 +235,15 @@ class SpeciesData:
             b_thermal = np.sqrt(1.66289e8 * temperature[ic]
                                 / 28.0 + 1e-35)
             sigma_ph = b_thermal / np.sqrt(2.0)
-            dv_c = rng.normal(0.0, sigma_ph, n_ph)
+            vel_draw = rng.normal(0.0, sigma_ph, n_ph)
 
             weight_per_ph = lum_cell / n_ph if n_ph > 0 else 0.0
 
             for j in range(n_ph):
                 photons.append([x[j], y[j], z[j],
                                 dir_x[j], dir_y[j], dir_z[j],
-                                weight_per_ph, dv_c[j],
-                                sigma_ph, 1.0, dv_c[j]])
+                                weight_per_ph, vel_draw[j],
+                                sigma_ph, 1.0])
         if not photons:
             return np.zeros((0, 11), dtype=np.float64)
         return np.array(photons, dtype=np.float64)

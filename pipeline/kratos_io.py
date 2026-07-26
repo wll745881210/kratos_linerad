@@ -54,12 +54,13 @@ def write_photon_data(filename, photons, n_col=None):
     ----------
     filename : str
     photons : ndarray (n_ph, n_col)
-        Columns: x, y, z, dir_x, dir_y, dir_z, proper, [vel], [sigma, amplitude, dv_c]
+        Columns: x, y, z, dir_x, dir_y, dir_z, proper, [vel], [sigma, amplitude]
     n_col : int, optional
-        Default: photons.shape[1]. Must be 7, 8, or 11.
+        Default: photons.shape[1]. Must be 7, 8, 9, or 10.
     """
     ph = np.asarray(photons, dtype=np.float64)
     proper_max = abs(ph[:, 6].max()) if ph.shape[1] >= 7 else 0.0
+    scale = 1.0
     if proper_max > 1e38:
         scale = 1.0 / proper_max
         ph[:, 6] *= scale
@@ -67,8 +68,8 @@ def write_photon_data(filename, photons, n_col=None):
     ph = ph.astype(np.float32)
     if n_col is None:
         n_col = ph.shape[1]
-    if n_col not in (7, 8, 11):
-        raise ValueError(f'n_col must be 7 or 8, got {n_col}')
+    if n_col not in (7, 8, 9, 10):
+        raise ValueError(f'n_col must be 7, 8, 9, or 10, got {n_col}')
 
     bio = binary_io(filename)
     bio.cache('par_n_col', n_col, dtype='int32')
@@ -76,6 +77,7 @@ def write_photon_data(filename, photons, n_col=None):
     bio.cache('par_par_dat', ph, dtype='float32')
     bio.save()
     print(f'Wrote photons: {filename} ({ph.shape[0]} photons, {n_col} cols)')
+    return scale
 
 
 def read_output(filename):
@@ -168,8 +170,6 @@ def read_output(filename):
             phot['l'] = bio.as_array(raw_key, 'f')
         elif '_rank_' in raw_key and raw_key.endswith('_vel'):
             phot['vel'] = bio.as_array(raw_key, 'f')
-        elif '_rank_' in raw_key and raw_key.endswith('_dv_c'):
-            phot['dv_c'] = bio.as_array(raw_key, 'f')
         elif '_rank_' in raw_key and raw_key.endswith('_sigma'):
             phot['sigma'] = bio.as_array(raw_key, 'f')
         elif '_rank_' in raw_key and raw_key.endswith('_amplitude'):

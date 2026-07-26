@@ -92,7 +92,7 @@ fields = {
 # ── 4. Generate source photons ─────────────────────────────────────────
 #
 # Point source at (x=-4.5, y=0.1, z=0.1) just outside the left face.
-# 11-column format: x,y,z, dir_x,dir_y,dir_z, proper, vel, sigma, amplitude, dv_c
+# 10-column format: x,y,z, dir_x,dir_y,dir_z, proper, vel, sigma, amplitude
 #
 
 print("Generating photons...")
@@ -103,7 +103,7 @@ lam = 2.35e-4     # 2.35 microns (CO v=0→2 band head)
 sigma     = b_sca / np.sqrt(2)   # intrinsic Doppler width
 amplitude = 1.0                   # line strength (unit for scaling)
 
-ph_arr = np.zeros((n_photon, 11), dtype=np.float64)
+ph_arr = np.zeros((n_photon, 10), dtype=np.float64)
 ph_arr[:, 0] = -4.5
 ph_arr[:, 1] = 0.1
 ph_arr[:, 2] = 0.1
@@ -114,7 +114,6 @@ ph_arr[:, 6] = (L / (h * c / lam)) / n_photon   # proper weight
 ph_arr[:, 7] = 0.0                  # vel: zero velocity offset (line center)
 ph_arr[:, 8] = sigma                # sigma: intrinsic Doppler width
 ph_arr[:, 9] = amplitude            # amplitude: line strength
-ph_arr[:, 10] = 0.0                 # dv_c: line center = 0
 
 E_ph = h * c / lam
 N_dot = L / E_ph
@@ -186,7 +185,8 @@ if len(final_pops) >= 2:
     n_ground = pop_vals[0]
     n_excited = pop_vals[1]
     plot_population_map(axes[1, 0], n_excited / (n_ground + n_excited + 1e-30),
-                        mesh, title='Excited Fraction')
+                        mesh, title='Excited Fraction',
+                        cbar_label='ne/(ng+ne) [dimensionless]')
 
 # 7d. Convergence history
 print("Plotting convergence...")
@@ -209,7 +209,7 @@ print(f"\nResults saved to {outpath}")
 
 for k, res in enumerate(results):
     print(f"\nCycle {k+1}:")
-    exc_flux = res.get('excitation_flux')
+    exc_flux = res.get('exc_flux_flat', res.get('excitation_flux'))
     flx = res.get('flx')
     if exc_flux is not None:
         print(f"  excitation_flux_max = {exc_flux.max():.4f}")

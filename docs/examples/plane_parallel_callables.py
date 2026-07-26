@@ -157,8 +157,8 @@ print(f"  N_dot = {L/E_ph:.2e} ph/s")
 print(f"  proper_weight = {proper_weight:.2e} ph/packet")
 print(f"  sigma = {sigma:.1f} cm/s")
 
-# 11-column photons: x,y,z, dir_x,dir_y,dir_z, proper, vel, sigma, amplitude, dv_c
-ph_arr = np.zeros((n_photon, 11), dtype=np.float64)
+# 10-column photons: x,y,z, dir_x,dir_y,dir_z, proper, vel, sigma, amplitude
+ph_arr = np.zeros((n_photon, 10), dtype=np.float64)
 ph_arr[:, 0] = -4.5          # x = left face + small offset
 ph_arr[:, 1] = 0.1           # y
 ph_arr[:, 2] = 0.1           # z
@@ -169,7 +169,6 @@ ph_arr[:, 6] = proper_weight
 ph_arr[:, 7] = 0.0           # vel = 0 (line centre)
 ph_arr[:, 8] = sigma         # intrinsic Doppler width
 ph_arr[:, 9] = amplitude     # line strength
-ph_arr[:, 10] = 0.0          # dv_c = 0 (line centre velocity)
 
 # ── 5. Load CO and select transition explicitly ────────────────────────
 #

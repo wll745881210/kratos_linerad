@@ -114,7 +114,8 @@ def run_kratos_cycle(work_dir, cycle, field_file, photon_file,
 def run_pipeline(model, mesh, work_dir, n_cycles=3,
                  n_photon=10000, n_step=1000, n_scat=100,
                  n_fld=2, ph_mode=0, par_overrides=None,
-                 keep_intermediate=True):
+                 keep_intermediate=True,
+                 unit_l0=1.0, unit_t0=1.0):
     """
     Run the full population-updating pipeline.
 
@@ -129,6 +130,8 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
     n_fld : int  Number of flux/field components
     ph_mode : int  0=coherent, 1=CFR
     par_overrides : dict  Additional par file overrides
+    unit_l0 : float  code length unit in CGS (cm per code-length)
+    unit_t0 : float  code time unit in CGS (s per code-time)
 
     Returns
     -------
@@ -167,10 +170,10 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
         field_file = os.path.join(work_dir, f'fields_cycle{cycle}.bin')
         write_field_data(field_file, fields, mesh)
 
-        # Generate photons
+        # Write photon binary and capture proper-weight scale factor
         photons = model.generate_photons(populations, mesh, cycle)
         photon_file = os.path.join(work_dir, f'photons_cycle{cycle}.bin')
-        write_photon_data(photon_file, photons)
+        scale = write_photon_data(photon_file, photons)
 
         # Run Kratos
         prefix = f'cycle{cycle}'
@@ -187,11 +190,23 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
         # The model's make_fields uses the same field size as Kratos output,
         # so we don't need to strip ghost cells.
         if 'excitation_flux' in output:
-            output['exc_flux_flat'] = output['excitation_flux']
+            area_factor = unit_l0 * unit_l0 * unit_t0
+            inv_scale = 1.0 / scale
+            exc = np.asarray(output['excitation_flux'], dtype=np.float64).ravel()
+            exc = np.nan_to_num(exc, nan=0.0, posinf=0.0, neginf=0.0)
+            exc = exc * inv_scale / area_factor
+            output['exc_flux_flat'] = exc
+            output['excitation_flux'] = exc
         elif 'fab' in output:
             output['exc_flux_flat'] = output['fab']
         if 'flx' in output:
-            output['flx_flat'] = output['flx']
+            area_factor = unit_l0 * unit_l0 * unit_t0
+            inv_scale = 1.0 / scale
+            flx = np.asarray(output['flx'], dtype=np.float64).ravel()
+            flx = np.nan_to_num(flx, nan=0.0, posinf=0.0, neginf=0.0)
+            flx = flx * inv_scale / area_factor
+            output['flx_flat'] = flx
+            output['flx'] = flx
 
         output['cycle'] = cycle
         output['populations'] = {k: v.copy() for k, v in populations.items()}
