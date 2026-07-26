@@ -84,7 +84,7 @@ print(f"dx = {dx_cm:.2e} cm")
 fields = {
     'b_sca':       uniform_field(b_sca,     n_tot),
     'temp':        uniform_field(temperature, n_tot),
-    'vel_0':       uniform_field(b_sca,     n_tot),  # v_x gradient
+    'vel_0':       np.zeros(n_tot, dtype=np.float64),
     'vel_1':       np.zeros(n_tot, dtype=np.float64),
     'vel_2':       np.zeros(n_tot, dtype=np.float64),
 }
