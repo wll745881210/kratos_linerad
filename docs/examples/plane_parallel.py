@@ -91,7 +91,8 @@ fields = {
 
 # ── 4. Generate source photons ─────────────────────────────────────────
 #
-# Point source at (x=-4.5, y=0.1, z=0.1) just outside the left face.
+# External slab source at x=-5 (left face), uniformly distributed across
+# the y-z face. All photons initially directed along +x.
 # 10-column format: x,y,z, dir_x,dir_y,dir_z, proper, vel, sigma, amplitude
 #
 
@@ -104,16 +105,16 @@ sigma     = b_sca / np.sqrt(2)   # intrinsic Doppler width
 amplitude = 1.0                   # line strength (unit for scaling)
 
 ph_arr = np.zeros((n_photon, 10), dtype=np.float64)
-ph_arr[:, 0] = -4.5
-ph_arr[:, 1] = 0.1
-ph_arr[:, 2] = 0.1
-ph_arr[:, 3] = 1.0   # all photons directed along +x
+ph_arr[:, 0] = -4.5                    # just inside left face
+ph_arr[:, 1] = np.random.uniform(0, 0.2, n_photon)   # uniform across y-face
+ph_arr[:, 2] = np.random.uniform(0, 0.2, n_photon)   # uniform across z-face
+ph_arr[:, 3] = 1.0                     # all photons directed along +x
 ph_arr[:, 4] = 0.0
 ph_arr[:, 5] = 0.0
 ph_arr[:, 6] = (L / (h * c / lam)) / n_photon   # proper weight
-ph_arr[:, 7] = 0.0                  # vel: zero velocity offset (line center)
-ph_arr[:, 8] = sigma                # sigma: intrinsic Doppler width
-ph_arr[:, 9] = amplitude            # amplitude: line strength
+ph_arr[:, 7] = 0.0                     # vel: zero velocity offset (line center)
+ph_arr[:, 8] = sigma                   # sigma: intrinsic Doppler width
+ph_arr[:, 9] = amplitude               # amplitude: line strength
 
 E_ph = h * c / lam
 N_dot = L / E_ph

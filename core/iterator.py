@@ -116,6 +116,8 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
                 output['flx'] = flx
             populations = species.update_populations(exc_flux, flx, populations, cycle,
                                                        transition_idx=transition_idx)
+            output['populations'] = {k: np.asarray(v, dtype=np.float64).copy()
+                                     for k, v in populations.items()}
 
         if hasattr(species, "make_fields"):
             fields = species.make_fields(populations, "post", cycle, base_fields=base_fields_cgs,
