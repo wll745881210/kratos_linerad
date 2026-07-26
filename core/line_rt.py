@@ -57,9 +57,11 @@ class LineRt:
     vel : tuple | None
         Bulk velocity (vx, vy, vz) [cm/s]. Each component: float | callable.
     mol_mass : float
-        Molecular mass [g/mol] for b_sca calculation from temperature.
+        Molecular mass [amu] for computing b_sca from temperature.
+    a_voigt : float or None
+        Voigt damping parameter a. If None (default), uses pure Gaussian profile.
     ph_mode : int
-        0=CFR (coherent frequency redistribution), 1=PRD (partial).
+        0=CFR, 1=PRD.
     n_step, n_scat : int
         Max path segments and scattering events per photon packet.
     n_cycles : int
@@ -81,9 +83,9 @@ class LineRt:
                  unit_l0=1.49598e13, unit_t0=1.0,
                  species=None, transition_idx=0,
                  n_species=None, temperature=None,
-                 b_sca=None, mfp_i_sca_0=None, mfp_i_abs_0=0.0,
-                 vel=None, mol_mass=28.0,
-                 ph_mode=0, n_step=10000, n_scat=10000, n_cycles=3,
+                  b_sca=None, mfp_i_sca_0=None, mfp_i_abs_0=0.0,
+                  vel=None, mol_mass=28.0, a_voigt=None,
+                  ph_mode=0, n_step=10000, n_scat=10000, n_cycles=3,
                  path=None, visualize=True,
                  n_emission_max=10,
                  snapshot=None):
@@ -102,6 +104,7 @@ class LineRt:
         self._mfp_i_abs_0 = mfp_i_abs_0
         self._vel = vel
         self._mol_mass = mol_mass
+        self._a_voigt = a_voigt
         self._ph_mode = ph_mode
         self._n_step = n_step
         self._n_scat = n_scat
@@ -247,6 +250,9 @@ class LineRt:
         work_dir = self._resolve_path()
 
         from .iterator import iterate
+        par_overrides = {'kinds': self._boundary_kinds}
+        if self._a_voigt is not None:
+            par_overrides['a_voigt'] = str(float(self._a_voigt))
         results, final_pops = iterate(
             photons, species, fields, mesh,
             n_cycles=self._n_cycles,
@@ -259,7 +265,7 @@ class LineRt:
             unit_l0=self._unit_l0, unit_t0=self._unit_t0,
             n_emission_max=self._n_emission_max,
             callback=self._snapshot,
-            par_overrides={'kinds': self._boundary_kinds},
+            par_overrides=par_overrides,
         )
 
         spectrum = {"vel": np.array([]), "n": np.array([])}

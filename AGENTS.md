@@ -2,6 +2,10 @@
 
 Instructions for agentic sessions working on the `line_rt_pipeline` codebase.
 
+## Network
+
+HTTP proxy for external downloads: `http://127.0.0.1:7892`. Use `export http_proxy=http://127.0.0.1:7892 https_proxy=http://127.0.0.1:7892` before any network-dependent operations.
+
 ---
 
 ## Project layout
