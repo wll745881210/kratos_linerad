@@ -163,3 +163,12 @@ python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_paralle
 3. **Always run Kratos from `~/scratch/line_rt/`** where the binary field/photon files live.
 4. **Always pass a `.par` file.** Kratos won't run without one.
 5. **`compute_opacity()` returns only `mfp_sca`** — a single ndarray, not a tuple.
+6. **One excitation flux → one transition, not all levels.** `solve_populations()` applies F_ext × σ₀ only to the (lower↔upper) pair of the target transition.
+7. **`dv_c` does not exist anymore.** Removed from photon struct, binary format, and all I/O. The photon binary is now 10-column: x,y,z, dir_x,dir_y,dir_z, proper, vel, sigma, amplitude.
+8. **Scattering modes per notes.tm §2.3.2:** `ph_mode=0` (CFR) = `Δv = −v·d̂`, `σ_ph = σ_th` (no random velocity). `ph_mode=1` (PRD) = `Δv = −v·d̂ + N(0,σ_th)`.
+9. **Proper-weight FP32 scaling:** `write_photon_data()` scales `proper` by `1/proper_max` to fit FP32. It now RETURNS the scale factor. Both `iterate()` and `run_pipeline()` MUST undo the scaling by multiplying flx and exc_flux by `1/scale_factor` after readback. Values in `output['flx']` and `output['exc_flux_flat']` are always in CGS.
+10. **Photon binary columns 7,8 are velocities → need CGS→code conversion:** `× unit_t0/unit_l0` before writing, `÷ unit_t0/unit_l0` (= `× unit_l0/unit_t0`) on readback for escaped photons.
+11. **3D data reshape convention:** Kratos stores fields as `(nz, ny, nx)` (z slowest, x fastest in C++ row-major). `slice_plot_2d()` must reshape accordingly and `.T` transpose slices for pcolormesh.
+12. **Boundary cells produce NaN in excitation_flux** — both `iterate()` and `run_pipeline()` filter NaN to 0 before population update.
+13. **`photon.h:gen.h` line 107:** `par.sv = par.sigma` (NOT 0). `sv` = σ_ph is the photon's Gaussian width used in the overlap integral. Initializing it to 0 suppresses the photon's intrinsic profile.
+14. **`base_fields_cgs` must be kept separate** from the code-unit `fields` output to prevent double unit-conversion across cycles.
