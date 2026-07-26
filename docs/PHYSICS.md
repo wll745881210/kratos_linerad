@@ -249,36 +249,38 @@ Linear system for N levels:
 ## 7. Iteration Workflow
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    PYTHON SIDE                           │
-│                                                         │
-│  Cycle 0: LTE populations                                   │
+┌─────────────────────────────────────────────────────────────┐
+│                      PYTHON SIDE                             │
+│                                                              │
+│  Cycle 0: initial populations (LTE if species data exists)  │
 │         → compute λ_sca,0⁻¹ (CGS)                            │
 │         → convert CGS → code units (×unit_l0, ×t0/l0)        │
 │         → write binary field + photon files (code units)     │
-│                         │                                     │
-│                         ▼                                     │
-│                    KRATOS SIDE  (code units)                  │
+│                          │                                    │
+│                          ▼                                    │
+│                      KRATOS SIDE  (code units)                │
 │                                                               │
 │  Read fields + photons (all in code units)                    │
-│  MC transport: accumulation of F, F_ext                      │
+│  MC transport: accumulate F = ℒ×δl/V, F_ext = I × F          │
 │  Write F and F_ext (per-cell, code units) to output binary    │
-│                         │                                     │
-│                         ▼                                     │
-│                    PYTHON SIDE                                 │
+│                          │                                    │
+│                          ▼                                    │
+│                      PYTHON SIDE                              │
 │                                                               │
 │  Cycle 1+:                                                    │
 │    Read F_ext from Kratos output (code units)                 │
-│    Convert code → CGS: F_ext_cgs = F_ext_code / (l0²×t0)      │
-│    Compute Γ = F_ext × σ₀ (CGS, [t]⁻¹)                        │
+│    Undo proper scaling: F_ext_cgs = F_ext_code               │
+│         × proper_max / (unit_l0² × unit_t0)                   │
+│    Compute Γ = F_ext_cgs × σ₀ (CGS, [t]⁻¹)                   │
 │    Solve populations per transition-pair (not per-level)      │
+│    Filter NaN → 0 in boundary cells                           │
 │    Update λ_sca,0⁻¹, convert CGS → code, write binaries       │
-│                         │                               │
-│                         ▼                               │
-│                    KRATOS SIDE ...                       │
-│                                                         │
-│  Repeat until convergence or max cycles                 │
-└─────────────────────────────────────────────────────────┘
+│                          │                                    │
+│                          ▼                                    │
+│                      KRATOS SIDE ...                          │
+│                                                              │
+│  Repeat until convergence or max cycles                      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -308,11 +310,13 @@ Optional additional fields (for diagnostics):
 
 ## 9. Fields Read from Kratos by Python
 
-**Kratos outputs fields in code units.** The Python pipeline converts back to CGS:
+**Kratos outputs fields in code units.** The Python pipeline converts back to CGS, also undoing the proper-weight FP32 scaling factor:
 
 | Conversion | Code → CGS factor |
 |-----------|-------------------|
-| `flx`, `excitation_flux` | ÷ (`unit_l0²` × `unit_t0`) |
+| `flx`, `excitation_flux` | × `proper_max` ÷ (`unit_l0²` × `unit_t0`) |
+
+where `proper_max` is the scaling factor returned by `write_photon_data()`.
 
 | Field Name | Symbol | Code-unit Dimension | Content |
 |-----------|--------|---------------------|---------|
@@ -336,7 +340,22 @@ proper_per_packet = L_phot / N_packets       [n][t]⁻¹
 
 Directions: uniform in cosθ ∈ [−1,1], φ ∈ [0,2π].
 
-**Plane-parallel extended source**: user specifies photon number flux F_phot [n][l]⁻²[t]⁻¹. Sum of packet proper weights per unit area perpendicular to direction must equal F_phot.
+**Plane-parallel extended (slab) source**: user specifies photon number flux F_phot [n][l]⁻²[t]⁻¹.
+
+For a slab face with area A = (y_max − y_min) × (z_max − z_min) in physical units (cm²):
+
+```
+total_rate = F_phot × A                         [n][t]⁻¹
+proper_per_packet = total_rate / N_packets       [n][t]⁻¹
+```
+
+All photons have the same initial direction d̂ (uniform across the face). Sum of packet proper weights per unit area perpendicular to d̂ equals F_phot.
+
+If an energetic flux F_erg [erg cm⁻² s⁻¹] is specified with a wavelength λ:
+
+```
+F_phot = F_erg / (h c / λ)
+```
 
 ### 10.2 Internal Sources (cell emission)
 
@@ -356,9 +375,18 @@ proper_per_packet = L_cell / N_packets_cell
 
 Defined in the `[unit]` section of the Kratos parameter file. The Python pipeline converts all quantities from CGS to code units BEFORE writing field/photon files. Kratos internally works entirely in code units except where `_cgs` suffixes mark explicit CGS quantities.
 
-### 11.2 Scaling for FP32 Range
+### 11.2 Photon Proper-Weight Scaling for FP32
 
-When `proper_max > 1e38`, the Python writer (`kratos_io.py`) scales all photon proper weights by `1/proper_max` and records the factor. The reader must multiply Kratos output fluxes by `proper_max` to recover CGS values.
+Photon `proper` values can be very large (e.g., ~10⁴⁴ for astronomical luminosities). When `proper_max > 1e38`, the Python writer (`write_photon_data()`) scales all photon proper weights by `1/proper_max` to fit in FP32, and **returns the scale factor**.
+
+On readback, the pipeline MUST undo this scaling on Kratos outputs that carry the proper weight:
+
+```
+flx_cgs    = flx_code    × proper_max / (unit_l0² × unit_t0)
+F_ext_cgs  = F_ext_code  × proper_max / (unit_l0² × unit_t0)
+```
+
+Both `iterate()` (low-level) and `run_pipeline()` (high-level) handle this automatically. The `results` dict returned to the user always contains CGS-scaled flux quantities.
 
 ### 11.3 Volume Consistency
 
@@ -374,27 +402,63 @@ Python-side cell volumes used for internal source luminosity must match Kratos c
 4. **Missing overlap integral in F_ext**: without I-weighting, F_ext = F (just total flux), missing the velocity-space overlap effect
 5. **Wrong proper units**: proper must be in [n][t]⁻¹ (photons per unit time), NOT erg/s
 6. **Wrong excitation rate formula**: Γ = F_ext × σ₀ (NOT F_ext / n_l or F_ext / n_total)
-7. **Missing fields**: b_sca and velocity vectors must be provided to Kratos via the field binary file
+7. **Missing fields**: b_sca and velocity vectors must be provided to Kratos via the field binary file; mfp_i_abs_0 is user-provided, not auto-derived from cross_section
+8. **Applying F_ext to all levels**: excitation flux maps to ONE transition — only update the (lower↔upper) pair's population, not all levels
+9. **Forgetting to undo FP32 proper scaling**: Kratos fluxes inherit the proper weight scaling factor; reader MUST multiply flx and excitation_flux by `proper_max` after readback (handled by `iterate()` and `run_pipeline()`)
+10. **Photon velocity code→CGS conversion**: escaped photon velocities are in code units and must be converted to CGS (× `unit_l0/unit_t0`) for plots and diagnostics
+11. **Boundary kinds with 3 faces**: Kratos expects 6 boundary kinds (−x,+x,−y,+y,−z,+z). Specifying only 3 leaves the remaining faces undefined, defaulting to periodic and causing photon wrap-around artifacts
+12. **Periodic boundary corner bug**: the framework's `geo_loc_t::fix` can produce zero-width cells when photons cross periodic boundaries in two dimensions simultaneously; fixed by adding a convergence loop and cell-index updates in `particle_base.h`
 
 ---
 
 ## Appendix B: Kratos Implementation Details
 
-The overlap integral I is already computed in `photon.h` (lines 84-87, 101-102):
+### B.1 Overlap Integral and Flux Accumulation
+
+The overlap integral I is computed in `photon.h:proc_phys` using code-unit quantities:
 
 ```cpp
-s2_sca_cgs = b_sca_cgs * b_sca_cgs + 2.f * sv * sv;
-// dv_cgs = vel + vel_obs_cgs = Δv + v_bulk·d̂  (gas-frame offset)
-prof_s = expf(-dv2_cgs / s2_sca_cgs);
-// I = prof_s * b_sca_cgs / sqrtf(s2_sca_cgs);
+const auto dv  = vel + vel_obs;              // Δv + v_ph·d̂ (gas-frame offset)
+const auto b   = *prx.rad.b_sca.at(i);      // Doppler b (code units)
+const auto s2  = b * b + 2.f * sv * sv;     // 2(σ_th² + σ_ph²)
+const auto I   = expf(-dv*dv / s2) * b / sqrtf(s2);
 ```
 
-This I factor is currently used only in computing `mfp_i_s` (scattering inverse MFP including velocity overlap). The `excitation_flux` accumulation incorrectly uses `dfab = proper * (1.f - expf(-tau_abs))` (dust absorption) instead of `I * flx` (overlap-weighted flux). This is the primary Kratos-side bug.
+The total flux `flx` and excitation flux `excitation_flux` are accumulated together:
 
-The `proc_phys` method (where `flx` is accumulated as `proper * dsi`) is the correct location to also accumulate `F_ext = I * flx`.
+```cpp
+const auto flx = proper * dsi;               // δF = ℒ × δl / V
+atomicAdd(prx.rad.flx.at(i), flx);
+atomicAdd(prx.rad.excitation_flux.at(i), flx * I);  // δF_ext = I × δF
+```
 
-At scattering (`proc_geo`), the photon's velocity is reassigned:
+All values are in Kratos code units — Python converts CGS↔code at the I/O boundary.
+
+### B.2 Scattering
+
+At scattering (`photon.h:proc_geo`), for `ph_mode=0` (CFR):
+
 ```cpp
 vel = -(dir[0]*v_cc[0] + dir[1]*v_cc[1] + dir[2]*v_cc[2]);  // Δv = −v_bulk·d̂
+sv  = b / sqrtf(2.f);                                          // σ_ph = σ_th
 ```
-so that after scattering, dv_cgs = (−v_bulk·d̂) + (v_bulk·d̂) = 0 — the photon is at line center in the gas frame.
+
+The combined velocity offset in the gas frame is: Δv_gas = (−v·d̂) + (v·d̂) = 0 — the photon is at line center.
+
+### B.3 Absorption
+
+Absorption is wavelength-independent (`const_abs=1`), using only the user-provided `mfp_i_abs_0`:
+
+```cpp
+const auto mfp_i_a = mfp_i_a_0_cgs * itg.unit.l0;  // in code units
+const auto tau_abs = dsi * mfp_i_a;
+proper *= expf(-tau_abs);
+```
+
+### B.4 Photon Binary Format
+
+Photon binary uses 10 columns per packet:
+```
+x[3] | dir[3] | proper | vel | sigma | amplitude
+```
+Column 9 (`sigma`) = σ_ph used in the overlap integral (not 0 — initialized from `par.sigma` in `gen.h:107`).

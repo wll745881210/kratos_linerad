@@ -16,7 +16,7 @@ _PAR_TEMPLATE = os.path.join(
 def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
             n_photon=None, n_step=10000, n_scat=10000, ph_mode=1,
             par_overrides=None, mol_mass=28.0, work_dir=None,
-            callback=None, n_gas=None, transition_idx=0,
+            callback=None, n_species=None, transition_idx=0,
             n_emission_max=10,
             unit_l0=1.49598e13, unit_t0=1.0):
     if work_dir is None:
@@ -50,16 +50,17 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
     n_tot = mesh["n_tot"]
     results = []
 
-    if hasattr(species, "initial_populations"):
-        populations = species.initial_populations(n_tot, n_gas=n_gas)
+    if species is not None and hasattr(species, "initial_populations"):
+        populations = species.initial_populations(n_tot, n_species=n_species)
     else:
-        populations = {f"n{i}": np.ones(n_tot, dtype=np.float32) for i in range(species.n_levels)}
+        populations = {'n0': np.ones(n_tot, dtype=np.float32),
+                       'n_total': np.ones(n_tot, dtype=np.float32)}
 
     fields = dict(fields_init)
     base_fields_cgs = {k: np.asarray(v, dtype=np.float64).copy()
                        for k, v in fields.items()}
 
-    if hasattr(species, "make_fields"):
+    if species is not None and hasattr(species, "make_fields"):
         fields = species.make_fields(populations, "pre", -1, base_fields=base_fields_cgs,
                                        unit_l0=unit_l0, unit_t0=unit_t0)
 
@@ -100,7 +101,8 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
 
         results.append(output)
 
-        if hasattr(species, "update_populations"):
+        always_process_flux = True
+        if always_process_flux:
             exc_flux = output.get("excitation_flux", output.get("exc_flux_flat", output.get("fab_flat", output.get("fab", None))))
             flx = output.get("flx_flat", output.get("flx", None))
             area_factor = unit_l0 * unit_l0 * unit_t0
@@ -114,17 +116,19 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
                 flx = np.nan_to_num(np.asarray(flx, dtype=np.float64).ravel(),
                                     nan=0.0, posinf=0.0, neginf=0.0) * inv_scale / area_factor
                 output['flx'] = flx
+
+        if species is not None and hasattr(species, "update_populations"):
             populations = species.update_populations(exc_flux, flx, populations, cycle,
                                                        transition_idx=transition_idx)
             output['populations'] = {k: np.asarray(v, dtype=np.float64).copy()
                                      for k, v in populations.items()}
 
-        if hasattr(species, "make_fields"):
+        if species is not None and hasattr(species, "make_fields"):
             fields = species.make_fields(populations, "post", cycle, base_fields=base_fields_cgs,
-                                          transition_idx=transition_idx,
-                                          unit_l0=unit_l0, unit_t0=unit_t0)
+                                           transition_idx=transition_idx,
+                                           unit_l0=unit_l0, unit_t0=unit_t0)
 
-        if hasattr(species, "generate_emission_photons") and cycle < n_cycles - 1:
+        if species is not None and hasattr(species, "generate_emission_photons") and cycle < n_cycles - 1:
             temp_field = fields.get('temp', np.zeros(mesh['n_tot'],
                                                      dtype=np.float64))
             emission_ph = species.generate_emission_photons(

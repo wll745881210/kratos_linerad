@@ -129,17 +129,17 @@ class SpeciesData:
         sigma *= (g_u / g_l) * A_ul
         return sigma
 
-    def initial_populations(self, n_tot, n_gas=None):
-        if n_gas is None:
-            n_gas = np.ones(n_tot, dtype=np.float64)
+    def initial_populations(self, n_tot, n_species=None):
+        if n_species is None:
+            n_species = np.ones(n_tot, dtype=np.float64)
         else:
-            n_gas = np.broadcast_to(np.asarray(n_gas, dtype=np.float64),
-                                    (n_tot,)).copy()
+            n_species = np.broadcast_to(np.asarray(n_species, dtype=np.float64),
+                                        (n_tot,)).copy()
         pops = {}
         for i in range(self.n_levels):
-            pops[f'n{i}'] = (n_gas.copy() if i == 0
+            pops[f'n{i}'] = (n_species.copy() if i == 0
                              else np.zeros(n_tot, dtype=np.float64))
-        pops['n_total'] = n_gas.copy()
+        pops['n_total'] = n_species.copy()
         return pops
 
     def compute_opacity(self, populations, b_sca=1e5,

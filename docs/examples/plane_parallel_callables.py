@@ -205,7 +205,10 @@ results, final_pops = iterate(
     ph_mode=1,                           # CFR mode
     transition_idx=tr_idx,
     mol_mass=28.0,                        # CO molecular mass [g/mol]
+    unit_l0=1.49598e13,
+    unit_t0=1.0,
     work_dir='/tmp/plane_parallel_callables',
+    par_overrides={'kinds': 'fre fre per per per per'},
 )
 
 # ── 7. Print summary ────────────────────────────────────────────────────

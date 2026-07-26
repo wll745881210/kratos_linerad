@@ -140,10 +140,10 @@ print(f"    λ    = {tr.wavelength_um:.1f} µm")
 print(f"    E_u/K = {tr.E_u_K:.1f} K")
 print(f"  Transition index: {tr_idx}")
 
-# Compute n_gas from tau0 and cross-section
+# Compute n_species from tau0 and cross-section
 sigma_co = co.cross_section(0, b_sca)
-n_gas = (tau0_slab / slab_cm) / sigma_co  # cm⁻³
-print(f"  n_gas (from τ₀={tau0_slab:.0f}): {n_gas:.2e} cm⁻³")
+n_species = (tau0_slab / slab_cm) / sigma_co  # cm⁻³
+print(f"  n_species (from τ₀={tau0_slab:.0f}): {n_species:.2e} cm⁻³")
 
 # ── 6. Run MC iteration ────────────────────────────────────────────────
 
@@ -153,11 +153,12 @@ results, final_pops = iterate(
     n_photon=n_photon, n_step=10000, n_scat=100000,
     ph_mode=1,  # CFR mode
     work_dir='/tmp/plane_parallel_example',
-    n_gas=n_gas,
+    n_species=n_species,
     transition_idx=tr_idx,
     mol_mass=mol_mass,
     unit_l0=1.49598e13,
     unit_t0=1.0,
+    par_overrides={'kinds': 'fre fre per per per per'},
 )
 
 # ── 7. Plot results ────────────────────────────────────────────────────
