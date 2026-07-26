@@ -61,7 +61,6 @@ def fields_widgets(mesh=None):
         "mfp_i_sca": widgets.FloatText(value=0.1, description="MFP sca:"),
         "mfp_i_abs": widgets.FloatText(value=0.01, description="MFP abs:"),
         "b_sca": widgets.FloatText(value=1e5, description="B sca:"),
-        "b_abs": widgets.FloatText(value=1e5, description="B abs:"),
         "temperature": widgets.FloatText(value=100.0, description="Temp (K):"),
         "n_fld": widgets.IntText(value=1, description="N Fld:"),
         "mol_mass": widgets.FloatText(value=28.0, description="Mol Mass:"),

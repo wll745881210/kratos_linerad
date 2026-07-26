@@ -32,7 +32,7 @@ class PopulationModel:
     Each derived class defines:
       - initial_populations() -> dict of arrays
       - make_fields(populations, step, cycle) -> dict of field arrays
-      - update_populations(fab, flx, populations, cycle) -> dict of arrays
+      - update_populations(exc_flux, flx, populations, cycle) -> dict of arrays
       - generate_photons(populations, mesh, cycle) -> ndarray
     """
 
@@ -42,7 +42,7 @@ class PopulationModel:
     def make_fields(self, populations, step, cycle):
         raise NotImplementedError
 
-    def update_populations(self, fab, flx, populations, cycle):
+    def update_populations(self, exc_flux, flx, populations, cycle):
         raise NotImplementedError
 
     def generate_photons(self, populations, mesh, cycle):
@@ -183,13 +183,13 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
             print(f'Pipeline stopped at cycle {cycle}')
             break
 
-        # Extract fab and flx — keep as flat arrays (include ghosts)
+        # Extract exc_flux and flx — keep as flat arrays (include ghosts)
         # The model's make_fields uses the same field size as Kratos output,
         # so we don't need to strip ghost cells.
         if 'excitation_flux' in output:
-            output['fab_flat'] = output['excitation_flux']
+            output['exc_flux_flat'] = output['excitation_flux']
         elif 'fab' in output:
-            output['fab_flat'] = output['fab']
+            output['exc_flux_flat'] = output['fab']
         if 'flx' in output:
             output['flx_flat'] = output['flx']
 
@@ -199,7 +199,7 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
 
         # Update populations
         new_pops = model.update_populations(
-            output.get('fab_flat', None),
+            output.get('exc_flux_flat', None),
             output.get('flx_flat', None),
             populations, cycle
         )

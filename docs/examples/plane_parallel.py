@@ -21,6 +21,7 @@ Reference: Neufeld, D.A. 1990, ApJ, 350, 216
 import sys, os
 _PROJECT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, _PROJECT)
+sys.path.insert(0, '/home/lilew/Seafile/seafile_sync/code/line_rt_pipeline')
 
 import numpy as np
 import matplotlib
@@ -72,7 +73,6 @@ dx_cm     = mesh['dx'][0] * 1.49598e13   # cell width in cm
 slab_cm   = 10.0 * 1.49598e13            # 10 AU in cm
 
 b_sca     = 1.0e5                  # Doppler b-parameter [cm/s] ≈ 1 km/s
-b_abs     = 1.0e5                  # absorption b-parameter [cm/s]
 mol_mass  = 28.0                   # g/mol (CO)
 temperature = 100.0                # K
 
@@ -83,7 +83,6 @@ print(f"dx = {dx_cm:.2e} cm")
 
 fields = {
     'b_sca':       uniform_field(b_sca,     n_tot),
-    'b_abs':       uniform_field(b_abs,     n_tot),
     'temp':        uniform_field(temperature, n_tot),
     'vel_0':       uniform_field(b_sca,     n_tot),  # v_x gradient
     'vel_1':       np.zeros(n_tot, dtype=np.float64),
@@ -157,6 +156,8 @@ results, final_pops = iterate(
     n_gas=n_gas,
     transition_idx=tr_idx,
     mol_mass=mol_mass,
+    unit_l0=1.49598e13,
+    unit_t0=1.0,
 )
 
 # ── 7. Plot results ────────────────────────────────────────────────────

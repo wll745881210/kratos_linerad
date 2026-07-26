@@ -134,7 +134,6 @@ fields = {
     'mfp_i_sca_0': mfp_i_sca_callable(X, Y, Z).ravel().astype(np.float64),
     'mfp_i_abs_0': mfp_i_abs_callable(X, Y, Z).ravel().astype(np.float64),
     'b_sca':       uniform_field(b_param, n_tot),
-    'b_abs':       uniform_field(b_param, n_tot),
     'temp':        temperature_callable(X, Y, Z).ravel().astype(np.float64),
     'vel_0':       np.zeros(n_tot, dtype=np.float64),   # static medium
     'vel_1':       np.zeros(n_tot, dtype=np.float64),

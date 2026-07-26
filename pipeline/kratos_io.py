@@ -18,7 +18,7 @@ def write_field_data(filename, fields, mesh):
     ----------
     filename : str
     fields : dict
-        Keys: 'mfp_i_sca_0', 'mfp_i_abs_0', 'b_sca', 'b_abs',
+        Keys: 'mfp_i_sca_0', 'mfp_i_abs_0', 'b_sca',
               'vel_0', 'vel_1', 'vel_2'
         Values: flat float32 arrays of length n_tot
     mesh : dict
@@ -31,7 +31,7 @@ def write_field_data(filename, fields, mesh):
     dx     = np.asarray(mesh['dx'],     dtype=np.float32)
 
     for prefix in ['mfp_i_sca_0_', 'mfp_i_abs_0_',
-                   'b_sca_', 'b_abs_', 'temp_',
+                   'b_sca_', 'temp_',
                    'vel_0_', 'vel_1_', 'vel_2_']:
         key = prefix.strip('_')
         if key not in fields:

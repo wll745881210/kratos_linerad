@@ -89,7 +89,6 @@ def fields_panel(mesh=None):
         w["mfp_i_sca"],
         w["mfp_i_abs"],
         w["b_sca"],
-        w["b_abs"],
         widgets.HBox([preview_button]),
         slice_output,
     ])

@@ -125,7 +125,7 @@ class SpeciesData:
         nu = t[3] * 1e9
         g_u = self.get_level_weight(upper)
         g_l = self.get_level_weight(lower)
-        sigma = (c_cgs * c_cgs) / (2.0 * nu * nu * nu * b_param * sqrt_pi)
+        sigma = (c_cgs * c_cgs * c_cgs) / (8.0 * nu * nu * nu * b_param * sqrt_pi * sqrt_pi * sqrt_pi)
         sigma *= (g_u / g_l) * A_ul
         return sigma
 
@@ -142,12 +142,11 @@ class SpeciesData:
         pops['n_total'] = n_gas.copy()
         return pops
 
-    def compute_opacity(self, populations, b_sca=1e5, b_abs=1e5,
-                         transition_idx=None):
+    def compute_opacity(self, populations, b_sca=1e5,
+                          transition_idx=None):
         mfp_sca = np.zeros_like(populations.get('n0',
                    populations.get('n_total', np.ones(1))),
                    dtype=np.float64)
-        mfp_abs = np.zeros_like(mfp_sca)
         t_range = [transition_idx] if transition_idx is not None \
                   else range(self.n_transitions)
         for t_idx in t_range:
@@ -156,52 +155,23 @@ class SpeciesData:
             n_l = np.asarray(populations.get(f'n{lower}',
                                np.zeros_like(mfp_sca)), dtype=np.float64)
             sigma_s = self.cross_section(t_idx, b_sca)
-            sigma_a = self.cross_section(t_idx, b_abs)
             mfp_sca += n_l * sigma_s
-            mfp_abs += n_l * sigma_a
-        return mfp_sca, mfp_abs
+        return mfp_sca
 
-    def compute_excitation_flux_from_flx(self, flx, populations, n_total,
-                                           transition_idx, dx=1.0, b_abs=1e5):
-        n_cells = len(flx)
-        n_levels = self.n_levels
-        excitation_flux = np.zeros((n_levels, n_cells), dtype=np.float64)
-        flx_c = np.abs(np.asarray(flx, dtype=np.float64)).ravel()
-        n_tot = np.asarray(n_total, dtype=np.float64).ravel()
-        for c in range(n_cells):
-            n_t = max(n_tot[c], 1e-40)
-            t_idx = transition_idx
-            upper = int(self.transitions[t_idx, 0])
-            lower = int(self.transitions[t_idx, 1])
-            n_l = float(np.asarray(
-                populations.get(f'n{lower}',
-                                np.zeros(n_cells)), dtype=np.float64
-            ).ravel()[c])
-            sigma_t = self.cross_section(t_idx, b_abs)
-            kappa_abs_total = n_l * sigma_t
-            tau_c = kappa_abs_total * dx
-            absorbed = flx_c[c] * (1.0 - np.exp(-tau_c))
-            excitation_flux[upper, c] += absorbed
-        return excitation_flux
-
-    def update_populations(self, fab, flx, populations, cycle, dx=1.0, b_abs=1e5,
-                            T=None, colliders=None, transition_idx=0):
+    def update_populations(self, exc_flux, flx, populations, cycle, dx=1.0, b_sca=1e5,
+                             T=None, colliders=None, transition_idx=0):
         from .equilibrium import solve_populations
         pop_vals = list(populations.values())
         n_cells = len(pop_vals[0]) if pop_vals else 1
         n_total = populations.get('n_total',
                    sum(populations.get(f'n{i}', np.zeros(n_cells))
                        for i in range(self.n_levels)))
-        fab_scalar = np.asarray(fab, dtype=np.float64) if fab is not None else None
-        flx_scalar = np.asarray(flx, dtype=np.float64) if flx is not None else None
-        if flx_scalar is not None:
-            fab = self.compute_excitation_flux_from_flx(
-                flx_scalar, populations, n_total,
-                transition_idx, dx=dx, b_abs=b_abs)
-        fab_arr = np.asarray(fab, dtype=np.float64)
-        if fab_arr.ndim == 1:
-            fab_arr = fab_arr.reshape(1, -1)
-        result = solve_populations(self, fab_arr, n_total, T=T, colliders=colliders)
+        exc_flux_arr = np.asarray(exc_flux, dtype=np.float64).ravel() if exc_flux is not None else \
+                       np.zeros(n_cells, dtype=np.float64)
+        if exc_flux_arr.shape[0] != n_cells:
+            exc_flux_arr = np.zeros(n_cells, dtype=np.float64)
+        result = solve_populations(self, exc_flux_arr, n_total, T=T, colliders=colliders,
+                                    b_param=b_sca, transition_idx=transition_idx)
         if isinstance(result, np.ndarray) and result.ndim == 2:
             pops = {}
             for i in range(self.n_levels):
@@ -279,21 +249,34 @@ class SpeciesData:
         return np.array(photons, dtype=np.float64)
 
     def make_fields(self, populations, step, cycle, base_fields=None,
-                     transition_idx=None):
+                     unit_l0=1.0, unit_t0=1.0, transition_idx=None):
         n_total = populations.get('n_total',
                    sum(populations.get(f'n{i}', np.ones(1))
                        for i in range(self.n_levels)))
-        mfp_i_sca, mfp_i_abs = self.compute_opacity(populations,
-                                                      transition_idx=transition_idx)
+        mfp_i_sca = self.compute_opacity(populations,
+                                          transition_idx=transition_idx)
         n_cells = len(n_total) if hasattr(n_total, '__len__') else 1
+        v_factor = unit_t0 / unit_l0
         fields = {}
         if base_fields:
             for k, v in base_fields.items():
-                fields[k] = np.asarray(v, dtype=np.float64).copy()
+                arr = np.asarray(v, dtype=np.float64).copy()
+                if k == 'mfp_i_sca_0' or k == 'mfp_i_abs_0':
+                    arr *= unit_l0
+                elif k in ('b_sca',) or k.startswith('vel_'):
+                    arr *= v_factor
+                elif k == 'temp':
+                    pass
+                fields[k] = arr
         if 'mfp_i_sca_0' not in fields:
-            fields['mfp_i_sca_0'] = np.asarray(mfp_i_sca, dtype=np.float64).ravel()
-        if 'mfp_i_abs_0' not in fields:
-            fields['mfp_i_abs_0'] = np.asarray(mfp_i_abs, dtype=np.float64).ravel()
+            fields['mfp_i_sca_0'] = (np.asarray(mfp_i_sca, dtype=np.float64).ravel()
+                                     * unit_l0)
+        if 'b_sca' not in fields:
+            fields['b_sca'] = np.full(n_cells, 1e5 * v_factor, dtype=np.float64)
+        for a in range(3):
+            key = f'vel_{a}'
+            if key not in fields:
+                fields[key] = np.zeros(n_cells, dtype=np.float64)
         for i in range(self.n_levels):
             fields[f'n{i}'] = np.asarray(
                 populations.get(f'n{i}', np.zeros(n_cells)), dtype=np.float64)

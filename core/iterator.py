@@ -17,7 +17,8 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
             n_photon=None, n_step=10000, n_scat=10000, ph_mode=1,
             par_overrides=None, mol_mass=28.0, work_dir=None,
             callback=None, n_gas=None, transition_idx=0,
-            n_emission_max=10):
+            n_emission_max=10,
+            unit_l0=1.49598e13, unit_t0=1.0):
     if work_dir is None:
         work_dir = os.path.join(os.getcwd(), "iterate_output")
     os.makedirs(work_dir, exist_ok=True)
@@ -26,6 +27,8 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         par_overrides = {}
 
     base_overrides = {
+        "length": str(float(unit_l0)),
+        "time": str(float(unit_t0)),
         "n_cell_global": " ".join(str(int(v)) for v in mesh["n_cell"]),
         "x_min": " ".join(str(v) for v in mesh["x_min"]),
         "x_max": " ".join(
@@ -53,16 +56,26 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         populations = {f"n{i}": np.ones(n_tot, dtype=np.float32) for i in range(species.n_levels)}
 
     fields = dict(fields_init)
+    base_fields_cgs = {k: np.asarray(v, dtype=np.float64).copy()
+                       for k, v in fields.items()}
 
     if hasattr(species, "make_fields"):
-        fields = species.make_fields(populations, "pre", -1, base_fields=fields)
+        fields = species.make_fields(populations, "pre", -1, base_fields=base_fields_cgs,
+                                       unit_l0=unit_l0, unit_t0=unit_t0)
 
     for cycle in range(n_cycles):
         field_file = os.path.join(work_dir, f"fields_cycle{cycle}.bin")
         write_field_data(field_file, fields, mesh)
 
         photon_file = os.path.join(work_dir, f"photons_cycle{cycle}.bin")
-        write_photon_data(photon_file, source_photons)
+        ph_arr = np.asarray(source_photons, dtype=np.float64).copy()
+        if ph_arr.shape[1] >= 8:
+            v_factor = unit_t0 / unit_l0
+            ph_arr[:, 7] *= v_factor
+            ph_arr[:, 8] *= v_factor
+        if ph_arr.shape[1] >= 11:
+            ph_arr[:, 10] *= v_factor
+        write_photon_data(photon_file, ph_arr)
 
         prefix = f"cycle{cycle}"
         output, log_text, elapsed = run_kratos_cycle(
@@ -77,13 +90,20 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         results.append(output)
 
         if hasattr(species, "update_populations"):
-            fab = output.get("excitation_flux", output.get("fab_flat", output.get("fab", None)))
+            exc_flux = output.get("excitation_flux", output.get("exc_flux_flat", output.get("fab_flat", output.get("fab", None))))
             flx = output.get("flx_flat", output.get("flx", None))
-            populations = species.update_populations(fab, flx, populations, cycle)
+            if exc_flux is not None:
+                exc_flux = np.asarray(exc_flux, dtype=np.float64).ravel()
+                exc_flux = np.nan_to_num(exc_flux, nan=0.0, posinf=0.0, neginf=0.0)
+                area_factor = unit_l0 * unit_l0 * unit_t0
+                exc_flux = exc_flux / area_factor
+            populations = species.update_populations(exc_flux, flx, populations, cycle,
+                                                       transition_idx=transition_idx)
 
         if hasattr(species, "make_fields"):
-            fields = species.make_fields(populations, "post", cycle, base_fields=fields,
-                                          transition_idx=transition_idx)
+            fields = species.make_fields(populations, "post", cycle, base_fields=base_fields_cgs,
+                                          transition_idx=transition_idx,
+                                          unit_l0=unit_l0, unit_t0=unit_t0)
 
         if hasattr(species, "generate_emission_photons") and cycle < n_cycles - 1:
             temp_field = fields.get('temp', np.zeros(mesh['n_tot'],
@@ -107,13 +127,19 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         else:
             for key in fields:
                 if key.startswith("mfp"):
-                    fab_norm = np.zeros(n_tot, dtype=np.float32)
-                    fab_ptr = output.get("fab_flat", output.get("fab", None))
-                    if fab_ptr is not None:
-                        fab_norm = fab_ptr.astype(np.float32) / (fab_ptr.max() + 1e-35)
-                    fields[key] = fab_norm
+                    exc_flux_norm = np.zeros(n_tot, dtype=np.float32)
+                    exc_flux_ptr = output.get("excitation_flux",
+                                     output.get("exc_flux_flat",
+                                                output.get("fab_flat",
+                                                           output.get("fab", None))))
+                    if exc_flux_ptr is not None:
+                        exc_flux_norm = exc_flux_ptr.astype(np.float32) / (exc_flux_ptr.max() + 1e-35)
+                    fields[key] = exc_flux_norm
 
         if callback is not None:
-            callback(cycle, output.get("fab", None), populations)
+            callback(cycle, output.get("excitation_flux",
+                             output.get("exc_flux_flat",
+                                       output.get("fab_flat",
+                                                  output.get("fab", None)))), populations)
 
     return results, populations

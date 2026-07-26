@@ -1,284 +1,400 @@
-# Physics Behind Line Radiative Transfer
+# Physics of Monte Carlo Line Radiative Transfer
 
-> A tutorial on the physics implemented in this package, written for users who want to understand what the code computes and why.
-
----
-
-## 1. The Problem
-
-Consider a cloud of gas and dust illuminated by a central star. Photons travel outward, interact with gas molecules (scattering in spectral lines), and are absorbed by dust grains. The gas can be excited by absorbing line photons, and excited molecules spontaneously decay, emitting new line photons. The problem is **nonlinear**: where the gas is excited changes its opacity, which changes where photons travel and are absorbed.
-
-This package solves the full coupled problem iteratively:
-- **Monte Carlo (MC) transport**: tracks individual photon packets through the medium
-- **Population update**: from the MC absorption results, computes the excited-state populations
-- **Opacity update**: from the updated populations, recomputes the scattering and absorption coefficients
-- **Repeat** until convergence
+> Derived from `notes.tm`. This document serves as the **authoritative physics specification** for all implementations (Kratos C++ and Python pipeline). All quantities below are in **photon-number units** — "luminosity" means photon number per unit time, NOT energy luminosity.
 
 ---
 
-## 2. The Unit Chain: From Source Luminosity to Photon Proper
+## 1. Conventions
 
-### 2.1 Physical Quantities
+### 1.1 Unit Systems
 
-All quantities use **CGS units**:
+| System | Used by | Convention |
+|--------|---------|-----------|
+| CGS | Python pipeline (inputs/outputs) | All external quantities; spatial coordinates in cm; velocities in cm/s |
+| Code units | Python→Kratos (write); Kratos internal (read) | Python converts CGS → code units before writing field/photon binary files. Kratos treats all quantities as code units internally with no further conversion. |
+| Dimensions | This document | `[l]` = length, `[t]` = time, `[m]` = mass, `[n]` = photon number (dimensionless, kept as "counting" unit) |
 
-| Symbol | Quantity | Units |
-|--------|----------|-------|
-| `L` | Source luminosity | erg/s |
-| `λ` | Wavelength | cm |
-| `h` | Planck constant | erg·s |
-| `c` | Speed of light | cm/s |
-| `ν` | Frequency = c/λ | Hz (s⁻¹) |
-| `E_ph` = hν | Photon energy | erg |
-
-### 2.2 Source → Photon Number Rate
-
-A source emitting luminosity `L` at wavelength `λ` emits:
+#### Code-unit conversion (Python side)
 
 ```
-ṅ = L / (hν)     [photons/s]
+l_code   = l_cgs   / unit_l0           # length
+v_code   = v_cgs   × unit_t0 / unit_l0  # velocity
+mfp_code = mfp_cgs × unit_l0            # inverse length (1/l)
 ```
 
-Example: a 0.8 L☉ source at λ = 2.35 μm:
-```
-L = 0.8 × 3.828 × 10³³ = 3.06 × 10³³ erg/s
-ν = 2.998 × 10¹⁰ / 2.35 × 10⁻⁴ = 1.28 × 10¹⁴ s⁻¹
-E_ph = 6.626 × 10⁻²⁷ × 1.28 × 10¹⁴ = 8.45 × 10⁻¹³ erg
-ṅ = 3.06 × 10³³ / 8.45 × 10⁻¹³ ≈ 3.6 × 10⁴⁵ ph/s
-```
+`unit_l0` [cm per code-length] and `unit_t0` [s per code-time] are explicit parameters passed to the pipeline. The same factors appear in Kratos's `[unit]` par file section for spatial coordinates.
 
-### 2.3 Photon Proper Weight
 
-We cannot simulate 3.6×10⁴⁵ photons. Instead, we simulate `N_MC` Monte Carlo "packets" (typically 10⁴–10⁶), each representing many real photons. The **proper weight** `w` of each packet is:
+### 1.2 Velocity Space
 
-```
-w = ṅ / N_MC     [dimensionless; photon count per packet]
-```
-
-This `w` is stored as column 6 in the photon binary and is the fundamental quantity connecting the MC simulation to physical photon fluxes.
-
-### 2.4 MC Transport → Absorbed Flux
-
-During MC transport (in Kratos), each photon packet deposits proper weight into every cell it traverses:
-
-```
-Flux registered in cell i:
-  flx[i] = Σ_photons (w × dl / V_i)      [photon path-length / cm³]
-
-Absorbed flux in cell i:
-  excitation_flux[i] = Σ_photons (w × (1-e^{-τ_abs}) / V_i)    [absorbed photons / cm³]
-```
-
-where `dl` is the path length through the cell, `τ_abs` is the absorption optical depth along that segment, and `V_i` is the cell volume in cm³.
-
-**This is the key insight**: `excitation_flux[i]` is the "answer" from the MC — it already accounts for all geometric dilution, optical depth effects, velocity gradients, and scattering. No approximate escape probability is needed.
+- "Velocity" ≡ Doppler velocity shift: Δv = Δλ/λ₀ = −Δν/ν₀
+- Δv > 0 for redshifts (longer wavelengths)
+- All profile quantities (σ_ph, σ_th, b) are in velocity units [l][t]⁻¹
 
 ---
 
-## 3. Population Number Calculation
+## 2. Photon Packets
 
-### 3.0 High-Level Interface
+Each photon packet represents many photons evolved over a unit time period.
 
-The `LineRT` class (see [examples/plane_parallel_example.py](#)) encapsulates all steps below:
-- **Mode 1**: pass `mfp_i_sca` directly (quick static slab)
-- **Mode 2**: pass `species`, `n_total`, and `temperature` — opacity is computed
-  from LTE populations via `partition_function(T)` and `compute_opacity()`
+### 2.1 Packet Parameters
 
-### 3.1 Why We Need Populations
+| Symbol | Name | Dimension | Meaning |
+|--------|------|-----------|---------|
+| ℒ | proper | `[n][t]⁻¹` | Photon number luminosity of this packet (photons per unit time) |
+| Δv | vel | `[l][t]⁻¹` | Doppler velocity centroid of the packet's Gaussian profile |
+| σ_ph | sv | `[l][t]⁻¹` | Dispersion of the Gaussian velocity profile |
+| **d̂** | dir | dimensionless | Normalized direction unit vector |
+| **x** | x | `[l]` | Spatial position vector |
 
-The line scattering opacity depends on how many molecules are in the **lower state** of the transition. In a two-level system:
+### 2.2 Velocity-Space Distribution
 
-```
-mfp_i_sca = n_lower × σ_center × Z⁻¹
-```
-
-where `σ_center` is the line-center cross-section (cm²) and `Z` is the partition function fraction. If the lower state is depleted by excitation to the upper state, the scattering opacity drops — this is the feedback loop that the iteration resolves.
-
-### 3.2 Two-Level Case (No Collisions)
-
-For a simple two-level system with ground state `g` and excited state `e`:
-
-**Per cell**, the MC tells us how many photons were absorbed:
+The per-unit-velocity photon-number distribution for a packet:
 
 ```
-exc_flux = excitation_flux[i]                          # excited-state feeding rate from MC
-```
-
-The excited state population fraction is:
-
-```
-f_exc = exc_flux / n_total_eff             # fraction excited
-f_exc = clamp(f_exc, 0, 0.9999)         # never exceed total density
-```
-
-Then:
-
-```
-n_e = f_exc × n_total                   # excited number density
-n_g = n_total - n_e                     # ground number density
-```
-
-This is the **radiative-only** case — the excited state population is directly proportional to the MC-measured absorption rate.
-
-### 3.3 Multi-Level with Collisions
-
-When collisional data are available (from LAMDA), we solve the full statistical equilibrium for each cell. The master equation for level `i` is:
-
-```
-d(n_i)/dt = 0 = Σ_{j≠i} [n_j × (R_rad[j→i] + R_col[j→i](T))]
-               - n_i × Σ_{j≠i} [R_rad[i→j] + R_col[i→j](T)]
-```
-
-plus the normalization constraint: `Σ_i n_i = n_total`.
-
-Where:
-- **R_rad[j→i]**: radiative transition rate from MC — computed from `excitation_flux` (the number of photons absorbed into level `i`)
-- **R_col[j→i](T)**: collisional (de-)excitation rate = `n_collider × q_ji(T)`, where `q_ji(T)` is the rate coefficient from the LAMDA database, interpolated to temperature `T`
-
-This is a linear system `M·n = 0` with the last row replaced by `Σn_i = n_total`, solved via `numpy.linalg.solve`.
-
-### 3.4 Why No Escape Probability (β)
-
-Traditional treatments of optically thick line transfer use an escape probability `β(τ)` to approximate the effective radiative decay rate:
-
-```
-A_eff = A × β(τ)
-```
-
-where β < 1 when τ > 1, accounting for the fact that emitted line photons are trapped and re-absorbed locally.
-
-**We do NOT use β.** Instead, the Monte Carlo transport iteratively converges to the self-consistent solution:
-
-1. MC tracks photons through the current opacity field (which depends on populations)
-2. MC records exactly where photons are absorbed (`excitation_flux[i]`)
-3. Populations are updated from `excitation_flux`
-4. Opacity is recomputed from updated populations
-5. MC runs again with updated opacity
-
-Because the MC already accounts for all optical depth effects (multiple scattering, frequency redistribution, velocity gradients), repeating this cycle converges the populations to the correct values without any β approximation. **β is an approximate substitute for full MC iteration; we do the iteration directly.**
-
----
-
-## 4. Iteration Convergence
-
-The iteration process:
-
-```
-Cycle 0:   Initial populations from LTE via partition_function(T)
-           (Z(T) = Σ g_i exp(-E_i/kT), n_i = n_total × g_i exp(-E_i/kT) / Z(T))
-           → Run MC → get excitation_flux₀
-
-Cycle 1:   n₁ = f(excitation_flux₀)  → Update opacities → Run MC → get excitation_flux₁
-
-Cycle 2:   n₂ = f(excitation_flux₁)  → Update opacities → Run MC → get excitation_flux₂
-
-...
-
-Converged: max|n_k - n_{k-1}| < ε
-```
-
-Convergence is typically achieved in 3-5 cycles for moderate optical depths (τ₀ ≤ 100). The convergence metric is the maximum absolute change in any population:
-
-```
-Δ_n(k) = max_i |n_i(k) - n_i(k-1)| / n_total
-```
-
-which should be plotted as a function of cycle number (see `plot_convergence()` in `core/visualize.py`).
-
----
-
-## 5. Opacity From Populations
-
-Once populations are updated, the scattering and absorption mean free paths are:
-
-**Line scattering** (for transition i→j, lower level i):
-```
-σ_center = λ³ × A_ij / (8 × π¹·⁵ × b)      # line-center cross-section [cm²]
-b = √(2 × k_B × T / m_molecule)             # Doppler width [cm/s]
-Z_i = g_i × exp(-E_i / (k_B × T)) / Z(T)    # partition function fraction
-mfp_i_sca = n_i × σ_center × Z_i            # inverse scattering MFP [cm⁻¹]
-```
-
-**Dust absorption** (continuum):
-```
-mfp_i_abs = n_dust × σ_dust                  # inverse absorption MFP [cm⁻¹]
-```
-
-where `σ_dust` is the dust absorption cross-section at the line wavelength.
-
----
-
-## 6. Output: From Internal Units to Observables
-
-### 6.1 Emergent Spectrum
-
-Escaped photons carry their velocity (line-of-sight velocity shift in cm/s) and proper weight. The spectrum is:
-
-```
-I(v) dv = Σ_{photons with v ∈ [v, v+dv]} w_photon
-```
-
-The velocity axis can be converted to wavelength:
-```
-Δλ = λ × v/c
-```
-
-### 6.2 Flux Maps
-
-The flux field `flx[i]` recorded by Kratos gives the spatial distribution of radiation intensity. For a given slice:
-
-```
-J(r, θ) ∝ flx_slice(r, θ)    # mean intensity proxy
-F(r, θ) ∝ flux weighted by direction cosines  # net flux (future work)
-```
-
-### 6.3 Effective Flux to Observer
-
-To compute the observable flux at distance `D`:
-
-```
-F_ν(observer) = (1 / D²) × Σ_{escaped photons toward observer} w × (hν)
-              = (1 / D²) × N_escaped(μ) × ⟨w⟩ × hν
+dℒ/dv = ℒ / (√(2π) σ_ph) × exp(−(v − Δv)² / (2 σ_ph²))
 ```
 
 ---
 
-## 7. Coordinate Systems
+## 3. Flux Accumulation in Kratos
 
-### Cartesian (current Kratos line_rt backend)
+### 3.1 Total Flux `F` (field: `flx`)
 
-Suitable for plane-parallel slabs, Cartesian boxes. Mesh defined by `n_cell = (nx, ny, nz)` and bounds `x_min, x_max`.
+When a photon packet with proper ℒ traverses a cell of volume V with intra-cell path length δl:
 
-### Spherical (supported in fields.py)
+```
+δF = ℒ × δl / V
+```
 
-Suitable for disk/wind geometries. Mesh defined by `(r_face, θ_face, φ_face)` in cm and radians. Field generators include `spherical_power_law` and analytic disk profiles. Kratos supports spherical coordinates through its `geometry/` module; switching requires changing the `.par` file.
+Dimension: `[n][l]⁻²[t]⁻¹` — photon number fluence per unit area per unit time.
+
+Summed over all photon crossings through the cell.
+
+### 3.2 Overlap Integral I
+
+The convolution of the photon's Gaussian profile with the thermal Gaussian absorption profile:
+
+```
+I = exp(−(Δv + v∥)² / (2(σ_ph² + σ_th²))) / √(1 + σ_ph²/σ_th²)
+```
+
+where:
+- σ_th = thermal Doppler dispersion of the gas: σ_th = √(k_B T / μ)
+- v∥ = **v** · **d̂** = bulk velocity projected along photon direction
+- Δv = photon packet's velocity centroid (Δv > 0 = redshift)
+
+The argument is Δv + v∥ (NOT Δv − v∥). Reason: transforming to the gas rest frame, the photon's velocity offset is Δv_gas = Δv_lab + v_bulk·d̂. The thermal absorption profile is centered at line center (v=0) in the gas frame, so the overlap integral evaluates the photon at Δv_gas.
+
+In Kratos code (with b = √2 σ_th, sv ≈ σ_ph):
+
+```
+s2_sca = b² + 2·sv²                   // 2(σ_th² + σ_ph²)
+dv    = vel + vel_obs                  // Δv + v_bulk·d̂ (gas-frame offset)
+prof_s = exp(−dv² / s2_sca)
+I     = prof_s × b / √(s2_sca)        // normalized overlap integral
+```
+
+### 3.3 Excitation-Effective Flux `F_ext` (field: `excitation_flux`)
+
+```
+δF_ext = I × δF = I × ℒ × δl / V
+```
+
+Dimension: `[n][l]⁻²[t]⁻¹` — photon number fluence per unit area per unit time, overlap-weighted.
+
+This is the quantity Kratos outputs for the population solver. It already incorporates the Gaussian convolution — no further velocity-space integration is needed on the Python side.
+
+### 3.4 Relationship
+
+```
+F_ext = I × F    (per-path-segment; summed over all photons)
+```
 
 ---
 
-## 8. Binary I/O and Field Memory Layout
+## 4. Scattering (Kratos Transport)
 
-### Kratos Field Storage
+### 4.1 Optical Depth Along Path
 
-Kratos stores 3D field arrays in C++ row-major order: `cells[nz][ny][nx]`, where `nx` varies fastest in contiguous memory. The binary writer serializes fields as flat arrays in this order (z slowest, x fastest).
+The remaining scattering optical depth τ_rem is initialized from an exponential distribution (mean = 1). At each cell crossing with path length δl:
 
-### Reading Fields with Correct Axis Ordering
+```
+δτ_rem = I × λ_sca,0⁻¹ × δl
+```
 
-The pipeline reader in `pipeline/kratos_io.py` uses `_strip_ghosts()` to extract only the effective (non-ghost) cells and returns a flat numpy array. The correct reshaping convention, matching `hydro_data.get_field()` in `kratos/visual/hydro_data.py`, is:
+where `λ_sca,0⁻¹ = σ₀ × n_lower` is the inverse line-center scattering mean free path. The overlap integral I encapsulates the velocity-space profile mismatch.
 
-| Reader | Reshape order | x varies as |
-|--------|--------------|-------------|
-| `hydro_data.get_field()` | `(nz, ny, nx)` | **fastest** (last axis) |
-| `kratos_io.read_output()` | `(nz, ny, nx)` | **fastest** (last axis) |
+### 4.2 Scattering Event Location
 
-With this convention, the flattened output has x as the fastest-varying dimension, so `excitation_flux[:n_cell_x]` directly extracts the full x-axis profile at the first (y,z) coordinate. No manual reshaping is needed in downstream plotting code.
+If `τ_rem' = τ_rem − δτ_rem > 0`: no scattering in this cell; continue propagation.
+If `τ_rem' ≤ 0`: linear interpolation to find scattering point within the cell at fractional distance `τ_rem / δτ_rem`.
 
-### Ghost Cell Stripping
+### 4.3 Absorption (Real)
 
-Each dimension may have `n_gh` ghost cells added on both sides for MPI halo exchange. The stripping logic extracts `[n_gh[2]:n_gh[2]+n_cell[2], n_gh[1]:n_gh[1]+n_cell[1], n_gh[0]:n_gh[0]+n_cell[0]]` from the correctly-reshaped field, then flattens the result. For ghost-free fields (`n_gh = [0,0,0]`), the fast path simply takes the first `n_tot * n_int` elements.
+Along the path, the photon proper weight is reduced by absorption:
 
-## 9. Key References
+```
+ℒ' = ℒ × exp(−δl × λ_abs⁻¹)
+```
 
-- **Monte Carlo line transfer**: Auer (1968), Lucy (1999)
-- **Neufeld CFR solution**: Neufeld (1990, ApJ, 350, 216) — analytic solution for a plane-parallel slab with coherent frequency redistribution
-- **LAMDA database**: Schöier et al. (2005, A&A, 432, 369)
-- **Dust absorption**: Draine (2011, "Physics of the Interstellar and Intergalactic Medium")
+for pure continuum absorption (wavelength-independent), where `λ_abs⁻¹` [l]⁻¹ is the inverse absorption mean free path.
+
+### 4.4 Scattering Event Mechanics (Re-emission)
+
+When a scattering event occurs:
+
+1. **Direction**: isotropic — uniform in cosθ ∈ [−1, 1] and φ ∈ [0, 2π]
+2. **Velocity centroid**: `Δv = −v_bulk · d̂` (blueshift: gas moving along photon direction gives negative Δv)
+
+The reason: in the gas rest frame, the re-emitted photon is at line center (Δv_gas = 0). Transforming back to the lab frame: Δv_lab = −v_bulk · d̂. When v_bulk · d̂ > 0 (gas moves with photon), the photon is blueshifted (Δv < 0).
+3. **Profile dispersion**: `σ_ph = σ_th` (photon thermalizes to local gas temperature)
+4. **New τ_rem**: generated from exponential distribution
+
+This is the "coherent redistribution / complete frequency redistribution" (ph_mode=0) case.
+
+---
+
+## 5. Cross Sections
+
+### 5.1 Line-Center Cross Section σ₀
+
+From the Einstein A coefficient and temperature-dependent Doppler width:
+
+**Given oscillator strength f** (Draine 2011, eq. 6.39):
+
+```
+σ(v) = √π e² f λ₀ / (m_e c √2 σ_th) × exp(−v²/(2σ_th²))
+σ₀   = √π e² f λ₀ / (m_e c √2 σ_th)                         [l]²
+```
+
+**Given Einstein A** (using Draine 2011, eq. 6.20: A = (8π² e² ν² / (m_e c³)) × (g_l/g_u) × f):
+
+```
+σ₀ = (g_u/g_l) × A_ul × c³ / (8 π^(3/2) ν³ b)               [l]²
+```
+
+where:
+- b = √2 σ_th = Doppler b-parameter [l][t]⁻¹
+- σ_th = √(k_B T / μ) = thermal dispersion [l][t]⁻¹
+- g_u, g_l = statistical weights of upper/lower levels (g = 2J + 1)
+
+### 5.2 Scattering Inverse Mean Free Path
+
+```
+λ_sca,0⁻¹ = σ₀ × n_lower                                    [l]⁻¹
+```
+
+where n_lower [l]⁻³ is the number density of particles on the lower level of the transition.
+
+### 5.3 Numerical Constants
+
+```
+e  = 4.80321 × 10⁻¹⁰ g^(1/2) cm^(3/2) s⁻¹   (CGS electron charge)
+m_e = 9.10938 × 10⁻²⁸ g
+c  = 2.99792 × 10¹⁰ cm/s
+k_B = 1.38065 × 10⁻¹⁶ erg/K
+√π = 1.77245
+π^(3/2) = 5.56833
+```
+
+---
+
+## 6. Population Calculation (Python Side)
+
+> **Proposition: excitation maps to transitions, not levels.**
+> Kratos outputs one excitation flux field per transition (configured by `n_fld`). Each excitation flux is the overlap-integrated fluence **F_ext** for that specific transition. The population solver applies this F_ext only to the transition's (lower ↔ upper) pair — not to all levels. It is physically inconsistent to spread a single-transition's F_ext across multiple levels.
+
+### 6.1 Photon Excitation Rate
+
+The Kratos output `F_ext` (overlap-weighted excitation flux) is used to compute the per-lower-level-particle excitation rate:
+
+```
+Γ = F_ext × σ₀                                            [t]⁻¹
+```
+
+Dimension check: `[n][l]⁻²[t]⁻¹ × [l]² = [t]⁻¹` (with [n] treated as dimensionless counting unit).
+
+**No additional optical depth factor is applied** — Kratos already tracked absorption and the overlap integral during MC transport.
+
+### 6.2 Statistical Equilibrium (2-Level System)
+
+For levels g (ground, index 0) and e (excited, index 1):
+
+```
+n_e / n_g = Γ / (A_ul + (g_l/g_u) × Γ)                    (dimensionless)
+
+n_exc_frac = n_e / n_total
+           = Γ / (A_ul + Γ × (1 + g_l/g_u))                (dimensionless)
+```
+
+where A_ul is the Einstein A coefficient for spontaneous decay [t]⁻¹.
+
+With collisions (collisional de-excitation rate C_ul):
+
+```
+n_e / n_g = (Γ + C_lu) / (A_ul + C_ul + (g_l/g_u) × Γ)
+```
+
+### 6.3 Multi-Level Statistical Equilibrium
+
+Linear system for N levels:
+- For each pair i ≠ j: M[i,j] = R_rad[j→i] + R_col[j→i](T)
+- Diagonal: M[i,i] = −Σ_{j≠i} M[j,i]
+- Replace last row with Σ_i n_i = n_total
+- Solve: M · n = b
+
+---
+
+## 7. Iteration Workflow
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    PYTHON SIDE                           │
+│                                                         │
+│  Cycle 0: LTE populations                                   │
+│         → compute λ_sca,0⁻¹ (CGS)                            │
+│         → convert CGS → code units (×unit_l0, ×t0/l0)        │
+│         → write binary field + photon files (code units)     │
+│                         │                                     │
+│                         ▼                                     │
+│                    KRATOS SIDE  (code units)                  │
+│                                                               │
+│  Read fields + photons (all in code units)                    │
+│  MC transport: accumulation of F, F_ext                      │
+│  Write F and F_ext (per-cell, code units) to output binary    │
+│                         │                                     │
+│                         ▼                                     │
+│                    PYTHON SIDE                                 │
+│                                                               │
+│  Cycle 1+:                                                    │
+│    Read F_ext from Kratos output (code units)                 │
+│    Convert code → CGS: F_ext_cgs = F_ext_code / (l0²×t0)      │
+│    Compute Γ = F_ext × σ₀ (CGS, [t]⁻¹)                        │
+│    Solve populations per transition-pair (not per-level)      │
+│    Update λ_sca,0⁻¹, convert CGS → code, write binaries       │
+│                         │                               │
+│                         ▼                               │
+│                    KRATOS SIDE ...                       │
+│                                                         │
+│  Repeat until convergence or max cycles                 │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 8. Fields Provided to Kratos by Python
+
+**All fields are written in Kratos code units.** The Python pipeline converts CGS → code units before writing:
+
+| Python conversion | CGS → code unit factor |
+|-------------------|-----------------------|
+| `mfp_i_sca_0`, `mfp_i_abs_0` | × `unit_l0` |
+| `b_sca`, `vel` | × `unit_t0 / unit_l0` |
+
+The field table below shows fields with their **code-unit** dimensions:
+
+| Field Name | Symbol | Dimension | Content |
+|-----------|--------|-----------|---------|
+| `mfp_i_sca_0_` | λ_sca,0⁻¹ | [l]⁻¹ | Inverse line-center scattering MFP |
+| `mfp_i_abs_0_` | λ_abs⁻¹ | [l]⁻¹ | Inverse absorption MFP |
+| `b_sca_` | b_sca | [l][t]⁻¹ | Doppler b for scattering profile |
+| `vel_0_`, `vel_1_`, `vel_2_` | **v** | [l][t]⁻¹ | Bulk velocity (3 components) |
+
+Optional additional fields (for diagnostics):
+| `temp_` | T | K | Gas temperature (not used by Kratos) |
+
+---
+
+## 9. Fields Read from Kratos by Python
+
+**Kratos outputs fields in code units.** The Python pipeline converts back to CGS:
+
+| Conversion | Code → CGS factor |
+|-----------|-------------------|
+| `flx`, `excitation_flux` | ÷ (`unit_l0²` × `unit_t0`) |
+
+| Field Name | Symbol | Code-unit Dimension | Content |
+|-----------|--------|---------------------|---------|
+| `flx_` | F | `[n][l]⁻²[t]⁻¹` | Total photon number fluence |
+| `excitation_flux_` | F_ext | `[n][l]⁻²[t]⁻¹` | Overlap-weighted excitation flux |
+
+For the population solver, only `excitation_flux_` is needed. `flx_` is for diagnostics.
+
+---
+
+## 10. Source Photon Packet Generation
+
+### 10.1 External Sources
+
+**Isotropic point source**: user specifies photon-number luminosity L_phot [n][t]⁻¹.
+
+```
+L_phot = L_erg / hν
+proper_per_packet = L_phot / N_packets       [n][t]⁻¹
+```
+
+Directions: uniform in cosθ ∈ [−1,1], φ ∈ [0,2π].
+
+**Plane-parallel extended source**: user specifies photon number flux F_phot [n][l]⁻²[t]⁻¹. Sum of packet proper weights per unit area perpendicular to direction must equal F_phot.
+
+### 10.2 Internal Sources (cell emission)
+
+Each cell with upper-level particle density n_u [l]⁻³ produces:
+
+```
+L_cell = n_u × A_ul × V_cell                  [n][t]⁻¹ (photon number luminosity)
+N_packets_per_cell = proportional to L_cell, between 1 and N_max
+proper_per_packet = L_cell / N_packets_cell
+```
+
+---
+
+## 11. Unit Conversion: CGS ↔ Kratos Code Units
+
+### 11.1 Code Unit Specification
+
+Defined in the `[unit]` section of the Kratos parameter file. The Python pipeline converts all quantities from CGS to code units BEFORE writing field/photon files. Kratos internally works entirely in code units except where `_cgs` suffixes mark explicit CGS quantities.
+
+### 11.2 Scaling for FP32 Range
+
+When `proper_max > 1e38`, the Python writer (`kratos_io.py`) scales all photon proper weights by `1/proper_max` and records the factor. The reader must multiply Kratos output fluxes by `proper_max` to recover CGS values.
+
+### 11.3 Volume Consistency
+
+Python-side cell volumes used for internal source luminosity must match Kratos cell volumes (i.e., use the same mesh specification). The Python pipeline computes `V_cell = dx × dy × dz` from the mesh definition passed to `make_cartesian_mesh()`.
+
+---
+
+## Appendix A: Common Implementation Bugs
+
+1. **Confusing excitation_flux with dust absorption**: excitation_flux MUST be I × F (overlap-weighted fluence), NOT dfab (dust-absorbed energy)
+2. **Wrong cross-section formula**: use σ₀ = (g_u/g_l) × A × c³ / (8 π^(3/2) ν³ b), NOT c²/(2 ν³ b √π)
+3. **Double-counting optical depth**: F_ext already includes Kratos MC transport — do not apply additional (1−exp(−τ)) on the Python side
+4. **Missing overlap integral in F_ext**: without I-weighting, F_ext = F (just total flux), missing the velocity-space overlap effect
+5. **Wrong proper units**: proper must be in [n][t]⁻¹ (photons per unit time), NOT erg/s
+6. **Wrong excitation rate formula**: Γ = F_ext × σ₀ (NOT F_ext / n_l or F_ext / n_total)
+7. **Missing fields**: b_sca and velocity vectors must be provided to Kratos via the field binary file
+
+---
+
+## Appendix B: Kratos Implementation Details
+
+The overlap integral I is already computed in `photon.h` (lines 84-87, 101-102):
+
+```cpp
+s2_sca_cgs = b_sca_cgs * b_sca_cgs + 2.f * sv * sv;
+// dv_cgs = vel + vel_obs_cgs = Δv + v_bulk·d̂  (gas-frame offset)
+prof_s = expf(-dv2_cgs / s2_sca_cgs);
+// I = prof_s * b_sca_cgs / sqrtf(s2_sca_cgs);
+```
+
+This I factor is currently used only in computing `mfp_i_s` (scattering inverse MFP including velocity overlap). The `excitation_flux` accumulation incorrectly uses `dfab = proper * (1.f - expf(-tau_abs))` (dust absorption) instead of `I * flx` (overlap-weighted flux). This is the primary Kratos-side bug.
+
+The `proc_phys` method (where `flx` is accumulated as `proper * dsi`) is the correct location to also accumulate `F_ext = I * flx`.
+
+At scattering (`proc_geo`), the photon's velocity is reassigned:
+```cpp
+vel = -(dir[0]*v_cc[0] + dir[1]*v_cc[1] + dir[2]*v_cc[2]);  // Δv = −v_bulk·d̂
+```
+so that after scattering, dv_cgs = (−v_bulk·d̂) + (v_bulk·d̂) = 0 — the photon is at line center in the gas frame.
