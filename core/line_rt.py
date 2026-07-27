@@ -72,6 +72,10 @@ class LineRt:
         If True, automatically plot results after run().
     n_emission_max : int
         Max internal emission photons per cell per cycle.
+    ray_output : bool
+        If True, enable raw ray output binary (flx + excitation_flux per cell).
+    ray_id : int
+        Target cell index for ray output (-1 = all cells).
     snapshot : callable or None
         Called after each cycle: fn(results=output, cycle=cycle, populations=pops).
     """
@@ -85,10 +89,11 @@ class LineRt:
                  n_species=None, temperature=None,
                   b_sca=None, mfp_i_sca_0=None, mfp_i_abs_0=0.0,
                   vel=None, mol_mass=28.0, a_voigt=None,
-                  ph_mode=0, n_step=10000, n_scat=10000, n_cycles=3,
-                 path=None, visualize=True,
-                 n_emission_max=10,
-                 snapshot=None):
+                 ph_mode=0, n_step=10000, n_scat=10000, n_cycles=3,
+                  path=None, visualize=True,
+                  n_emission_max=10,
+                  ray_output=False, ray_id=-1,
+                  snapshot=None):
         self._n_cell = tuple(n_cell)
         self._x_min = tuple(x_min)
         self._x_max = tuple(x_max)
@@ -112,6 +117,8 @@ class LineRt:
         self._path = path
         self._visualize = visualize
         self._n_emission_max = n_emission_max
+        self._ray_output = ray_output
+        self._ray_id = ray_id
         self._snapshot = snapshot
         self._sources = []
         self._boundary_kinds = "fre fre fre fre fre fre"
@@ -245,14 +252,32 @@ class LineRt:
         elif self._mfp_i_sca_0 is not None:
             fields['mfp_i_sca_0'] = self._resolve_field(self._mfp_i_sca_0, n_tot)
 
+        v_factor = self._unit_t0 / self._unit_l0
+        if species is None:
+            for key in list(fields):
+                if key.startswith('mfp_i_'):
+                    fields[key] = np.asarray(fields[key], dtype=np.float64) * self._unit_l0
+                elif key in ('b_sca',) or key.startswith('vel_'):
+                    fields[key] = np.asarray(fields[key], dtype=np.float64) * v_factor
+
+        v_factor = self._unit_t0 / self._unit_l0
+        for key in list(fields):
+            if key.startswith('mfp_i_'):
+                fields[key] = np.asarray(fields[key], dtype=np.float64) * self._unit_l0
+            elif key in ('b_sca',) or key.startswith('vel_'):
+                fields[key] = np.asarray(fields[key], dtype=np.float64) * v_factor
+
         photons = self._generate_photons(n_tot, mesh, b_sca_val)
 
         work_dir = self._resolve_path()
 
         from .iterator import iterate
-        par_overrides = {'kinds': self._boundary_kinds}
-        if self._a_voigt is not None:
-            par_overrides['a_voigt'] = str(float(self._a_voigt))
+        a_voigt_val = self._resolve_a_voigt(b_sca_val)
+        par_overrides = {'kinds': self._boundary_kinds,
+                         'a_voigt': str(float(a_voigt_val))}
+        if self._ray_output:
+            par_overrides['ray_output'] = '1'
+            par_overrides['ray_id'] = str(self._ray_id)
         results, final_pops = iterate(
             photons, species, fields, mesh,
             n_cycles=self._n_cycles,
@@ -281,6 +306,8 @@ class LineRt:
             "mesh": mesh,
             "exc_flux_flat": results[-1].get("exc_flux_flat", None) if results else None,
             "flx": results[-1].get("flx", None) if results else None,
+            "ray_flx": results[-1].get("ray_flx", None) if results else None,
+            "ray_exc_flux": results[-1].get("ray_exc_flux", None) if results else None,
             "spectrum": spectrum,
             "sources": list(self._sources),
         }
@@ -338,6 +365,21 @@ class LineRt:
                              / (self._mol_mass * 1.67262192e-24))
             return b_vals
         return np.full(n_tot, 1e5, dtype=np.float64)
+
+    def _resolve_a_voigt(self, b_sca_val):
+        """Resolve Voigt damping parameter a = A_ul * lambda / (4 * pi * b)."""
+        if self._a_voigt is not None:
+            return float(self._a_voigt)
+        if self._species_obj is not None and self._species_obj.transitions is not None:
+            t = self._species_obj.transitions[self._transition_idx]
+            A_ul = float(t[2])
+            freq_GHz = float(t[3])
+            if freq_GHz > 0 and A_ul > 0:
+                wavelength_cm = c_cgs / (freq_GHz * 1e9)
+                b_mean = float(np.mean(np.abs(np.asarray(b_sca_val))))
+                if b_mean > 0:
+                    return A_ul * wavelength_cm / (4.0 * np.pi * b_mean)
+        return 0.0
 
     def _resolve_vel(self, n_tot):
         if self._vel is None:

@@ -24,6 +24,19 @@ mfp_code = mfp_cgs × unit_l0            # inverse length (1/l)
 
 `unit_l0` [cm per code-length] and `unit_t0` [s per code-time] are explicit parameters passed to the pipeline. The same factors appear in Kratos's `[unit]` par file section for spatial coordinates.
 
+#### Suffix convention: `_i` = "inverse" (reciprocal)
+
+All fields and variables whose names end in `_i` represent **inverse (1/x) quantities**, most commonly inverse mean free paths:
+
+| Field | Meaning | Unit |
+|-------|---------|------|
+| `mfp_i_sca_0` | **Inverse** scattering MFP at line centre = σ₀ × n_lower | [l]⁻¹ |
+| `mfp_i_abs_0` | **Inverse** absorption MFP = α | [l]⁻¹ |
+
+Do **not** feed actual mean free paths (cm) into these fields. Always provide the inverse: `1 / MFP_cm`. For example, to achieve τ₀ = 100 over a slab of length L = 10 cm → `mfp_i_sca_0 = 100 / L = 10 cm⁻¹` (NOT `L / 100 = 0.1 cm`).
+
+This convention mirrors the naming in `notes.tm` where `λ_sca,0⁻¹` and `λ_abs⁻¹` denote the reciprocal mean free paths.
+
 
 ### 1.2 Velocity Space
 
@@ -462,3 +475,18 @@ Photon binary uses 10 columns per packet:
 x[3] | dir[3] | proper | vel | sigma | amplitude
 ```
 Column 9 (`sigma`) = σ_ph used in the overlap integral (not 0 — initialized from `par.sigma` in `gen.h:107`).
+
+### B.5 Ray Output Binary Format
+
+When `ray_output=1` is set in the `[line_rt]` section of the par file, Kratos writes two additional per-cell fields to the standard output binary (same `.bin` file as the block/grid data):
+
+```
+block_N|rad_ray_flx_field      — float32[n_cell]  per-cell flux F        (code units)
+block_N|rad_ray_exc_flux_field — float32[n_cell]  per-cell excitation flux F_ext (code units)
+```
+
+These are identical to `rad_flx_field` and `rad_excitation_flux_field` — written at the same time, containing the same accumulated per-cycle values. The ray fields serve as a parallel, independently-verifiable copy for diagnostic purposes.
+
+**Python readback:** `kratos_io.read_output()` returns these as `result['ray_flx']` and `result['ray_exc_flux']` (1D float64 arrays, n_tot elements in (nz, ny, nx) order — identical layout to the standard `flx` and `excitation_flux` keys).
+
+**Use case:** Enable end-to-end verification of the flux accumulation physics by comparing the standard and ray output fields, or by focusing on a single diagnostic cell via `ray_id`.

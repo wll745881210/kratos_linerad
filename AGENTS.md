@@ -136,9 +136,12 @@ Key functions:
 
 | Key | Content |
 |-----|---------|
-| `mfp_i_sca_0_` | Inverse scattering MFP from `compute_opacity()` |
-| `mfp_i_abs_0_` | Inverse absorption MFP from `base_fields` (user-provided) |
-| `b_sca_` | Doppler b for scattering overlap integral |
+| `mfp_i_sca_0_` | **Inverse** scattering MFP at line centre (σ₀ × n_lower) [l]⁻¹ |
+| `mfp_i_abs_0_` | **Inverse** absorption MFP [l]⁻¹ |
+
+> **Suffix convention:** `_i` means "inverse" (reciprocal). ALL `mfp_i_*` values are inverse mean free paths (cm⁻¹), NOT actual mean free paths (cm). For τ₀ = 100 over length L: `mfp_i_sca_0 = 100/L`, not `L/100`.
+>
+> | `b_sca_` | Doppler b for scattering overlap integral |
 | `vel_0_`, `vel_1_`, `vel_2_` | Bulk velocity (3 components) |
 | `temp_` | Temperature (optional, diagnostic) |
 
@@ -204,3 +207,6 @@ python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_paralle
    # Cleanup when done
    rm -rf /tmp/regtest_kratos /tmp/regtest_pipeline /tmp/regtest_run
    ```
+
+19. **Never use 1 for any `n_cell_global` component — minimum is 2.** Kratos requires at least 2 cells in each dimension. The mesh output (`.bin` file with block/grid data) may silently break with single-cell dimensions, producing only particle output but no field data.
+

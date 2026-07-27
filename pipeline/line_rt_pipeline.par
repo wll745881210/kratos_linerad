@@ -1,0 +1,43 @@
+[mesh]
+n_cell_global = 64 2 2
+x_min         = -5 0 0
+x_max         = 5 1 1
+
+[cycle]
+prefix_output  = pipeline
+n_cycle_lim    = 0
+n_display_freq = 1
+t_lim          = 1.2e-1
+dt_output      = 4e99
+t_output_next  = 4e99
+final_output   = 1
+output_mesh    = 1
+
+[unit]
+length   = 1.49598e13
+time     = 1.0
+density  = 1.0
+
+[particle]
+step_max        = 200000
+n_step          = 200000
+n_scat          = 10000
+n_photon        = 10000
+output          = 0
+
+[line_rt]
+field_file      = fields_cycle0.bin
+photon_file     = photons_cycle0.bin
+photon_pref     = par
+ph_mode         = 0
+b_sca           = 1
+num_rng         = 16381
+n_ph_read       = -1
+const_abs       = 1
+n_fld           = 1
+a_voigt         = 0       ; Voigt damping parameter (0 = pure Gaussian)
+ray_output      = 0       ; 1 = enable raw ray output binary
+ray_id          = -1      ; target cell index for ray output (-1 = all)
+
+[boundary]
+kinds = fre fre fre fre fre fre

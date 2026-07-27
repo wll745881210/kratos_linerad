@@ -68,7 +68,7 @@ def write_photon_data(filename, photons, n_col=None):
     ph = ph.astype(np.float32)
     if n_col is None:
         n_col = ph.shape[1]
-    if n_col not in (7, 8, 9, 10):
+    if n_col not in (7, 8, 9, 10, 11):
         raise ValueError(f'n_col must be 7, 8, 9, or 10, got {n_col}')
 
     bio = binary_io(filename)
@@ -158,6 +158,12 @@ def read_output(filename):
             elif key.startswith('block_') and key.endswith('|rad_exc_rate_field'):
                 full = bio.as_array(key, 'f')
                 result['exc_rate'] = _strip_ghosts(full, n_cell, n_gh, n_int)
+            elif key.startswith('block_') and key.endswith('|rad_ray_flx_field'):
+                full = bio.as_array(key, 'f')
+                result['ray_flx'] = _strip_ghosts(full, n_cell, n_gh, n_int)
+            elif key.startswith('block_') and key.endswith('|rad_ray_exc_flux_field'):
+                full = bio.as_array(key, 'f')
+                result['ray_exc_flux'] = _strip_ghosts(full, n_cell, n_gh, n_int)
 
     # Escaped photons
     phot = {}

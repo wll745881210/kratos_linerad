@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Build synthetic molecular species for analytic testing (Neufeld, etc.)."""
+
+import numpy as np
+from .lamda_format import SpeciesData
+
+h_cgs = 6.62607015e-27
+c_cgs = 2.99792458e10
+k_B   = 1.380649e-16
+sqrt_pi = 1.77245385091
+
+
+def make_synthetic_2level(b, nu, a, *, transition_idx=0, species_name='synthetic'):
+    """Create a synthetic 2-level species.
+
+    Parameters
+    ----------
+    b : float
+        Doppler b [cm/s].
+    nu : float
+        Line frequency [Hz].
+    a : float
+        Voigt damping parameter a = A_ul / (4π Δν_D).
+    transition_idx : int
+        Index of the pumped transition.
+    species_name : str
+
+    Returns
+    -------
+    species : SpeciesData
+    transition : Transition
+    """
+    if not (1e-50 < a < 100.0):
+        raise ValueError(f'a = {a} outside valid range (1e-50, 100)')
+
+    sigma_th = b / np.sqrt(2.0)
+    delta_nu_D = nu * sigma_th / c_cgs
+    A_ul = a * 4.0 * np.pi * delta_nu_D
+    nu_GHz = nu / 1.0e9
+    E_u_K = h_cgs * nu / k_B
+    g_u, g_l = 3.0, 1.0
+
+    species = SpeciesData(
+        name=species_name,
+        n_levels=2,
+        n_transitions=1,
+        levels=np.array([[0.0, g_l], [E_u_K, g_u]], dtype=np.float64),
+        transitions=np.array([[1, 0, A_ul, nu_GHz]], dtype=np.float64),
+    )
+
+    print(f"  Synthetic {species_name}: A_ul={A_ul:.2e}, nu={nu_GHz:.2f} GHz, "
+          f"E_u/K={E_u_K:.1f}, g_u={g_u:.0f}, g_l={g_l:.0f}")
+
+    return species, species.transitions_list[transition_idx]
+
+
+def make_synthetic_nlevel(co_levels_raw, b, nu, a, *, transition_idx=0):
+    """Create a synthetic N-level species from raw CO-like data.
+
+    parameters_from : dict
+        Maps 'b', 'nu', 'a' to the synthetic species.  The embedded CO
+        data is used as a template for the level structure; only the
+        target transition is modified to match the requested a and nu.
+    transition_idx : int
+    """
+    raise NotImplementedError("N-level synthetic species not yet implemented")
