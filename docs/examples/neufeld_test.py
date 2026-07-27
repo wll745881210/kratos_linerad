@@ -85,15 +85,16 @@ def run_test(tau0_list, ph_mode, label, n_source=50000):
     print(f"\n{'='*60}")
     print(f"  {label}  (ph_mode={ph_mode})")
     print(f"{'='*60}")
-    print(f" {'t_0':>6s}  {'at_0':>6s} {'x_pred':>7s} {'x_mc':>7s} "
+    print(f" {'t_0':>6s}  {'at_0':>7s} {'x_pred':>7s} {'x_mc':>7s} "
           f"{'HWHM':>7s} {'n_esc':>7s}")
     print(f"{'-'*60}")
 
     results = []
     for tau0 in tau0_list:
         mfp = tau0 / L_slab
-        n_step = max(200000, int(tau0 * 500))
-        n_scat = max(200000, int(tau0 * 100))
+        n_src = 20000 if tau0 >= 10000 else n_source
+        n_step = max(10000000 if tau0 >= 10000 else 200000, int(tau0 * 500))
+        n_scat = max(100000 if tau0 >= 100000 else 200000, int(tau0 * 100))
 
         from core.line_rt import LineRt
         rt = LineRt(
@@ -112,13 +113,13 @@ def run_test(tau0_list, ph_mode, label, n_source=50000):
         rt.set_boundary("fre fre per per per per")
         rt.add_source(
             type="slab", x=-0.49,
-            n_photon=n_source,
-            luminosity=float(n_source),
+            n_photon=n_src,
+            luminosity=float(n_src),
         )
         res = rt.run()
         vel = np.asarray(res["results"][0]["photons"]["vel"])
         xp, n_esc, hwhm = kde_peak(vel, sigma_th)
-        x_pred = x_peak(a * 2.0 * tau0)
+        x_pred = x_peak(a * tau0)
         results.append((tau0, xp, n_esc, hwhm))
 
         xp_str = f"{xp:.2f}" if not np.isnan(xp) else "   nan"
@@ -160,7 +161,7 @@ def fit_scaling(results, label):
 print("=" * 60)
 print("  Neufeld (1990) Test — KDE Peak Finding")
 print("=" * 60)
-tau0_values = [10, 30, 100, 300, 1000, 3000]
+tau0_values = [10, 30, 100, 300, 1000, 3000, 10000, 100000]
 
 # R_IIA mode
 res1 = run_test(tau0_values, ph_mode=1, label="ph_mode=1  (table Voigt + R_IIA)")
@@ -174,7 +175,7 @@ print()
 print("=" * 60)
 print("  Summary: x_peak scaling exponents")
 print("=" * 60)
-print(f"  Neufeld prediction:  x_peak = 1.066 * (2a·τ₀)^(1/3)")
+print(f"  Neufeld prediction:  x_peak = 0.88 * (a·τ₀)^(1/3)")
 print(f"  Slope: β = 1/3 ≈ 0.333")
 print()
 print("  ph_mode=1 (table Voigt + R_IIA):  table-based H(a,u) for scattering")

@@ -107,9 +107,13 @@ def transmitted_external(x, a_tau0, tau_f_line=None):
 def x_peak(a_tau0):
     """Predicted peak position |x_peak| in Doppler units.
 
-    From Adams (1972):  |x_peak| ≈ 1.066 × (a τ₀)^(1/3)
+    Verhamme, Schaerer & Maselli (2006):
+      |x_peak| ≈ 0.88 × (a τ₀)^(1/3)
+
+    where τ₀ is the line-centre optical depth (includes √π
+    normalisation from Neufeld's σ₀ definition).
     """
-    return 1.066 * np.maximum(a_tau0, 1e-10) ** (1.0 / 3.0)
+    return 0.88 * np.maximum(a_tau0, 1e-10) ** (1.0 / 3.0)
 
 
 def escape_fraction_dust(tau_0, tau_abs):

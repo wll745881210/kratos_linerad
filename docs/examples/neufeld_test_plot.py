@@ -64,8 +64,9 @@ def kde_peak(velocities, x_max=10.0, n_points=500):
 # ---- Run single tau0 and collect data ----------------------------------------
 def run_one(tau0, ph_mode, n_source=50000):
     mfp = tau0 / L_slab
-    n_step = max(200000, int(tau0 * 500))
-    n_scat = max(200000, int(tau0 * 100))
+    n_src = 20000 if tau0 >= 10000 else n_source
+    n_step = max(10000000 if tau0 >= 10000 else 200000, int(tau0 * 500))
+    n_scat = max(100000 if tau0 >= 100000 else 200000, int(tau0 * 100))
     from core.line_rt import LineRt
     rt = LineRt(
         n_cell=(55, 2, 2), x_min=(-0.5, 0, 0), x_max=(0.5, 0.2, 0.2),
@@ -77,8 +78,8 @@ def run_one(tau0, ph_mode, n_source=50000):
         path=f'/tmp/nf_plot_p{ph_mode}_t{tau0}/run',
     )
     rt.set_boundary("fre fre per per per per")
-    rt.add_source(type="slab", x=-0.49, n_photon=n_source,
-                  luminosity=float(n_source))
+    rt.add_source(type="slab", x=-0.49, n_photon=n_src,
+                  luminosity=float(n_src))
     res = rt.run()
     vel = np.asarray(res["results"][0]["photons"]["vel"])
     vel = vel[~np.isnan(vel)]
@@ -90,7 +91,7 @@ print("=" * 50)
 print("  Neufeld (1990) MC vs Analytic")
 print("=" * 50)
 
-tau0_list = [10, 30, 100, 300, 1000, 3000]
+tau0_list = [10, 30, 100, 300, 1000, 3000, 10000, 100000]
 vel_data = {}  # (ph_mode, tau0) -> velocities
 peaks = {}     # (ph_mode, tau0) -> x_peak_mc
 
@@ -102,8 +103,8 @@ for ph_mode, label in [(1, "ph_mode=1 (table Voigt + R_IIA)"),
         vel_data[(ph_mode, tau0)] = vel
         xp = kde_peak(vel)
         peaks[(ph_mode, tau0)] = xp
-        x_pred = x_peak(a * 2.0 * tau0)
-        print(f"  τ₀={tau0:4d}:  x_mc={xp:.2f}  x_pred={x_pred:.2f}  "
+        x_pred = x_peak(a * tau0)
+        print(f"  τ₀={tau0:6d}:  x_mc={xp:.2f}  x_pred={x_pred:.2f}  "
               f"esc={len(vel)}")
         time.sleep(3)
 
@@ -152,10 +153,10 @@ ax2.set_xlim(-0.5, 12)
 
 # --- Panel 3: Peak-position scaling ---
 ax3 = fig.add_subplot(2, 2, 3)
-at_smooth = np.logspace(-1.2, 1.6, 80)
-x_pred_smooth = x_peak(a * 2.0 * at_smooth / a)
+at_smooth = np.logspace(-1.2, 3.2, 80)
+x_pred_smooth = x_peak(a * at_smooth / a)
 ax3.plot(at_smooth, x_pred_smooth, 'k-', lw=1.2, alpha=0.5,
-         label='Neufeld: 1.066·(aT₀)^(1/3)')
+         label='Neufeld: 0.88·(aτ₀)^(1/3)')
 
 for ph_mode, marker, lbl in [(1, 'o', 'ph_mode=1 (R_IIA)'),
                                (2, 's', 'ph_mode=2 (old)')]:
@@ -179,7 +180,7 @@ ax4.axis('off')
 table_data = [['τ₀', 'aτ₀', 'x_pred',
                'x_mc (R_IIA)', 'x_mc (old)', 'HWHM (R_IIA)', 'HWHM (old)']]
 for tau0 in tau0_list:
-    x_pred = x_peak(a * 2.0 * tau0)
+    x_pred = x_peak(a * tau0)
     xp1 = peaks[(1, tau0)]
     xp2 = peaks[(2, tau0)]
     h1 = np.median(np.abs(vel_data[(1, tau0)])) / sigma_th
