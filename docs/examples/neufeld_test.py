@@ -3,298 +3,226 @@
 Neufeld (1990) Analytic Test — Resonance-Line Radiative Transfer
 =================================================================
 
-Compares Monte Carlo line RT results against the analytic solution for
-a static, uniform, plane-parallel slab (Neufeld 1990, ApJ, 350, 216).
+Compares Monte Carlo line RT results (ph_mode=1 PRD, a_voigt > 0)
+against the analytic solution for a static, uniform, plane-parallel
+slab (Neufeld 1990, ApJ, 350, 216).
 
-Uses a **synthetic 2-level system** with true CFR (sv=0, random frequency
-draw at each scattering) and Voigt damping wing a = 0.01.
+Three test blocks:
+  Block 1 — emergent spectrum shape vs analytic J(x) at 3 tau0 values
+  Block 2 — peak-position scaling  |x_peak| ∝ (a·T₀)^(1/3)
+  Block 3 — dust suppression: escaped fraction vs τ_abs
 
-Tests:
-  Block 1 — emergent spectrum shape vs analytic J(tau0, x) at 3 tau0 values
-  Block 2 — peak-position scaling: x_peak ~ (a*tau0)^(1/3)
-  Block 3 — dust suppression: escaped fraction vs tau_abs
+Uses Group 2 (explicit opacity): mfp_i_sca_0 = τ₀ / L.
+a = 0.01, b_sca = 1e5 cm/s, ph_mode=1 (PRD), single cycle.
 """
 
-import sys, os
+import sys, os, time
 _PROJECT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, _PROJECT)
 
 import numpy as np
-import matplotlib; matplotlib.use('Agg')
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from core.line_rt import LineRt
-from molecular.lamda_format import SpeciesData
-from scipy.signal import find_peaks
-from scipy.optimize import curve_fit
+from neufeld_analytic import x_peak, emergent_central_slab, escape_fraction_dust
 
-AU = 1.49598e13
-h_cgs = 6.62607015e-27
-c_cgs = 2.99792458e10
-k_B   = 1.380649e-16
-sqrt_pi = 1.77245385091
+c_cgs   = 2.99792458e10
+AU      = 1.49598e13
+sqrt2   = np.sqrt(2.0)
 
 # ═══════════════════════════════════════════════════════════════════════
-# 1. Synthetic 2-level species (a = 0.01, b_sca = 1e5 cm/s)
+# 1. Parameters
 # ═══════════════════════════════════════════════════════════════════════
 
-a = 0.01
-b_sca = 1.0e5
-sigma_th = b_sca / np.sqrt(2.0)
-n_species_target = 1.0e3
-L_slab_au = 1.0
-L_slab_cm = L_slab_au * AU
+a      = 0.01
+b_sca  = 1.0e5
+sigma_th = b_sca / sqrt2
+L_slab_cm = 1.0 * AU
 
-sigma0_needed = 100.0 / (n_species_target * L_slab_cm)
-g_u, g_l = 3.0, 1.0
-nu_hz = np.sqrt((g_u / g_l) * a * c_cgs * c_cgs
-                 / (2.0 * np.sqrt(2.0) * sqrt_pi * sigma0_needed))
-nu_GHz = nu_hz / 1.0e9
-A_ul = a * 4.0 * np.pi * nu_hz * sigma_th / c_cgs
-E_u_K = h_cgs * nu_hz / k_B
-
-print("=== Synthetic 2-Level Species ===")
-print(f"  a = {a:.4f}, b_sca = {b_sca:.1e}, sigma_th = {sigma_th:.1e}")
-print(f"  nu_0 = {nu_hz:.3e} Hz ({nu_GHz:.2f} GHz), A_ul = {A_ul:.3e} s^-1")
-print(f"  E_u/K = {E_u_K:.1f} K, g_u={g_u:.0f}, g_l={g_l:.0f}")
-print(f"  sigma0 = {sigma0_needed:.2e} cm^2 (verified below)")
-
-synthetic = SpeciesData(
-    name="Neufeld2Level",
-    n_levels=2, n_transitions=1,
-    levels=np.array([[0.0, g_l], [E_u_K, g_u]], dtype=np.float64),
-    transitions=np.array([[1, 0, A_ul, nu_GHz]], dtype=np.float64),
-)
-sigma0 = synthetic.cross_section(0, b_sca)
-print(f"  Verified sigma0 = {sigma0:.2e} cm^2")
+print("=== Neufeld (1990) Test Parameters ===")
+print(f"  a = {a}, b_sca = {b_sca:.1e} cm/s, σ_th = {sigma_th:.1e} cm/s")
+print(f"  L_slab = {L_slab_cm:.2e} cm = 1 AU")
+print(f"  Mode: PRD (ph_mode=1), a_voigt = {a}")
+print(f"  Group 2 (explicit): mfp_i_sca_0 = τ₀ / L")
+print(f"  x_peak ≈ 1.066 × (2aτ₀)^(1/3)\n")
 
 # ═══════════════════════════════════════════════════════════════════════
-# 2. Neufeld analytic formula
+# 2. Block 1 & 2: spectrum shape + peak scaling
 # ═══════════════════════════════════════════════════════════════════════
 
-def neufeld_transmitted(x, a_tau0):
-    """Transmitted J(tau0, x) — Neufeld 1990 eq. 2.24."""
-    abs_x = np.abs(x)
-    arg = np.sqrt(np.pi**3 / 54.0) * abs_x**3 / np.maximum(a_tau0, 1e-30)
-    arg = np.minimum(arg, 100.0)
-    denominator = a_tau0 * np.cosh(arg)
-    denominator = np.maximum(denominator, 1e-300)
-    j = (np.sqrt(6.0) / 24.0) * x**2 / denominator
-    return j
+tau0_values = [10, 30, 100, 300, 1000, 3000]
+n_source = 50000
+n_cell_x = max(32, int(np.sqrt(max(tau0_values))) + 1)
+results = {}
 
-
-def find_peak_x(vel, sigma_th, n_bins=120):
-    """Find |x_peak| from velocity histogram using Gaussian fit near peak."""
-    # Focus on positive side
-    v_pos = vel[vel > 0]
-    if len(v_pos) < 20:
-        return 0.0, 0.0
-    v_min, v_max = 0.0, min(v_pos.max(), 5 * sigma_th)
-    bins = np.linspace(v_min, v_max, n_bins + 1)
-    counts, edges = np.histogram(v_pos, bins=bins)
-    centers = 0.5 * (edges[:-1] + edges[1:])
-    # Find peak via simple smoothing + argmax
-    smooth = np.convolve(counts.astype(float), np.ones(5)/5, mode='same')
-    i_peak = np.argmax(smooth)
-    v_peak = centers[i_peak]
-    return v_peak / sigma_th, v_peak
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# 3. Test data collection
-# ═══════════════════════════════════════════════════════════════════════
-
-tau0_values = [100, 1000, 10000]
-results_data = {}
-baseline_escaped = {}
-
-print("\n" + "=" * 60)
-print("Running MC simulations (CFR, ph_mode=0, a_voigt=0.01)")
+print("=" * 60)
+print("Running MC simulations (Group 2, ph_mode=1, a_voigt=0.01)")
 print("=" * 60)
 
 for tau0 in tau0_values:
-    n_s = tau0 / (sigma0 * L_slab_cm)
-    n_step_use = max(200000, tau0 * 50)
-    n_scat_use = max(200000, tau0 * 50)
+    mfp_i_sca_0 = tau0 / L_slab_cm  # inverse MFP (cm⁻¹)
+    n_step = max(200000, int(tau0 * 500))
+    n_scat = max(200000, int(tau0 * 100))
 
-    print(f"\n--- tau0 = {tau0} (n_species={n_s:.2e}, n_step={n_step_use}) ---")
+    print(f"\n--- τ₀ = {tau0} "
+          f"(mfp_i_sca_0={mfp_i_sca_0:.2e} cm⁻¹, "
+          f"n_step={n_step/1000:.0f}k) ---")
 
     rt = LineRt(
-        n_cell=(64, 2, 2),
-        x_min=(-L_slab_au / 2, 0, 0),
-        x_max=(L_slab_au / 2, 0.2, 0.2),
+        n_cell=(n_cell_x, 2, 2),
+        x_min=(-0.5, 0, 0), x_max=(0.5, 0.2, 0.2),
         unit_l0=AU, unit_t0=1.0,
-        species=synthetic, transition_idx=0,
-        n_species=n_s, temperature=10.0,
-        b_sca=b_sca,
-        ph_mode=0, n_step=n_step_use, n_scat=n_scat_use, n_cycles=1,
-        n_emission_max=0,
-        mol_mass=1.0, a_voigt=a,
+        b_sca=b_sca, mfp_i_sca_0=mfp_i_sca_0,
+        mfp_i_abs_0=0.0,
+        vel=(0., 0., 0.),
+        ph_mode=1, n_step=n_step, n_scat=n_scat,
+        n_cycles=1, a_voigt=a,
         visualize=False,
     )
     rt.set_boundary("fre fre per per per per")
     rt.add_source(
-        type="slab",
-        x=-L_slab_au / 2 + 0.02,
-        n_photon=8000,
-        flux=1e10 / (0.2 * 0.2 * AU * AU),
-        wavelength=c_cgs / nu_hz,
+        type="slab", x=-0.49, n_photon=n_source,
+        luminosity=float(n_source),
     )
     res = rt.run()
 
-    vel_data = np.asarray(res["spectrum"]["vel"])
-    results_data[tau0] = {"vel": vel_data, "n_species": n_s}
-    baseline_escaped[tau0] = len(vel_data)
+    vel = np.asarray(res["results"][0]["photons"]["vel"])
+    all_vel = vel
+    transmitted = vel  # all escaped = transmitted for source near left face
 
-    n_esc = len(vel_data)
-    v_rms = float(np.std(vel_data)) if n_esc > 5 else 0.0
-    a_tau0 = a * tau0
-    x_peak_pred = 1.066 * a_tau0**(1.0 / 3.0)
-    v_peak_pred = x_peak_pred * sigma_th
-    x_peak_mc, v_peak_mc = find_peak_x(vel_data, sigma_th)
+    x_peak_pred = x_peak(a * 2.0 * tau0)
+    x_mc = np.nan
+    if len(transmitted) > 20:
+        mask = transmitted > 0
+        if mask.sum() > 5:
+            tv = transmitted[mask]
+            bins = np.linspace(0, 5 * sigma_th, 100)
+            cnt, _ = np.histogram(tv, bins=bins)
+            sm = np.convolve(cnt.astype(float), np.ones(5) / 5, mode='same')
+            v_mc = 0.5 * (bins[np.argmax(sm)] + bins[np.argmax(sm) + 1])
+            x_mc = v_mc / sigma_th
 
-    print(f"  Escaped: {n_esc}, v_rms = {v_rms:.1e} cm/s")
-    print(f"  Analytic: x_peak = {x_peak_pred:.3f}, v_peak = {v_peak_pred:.1e} cm/s")
-    print(f"  MC:       x_peak = {x_peak_mc:.3f}, v_peak = {v_peak_mc:.1e} cm/s")
+    results[tau0] = {
+        "all": all_vel, "transmitted": transmitted,
+        "mfp_i_sca_0": mfp_i_sca_0,
+        "x_peak_pred": x_peak_pred,
+    }
+    n_esc = len(all_vel)
+    print(f"  escaped: {n_esc}/{n_source} ({100*n_esc/n_source:.1f}%)  "
+          f"x_peak_pred={x_peak_pred:.2f}  x_peak_mc={x_mc}")
+    time.sleep(5)
 
 # ═══════════════════════════════════════════════════════════════════════
-# 4. Block 2 — peak-position scaling (expanded tau0 range)
+# 3. Block 3: dust suppression
 # ═══════════════════════════════════════════════════════════════════════
+
+tau0_fixed = 100
+mfp_i_sca_fixed = tau0_fixed / L_slab_cm
+tau_abs_values = [0.0, 0.5, 1.0, 3.0, 10.0]
+escaped_frac = []
+analytic_esc = []
 
 print("\n" + "=" * 60)
-print("Block 2: Peak-position scaling")
+print(f"Block 3: Dust suppression (τ₀ = {tau0_fixed})")
 print("=" * 60)
-
-tau0_more = [30, 100, 300, 1000, 3000, 10000]
-x_peaks_mc = []
-x_peaks_analytic = []
-a_tau0_list = []
-
-for tau0 in tau0_more:
-    a_tau0 = a * tau0
-    a_tau0_list.append(a_tau0)
-    x_p = 1.066 * a_tau0**(1.0 / 3.0)
-    x_peaks_analytic.append(x_p)
-
-    if tau0 in results_data:
-        vel_data = results_data[tau0]["vel"]
-    else:
-        n_s = tau0 / (sigma0 * L_slab_cm)
-        n_step_use = max(200000, tau0 * 50)
-        n_scat_use = max(200000, tau0 * 50)
-        rt = LineRt(
-            n_cell=(64, 2, 2),
-            x_min=(-L_slab_au / 2, 0, 0),
-            x_max=(L_slab_au / 2, 0.2, 0.2),
-            unit_l0=AU, unit_t0=1.0,
-            species=synthetic, transition_idx=0,
-            n_species=n_s, temperature=10.0,
-            b_sca=b_sca,
-            ph_mode=0, n_step=n_step_use, n_scat=n_scat_use, n_cycles=1,
-            n_emission_max=0, mol_mass=1.0, a_voigt=a, visualize=False,
-        )
-        rt.set_boundary("fre fre per per per per")
-        rt.add_source(
-            type="slab", x=-L_slab_au / 2 + 0.02, n_photon=8000,
-            flux=1e10 / (0.2 * 0.2 * AU * AU), wavelength=c_cgs / nu_hz,
-        )
-        res = rt.run()
-        vel_data = np.asarray(res["spectrum"]["vel"])
-        results_data[tau0] = {"vel": vel_data, "n_species": n_s}
-
-    x_mc, v_mc = find_peak_x(vel_data, sigma_th)
-    x_peaks_mc.append(x_mc)
-    print(f"  tau0={tau0:5d}  a*tau0={a_tau0:.3f}  "
-          f"x_peak_pred={x_p:.3f}  x_peak_mc={x_mc:.3f}")
-
-# ═══════════════════════════════════════════════════════════════════════
-# 5. Block 3 — dust suppression
-# ═══════════════════════════════════════════════════════════════════════
-
-print("\n" + "=" * 60)
-print("Block 3: Dust suppression (tau0=100)")
-print("=" * 60)
-
-tau_abs_values = [0.0, 1.0, 3.0, 10.0]
-tau0_dust = 100
-n_s_dust = tau0_dust / (sigma0 * L_slab_cm)
-escaped_fraction = []
-analytic_suppression = []
 
 for ta in tau_abs_values:
-    mfp_abs = L_slab_cm / max(ta, 1e-10)
+    mfp_abs_inv = ta / L_slab_cm if ta > 0 else 0.0
     rt = LineRt(
-        n_cell=(64, 2, 2),
-        x_min=(-L_slab_au / 2, 0, 0),
-        x_max=(L_slab_au / 2, 0.2, 0.2),
+        n_cell=(n_cell_x, 2, 2),
+        x_min=(-0.5, 0, 0), x_max=(0.5, 0.2, 0.2),
         unit_l0=AU, unit_t0=1.0,
-        species=synthetic, transition_idx=0,
-        n_species=n_s_dust, temperature=10.0,
-        b_sca=b_sca, mfp_i_abs_0=mfp_abs,
-        ph_mode=0, n_step=200000, n_scat=200000, n_cycles=1,
-        n_emission_max=0, mol_mass=1.0, a_voigt=a, visualize=False,
+        b_sca=b_sca, mfp_i_sca_0=mfp_i_sca_fixed,
+        mfp_i_abs_0=mfp_abs_inv,
+        vel=(0., 0., 0.),
+        ph_mode=1, n_step=200000, n_scat=200000,
+        n_cycles=1, a_voigt=a,
+        visualize=False,
     )
     rt.set_boundary("fre fre per per per per")
     rt.add_source(
-        type="slab", x=-L_slab_au / 2 + 0.02, n_photon=8000,
-        flux=1e10 / (0.2 * 0.2 * AU * AU), wavelength=c_cgs / nu_hz,
+        type="slab", x=-0.49, n_photon=n_source,
+        luminosity=float(n_source),
     )
     res = rt.run()
-    vel_data = np.asarray(res["spectrum"]["vel"])
-    frac = len(vel_data) / 8000.0
-    escaped_fraction.append(frac)
-    analytic_s = np.exp(-ta * np.sqrt(tau0_dust))
-    analytic_suppression.append(analytic_s)
-    print(f"  tau_abs={ta:.1f}  esc_frac={frac:.4f}  "
-          f"exp(-tau_a*sqrt(tau0))={analytic_s:.4f}")
+    vel = np.asarray(res["results"][0]["photons"]["vel"])
+    frac = len(vel) / n_source
+    escaped_frac.append(frac)
+    analytic_esc.append(escape_fraction_dust(tau0_fixed, ta))
+    print(f"  τ_abs={ta:.1f}   escaped={frac:.4f}   "
+          f"analytic:{escape_fraction_dust(tau0_fixed, ta):.4f}")
+    time.sleep(5)
 
 # ═══════════════════════════════════════════════════════════════════════
-# 6. Plot
+# 4. Plot
 # ═══════════════════════════════════════════════════════════════════════
 
 fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
 # Block 1: spectrum shape
 ax = axes[0]
-for tau0 in tau0_values:
-    vel = results_data[tau0]["vel"]
+plot_taus = [100, 1000, 3000]
+for tau0 in plot_taus:
+    if tau0 not in results:
+        continue
+    vel = results[tau0]["transmitted"]
     if len(vel) == 0:
         continue
-    vels_km = vel * 1e-5
-    bins_fine = np.linspace(-5, 5, 100)
-    ax.hist(vels_km, bins=bins_fine, density=True, alpha=0.35,
-            label=f"MC $\\tau_0$={tau0}")
-    # Analytic envelope
-    a_tau0 = a * tau0
+    v_km = vel * 1e-5
+    bins = np.linspace(-5, 5, 80)
+    ax.hist(v_km, bins=bins, density=True, alpha=0.35,
+            label=f"MC  τ₀={tau0}")
+
     x_dop = np.linspace(-8, 8, 400)
-    j_analytic = neufeld_transmitted(x_dop, a_tau0)
-    j_analytic /= np.max(j_analytic) if np.max(j_analytic) > 0 else 1.0
+    a_tau0 = a * 2.0 * tau0
+    j = emergent_central_slab(x_dop, a_tau0)
+    j /= j.max() + 1e-40
     v_analytic = x_dop * sigma_th * 1e-5
-    ax.plot(v_analytic, j_analytic, '-', lw=1.5,
-            label=f"Analytic $a\\tau_0$={a_tau0:.2f}")
+    ax.plot(v_analytic, j, '-', lw=1.5,
+            label=f"Analytic aT₀={a_tau0:.2f}")
+
 ax.set_xlabel("velocity [km/s]")
 ax.set_ylabel("normalised density")
-ax.set_title("Block 1: Emergent Spectrum Shape (CFR)")
+ax.set_title("Block 1: Emergent Spectrum Shape (PRD, transmitted)")
 ax.legend(fontsize=7, loc='upper right')
 
 # Block 2: peak position
 ax = axes[1]
-a_tau0_arr = np.array(a_tau0_list)
-ax.loglog(a_tau0_arr, x_peaks_analytic, 'k--', lw=2,
-          label="$x_p = 1.066\\,(a\\tau_0)^{1/3}$")
-ax.loglog(a_tau0_arr, x_peaks_mc, 'ro-', ms=7, label='MC (CFR)')
-ax.set_xlabel("$a\\,\\tau_0$")
+aT_arr = np.array([a * 2.0 * t for t in sorted(results.keys())])
+x_pred = x_peak(aT_arr)
+ax.loglog(aT_arr, x_pred, 'k--', lw=2, label="$1.066\\,(aT_0)^{1/3}$")
+
+t_list, x_list = [], []
+for tau0 in sorted(results.keys()):
+    vel = results[tau0]["transmitted"]
+    if len(vel) < 20:
+        continue
+    vp = vel[vel > 0]
+    if len(vp) < 10:
+        continue
+    bins = np.linspace(0, 10 * sigma_th, 120)
+    cnt, _ = np.histogram(vp, bins=bins)
+    sm = np.convolve(cnt.astype(float), np.ones(5) / 5, mode='same')
+    xp = 0.5 * (bins[np.argmax(sm)] + bins[np.argmax(sm) + 1]) / sigma_th
+    t_list.append(a * 2.0 * tau0)
+    x_list.append(xp)
+
+ax.loglog(t_list, x_list, 'ro-', ms=7, label='MC (PRD)')
+ax.set_xlabel("$a\\,T_0$")
 ax.set_ylabel("$|x_{\\rm peak}|$ [Doppler units]")
 ax.set_title("Block 2: Peak-Position Scaling")
 ax.legend(fontsize=9); ax.grid(True, alpha=0.3)
 
-# Block 3: dust
+# Block 3: dust suppression
 ax = axes[2]
-ax.semilogy(tau_abs_values, escaped_fraction, 'ro-', ms=8, label='MC')
-ax.semilogy(tau_abs_values, analytic_suppression, 'k--', lw=2,
-            label='$\\exp(-\\tau_a\\sqrt{\\tau_0})$')
-ax.set_xlabel("$\\tau_{\\rm abs}$"); ax.set_ylabel("escaped fraction")
-ax.set_title("Block 3: Dust Suppression ($\\tau_0=100$)")
+ax.semilogy(tau_abs_values, escaped_frac, 'ro-', ms=8, label='MC (transmitted)')
+ax.semilogy(tau_abs_values, analytic_esc, 'k--', lw=2,
+            label="$\\exp(-\\tau_a\\sqrt{\\tau_0})$")
+ax.set_xlabel("$\\tau_{\\rm abs}$")
+ax.set_ylabel("escaped fraction")
+ax.set_title(f"Block 3: Dust Suppression ($\\tau_0={tau0_fixed}$)")
 ax.legend(fontsize=9); ax.grid(True, alpha=0.3)
 
 fig.tight_layout()
@@ -304,24 +232,33 @@ fig.savefig(outpath, dpi=150)
 print(f"\nResults saved to {outpath}")
 
 # ═══════════════════════════════════════════════════════════════════════
-# 7. Summary
+# 5. Summary table
 # ═══════════════════════════════════════════════════════════════════════
 
 print("\n=== Neufeld Test Summary ===")
-print(f"Synthetic species: {synthetic.name}")
-print(f"  a = {a:.4f}, b_sca = {b_sca:.1e} cm/s, sigma_th = {sigma_th:.1e}")
-print(f"  sigma0 = {sigma0:.2e} cm^2, L_slab = {L_slab_cm:.2e} cm")
-print(f"  Mode: CFR (ph_mode=0, sv=0, Gaussian randomization)")
+print(f"  a = {a}, b_sca = {b_sca:.1e} cm/s, σ_th = {sigma_th:.1e} cm/s")
+print(f"  L_slab = {L_slab_cm:.2e} cm = 1 AU")
+print(f"  Mode: PRD (ph_mode=1), a_voigt = {a}")
+print(f"  Group 2: mfp_i_sca_0 = τ₀ / L")
 print()
-print(f"{'tau0':>6s}  {'a*tau0':>7s}  {'x_peak_pred':>10s}  "
-      f"{'x_peak_mc':>10s}  {'v_peak_mc(cm/s)':>15s}  {'n_esc'}")
+print(f"{'τ₀':>6s}  {'a·T₀':>8s}  {'x_p(pred)':>9s}  "
+      f"{'x_p(mc)':>9s}  {'n_esc':>8s}")
 
-for tau0, data in results_data.items():
-    vel = data["vel"]
-    a_tau0 = a * tau0
-    x_pred = 1.066 * a_tau0**(1.0 / 3.0)
-    x_mc, v_mc = find_peak_x(vel, sigma_th)
-    print(f"{tau0:6d}  {a_tau0:7.3f}  {x_pred:10.3f}  "
-          f"{x_mc:10.3f}  {v_mc:15.1e}  {len(vel)}")
+for tau0 in sorted(results.keys()):
+    r = results[tau0]
+    vel = r["transmitted"]
+    aT = a * 2.0 * tau0
+    xp = x_peak(aT)
+    xm = np.nan
+    n_tot = len(vel)
+    if len(vel) > 20:
+        vp = vel[vel > 0]
+        if len(vp) > 5:
+            bins = np.linspace(0, 10 * sigma_th, 120)
+            cnt, _ = np.histogram(vp, bins=bins)
+            sm = np.convolve(cnt.astype(float), np.ones(5) / 5, mode='same')
+            xm = 0.5 * (bins[np.argmax(sm)] + bins[np.argmax(sm) + 1]) / sigma_th
+    print(f"  {tau0:4d}  {aT:6.1f}  {xp:8.2f}  "
+          f"{xm:7.2f}  {n_tot:8d}")
 
-print("\nNeufeld test complete.")
+print("\nDone.")

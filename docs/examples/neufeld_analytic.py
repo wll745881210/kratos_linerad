@@ -109,7 +109,7 @@ def x_peak(a_tau0):
 
     From Adams (1972):  |x_peak| ≈ 1.066 × (a τ₀)^(1/3)
     """
-    return 1.066 * (max(a_tau0, 1e-10))**(1.0 / 3.0)
+    return 1.066 * np.maximum(a_tau0, 1e-10) ** (1.0 / 3.0)
 
 
 def escape_fraction_dust(tau_0, tau_abs):

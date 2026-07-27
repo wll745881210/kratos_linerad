@@ -210,3 +210,28 @@ python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_paralle
 
 19. **Never use 1 for any `n_cell_global` component — minimum is 2.** Kratos requires at least 2 cells in each dimension. The mesh output (`.bin` file with block/grid data) may silently break with single-cell dimensions, producing only particle output but no field data.
 
+20. **`interp_t` table lifecycle (critical for correct const-memory usage).** When adding a pre-computed table to Kratos via `extension::interp_t`, follow the cooling-module pattern exactly (see `usr/extension/chem_therm/reaction/mol_cooling.cpp:25-34`):
+
+    ```cpp
+    // 1. Allocate host copy of the table (interp_t will own and free it)
+    float *copy = (float*)std::malloc(sizeof(float) * n_total);
+    std::memcpy(copy, static_table_data, sizeof(float) * n_total);
+    
+    // 2. Set up the grid (uniform or non-uniform)
+    voigt_interp.setup(x0, dx, n, copy);
+    
+    // 3. Move data to device const/global memory (frees host copy)
+    voigt_interp.to_const(*mod.p_dev);
+    //  or: voigt_interp.to_device(*mod.p_dev);
+    ```
+
+    **Why malloc is required:** `setup()` takes a raw pointer without copying. `to_const()` / `to_device()` internally calls `std::free()` on that pointer to release the host copy after moving data to the device. **Never pass a static `const` array to `setup()`** — it will be passed to `free()` and cause undefined behavior.
+
+    **Device-side access:** After `to_const()`, the table data lives in constant memory. The `interp_t` struct itself (x0, dx, n, dat pointer) is shallow-copied to the device when its parent struct is passed to a kernel. Calling `interp.object(x)` on device uses bilinear interpolation.
+
+    **Reference files:**
+    - `usr/extension/algo/interp.h` — the `interp_t` class (with `setup()`, `setup_non_uni()`, `to_const()`, `to_device()`, `operator()`)
+    - `usr/extension/chem_therm/reaction/mol_cooling.h:26-31` — interp members in a device-accessible struct
+    - `usr/extension/chem_therm/reaction/mol_cooling.cpp:25-34` — `set_intp` lambda: malloc → setup → to_const
+    - `usr_ext/line_rt/intg.h:38-50` — our Voigt table (follows this pattern)
+
