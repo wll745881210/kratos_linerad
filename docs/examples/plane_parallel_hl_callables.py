@@ -111,6 +111,7 @@ if exc_flat is not None and flx_flat is not None:
     axes[0, 1].plot(x_cell, exc_x / (exc_x.max() or 1), "b-", lw=2, label="excitation_flux")
     axes[0, 1].plot(x_cell, flx_x / (flx_x.max() or 1), "orange", lw=1.5, label="flx")
     axes[0, 1].set(xlabel="x [AU]", ylabel="normalised")
+    axes[0, 1].set_yscale("log")
     axes[0, 1].legend(fontsize=7)
     axes[0, 1].set_title("Spatial Flux Distribution")
 else:

@@ -179,3 +179,28 @@ python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_paralle
 15. **Boundary `kinds` MUST specify all 6 faces, not 3.** Kratos expects 6 values: `-x, +x, -y, +y, -z, +z`. Writing only 3 leaves the remaining undefined, defaulting to periodic. **The par template default is now all-free** (`fre fre fre fre fre fre`). For plane-parallel slabs, use `par_overrides={'kinds': 'fre fre per per per per'}` or `rt.set_boundary("fre fre per per per per")`.
 16. **Slab source uses `flux` not `luminosity`.** For extended slab sources, specify photon number flux [photons cm⁻² s⁻¹] (or energetic flux with `wavelength`). The proper per packet = flux × source_area_cm² / n_photon. Point sources still use `luminosity`.
 17. **Default boundaries are all-free.** Use `set_boundary(kinds)` on `LineRt` or `par_overrides={'kinds': ...}` in `iterate()` to configure boundaries for your geometry.
+18. **Regression tests: copy to temp directories, NEVER touch the trunk.** Before testing with historical versions (e.g. git-bisecting a regression), clone the repos to temp directories and work there. Never modify `~/apps/kratos_line_rt/` or `~/Seafile/seafile_sync/code/kratos/` or `~/Seafile/seafile_sync/code/line_rt_pipeline/` for A/B testing.
+
+   Template:
+   ```bash
+   # Copy Kratos build tree (includes compiled binary, src/, usr_ext/)
+   cp -a ~/apps/kratos_line_rt /tmp/regtest_kratos
+
+   # Copy pipeline
+   git clone ~/Seafile/seafile_sync/code/line_rt_pipeline /tmp/regtest_pipeline
+
+   # Checkout historical versions in temp copies only
+   cd /tmp/regtest_kratos/usr_ext && git checkout <old_commit>
+   cd /tmp/regtest_pipeline && git checkout <old_commit>
+
+   # Build the temp Kratos if usr_ext changed
+   cd /tmp/regtest_kratos && make USRDIR=usr_ext/line_rt -j8
+
+   # Run from temp dir, never from ~/scratch/line_rt
+   mkdir /tmp/regtest_run
+   cd /tmp/regtest_run
+   /tmp/regtest_kratos/bin/kratos <par_file>
+
+   # Cleanup when done
+   rm -rf /tmp/regtest_kratos /tmp/regtest_pipeline /tmp/regtest_run
+   ```
