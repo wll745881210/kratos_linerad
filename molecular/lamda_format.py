@@ -243,9 +243,9 @@ class SpeciesData:
                 photons.append([x[j], y[j], z[j],
                                 dir_x[j], dir_y[j], dir_z[j],
                                 weight_per_ph, vel_draw[j],
-                                sigma_ph, 1.0])
+                                sigma_ph])
         if not photons:
-            return np.zeros((0, 11), dtype=np.float64)
+            return np.zeros((0, 9), dtype=np.float64)
         return np.array(photons, dtype=np.float64)
 
     def make_fields(self, populations, step, cycle, base_fields=None,

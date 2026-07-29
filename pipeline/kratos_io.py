@@ -10,7 +10,7 @@ from binary_io import binary_io
 import numpy as np
 
 
-def write_field_data(filename, fields, mesh):
+def write_field_data(filename, fields, mesh, unit_l0=1.0):
     """
     Write Kratos field binary.
 
@@ -24,23 +24,34 @@ def write_field_data(filename, fields, mesh):
     mesh : dict
         'n_cell' : ndarray[int32], 'x_min' : ndarray[float32],
         'dx' : ndarray[float32]
+    unit_l0 : float
+        Ignored — kept for API compatibility. Kratos uses CGS
+        coordinates for geo.x_cc(), so the field binary grid must
+        use CGS x0/dx matching the par-file mesh.
     """
     bio = binary_io(filename)
     n_cell = np.asarray(mesh['n_cell'], dtype=np.int32)
     x_min  = np.asarray(mesh['x_min'],  dtype=np.float32)
     dx     = np.asarray(mesh['dx'],     dtype=np.float32)
 
+    n_pts = (n_cell + 1).astype(np.int32)
+    nc = n_cell.astype(np.int32)
+
     for prefix in ['mfp_i_sca_0_', 'mfp_i_abs_0_',
                    'b_sca_', 'temp_',
                    'vel_0_', 'vel_1_', 'vel_2_']:
-        key = prefix.strip('_')
+        key = prefix
         if key not in fields:
             continue
-        bio.cache(f'{prefix}n_pts', n_cell, dtype='int32')
+        data = np.asarray(fields[key], dtype=np.float32)
+
+        arr = data.reshape(nc[2], nc[1], nc[0])
+        padded = np.pad(arr, ((0, 1), (0, 1), (0, 1)), mode='edge')
+
+        bio.cache(f'{prefix}n_pts', n_pts,  dtype='int32')
         bio.cache(f'{prefix}x0',    x_min,  dtype='float32')
         bio.cache(f'{prefix}dx',    dx,     dtype='float32')
-        bio.cache(f'{prefix}data',
-                  np.asarray(fields[key], dtype=np.float32),
+        bio.cache(f'{prefix}data', padded.ravel().astype(np.float32),
                   dtype='float32')
     bio.save()
     print(f'Wrote fields: {filename}')
@@ -54,9 +65,9 @@ def write_photon_data(filename, photons, n_col=None):
     ----------
     filename : str
     photons : ndarray (n_ph, n_col)
-        Columns: x, y, z, dir_x, dir_y, dir_z, proper, [vel], [sigma, amplitude]
+        Columns: x, y, z, dir_x, dir_y, dir_z, proper, [vel], [sv]
     n_col : int, optional
-        Default: photons.shape[1]. Must be 7, 8, 9, or 10.
+        Default: photons.shape[1]. Must be 7, 8, or 9.
     """
     ph = np.asarray(photons, dtype=np.float64)
     proper_max = abs(ph[:, 6].max()) if ph.shape[1] >= 7 else 0.0
@@ -68,8 +79,8 @@ def write_photon_data(filename, photons, n_col=None):
     ph = ph.astype(np.float32)
     if n_col is None:
         n_col = ph.shape[1]
-    if n_col not in (7, 8, 9, 10, 11):
-        raise ValueError(f'n_col must be 7, 8, 9, or 10, got {n_col}')
+    if n_col not in (7, 8, 9):
+        raise ValueError(f'n_col must be 7, 8, or 9, got {n_col}')
 
     bio = binary_io(filename)
     bio.cache('par_n_col', n_col, dtype='int32')
@@ -176,10 +187,6 @@ def read_output(filename):
             phot['l'] = bio.as_array(raw_key, 'f')
         elif '_rank_' in raw_key and raw_key.endswith('_vel'):
             phot['vel'] = bio.as_array(raw_key, 'f')
-        elif '_rank_' in raw_key and raw_key.endswith('_sigma'):
-            phot['sigma'] = bio.as_array(raw_key, 'f')
-        elif '_rank_' in raw_key and raw_key.endswith('_amplitude'):
-            phot['amplitude'] = bio.as_array(raw_key, 'f')
     if phot:
         result['photons'] = phot
 

@@ -29,7 +29,7 @@ output          = 0
 field_file      = fields_cycle0.bin
 photon_file     = photons_cycle0.bin
 photon_pref     = par
-ph_mode         = 0
+ph_mode         = 0          ; 0=CFR (Gaussian), 1=R_IIA (USampler)
 b_sca           = 1
 num_rng         = 16381
 n_ph_read       = -1

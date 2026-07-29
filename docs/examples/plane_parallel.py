@@ -225,4 +225,3 @@ for k, res in enumerate(results):
 
 print("\nPlane-parallel slab example complete.")
 print(f"See {outpath} for summary plots.")
-print("For detailed physics, see LINE_RT_DOCS.html")

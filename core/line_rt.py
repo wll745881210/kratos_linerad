@@ -154,7 +154,7 @@ class LineRt:
                    x=None, direction="+x",
                    y_range=None, z_range=None,
                    position=None,
-                   vel_offset=0.0, sigma=None, amplitude=1.0):
+                   vel_offset=0.0, sigma=0.0):
         """Add an external photon source.
 
         Parameters
@@ -189,15 +189,14 @@ class LineRt:
             (x, y, z) of point source.
         vel_offset : float
             Velocity offset of emitted photons [cm/s].
-        sigma : float or None
-            Intrinsic Doppler width [cm/s]. None → b_sca/√2.
-        amplitude : float
-            Line strength.
+        sigma : float
+            Initial photon intrinsic Doppler width [cm/s] (sv).
+            0 → monochromatic at line centre.
         """
         src = dict(type=type, n_photon=n_photon, luminosity=luminosity,
                    flux=flux, wavelength=wavelength, x=x, direction=direction,
                    y_range=y_range, z_range=z_range, position=position,
-                   vel_offset=vel_offset, sigma=sigma, amplitude=amplitude)
+                   vel_offset=vel_offset, sigma=sigma)
         self._sources.append(src)
         return self
 
@@ -244,11 +243,13 @@ class LineRt:
 
         if species is not None:
             mfp_sca_0, mfp_abs_0_in = self._resolve_mfp_species(species, n_tot,
-                                                                  b_sca_val,
-                                                                  n_species_val)
+                                                                   b_sca_val,
+                                                                   n_species_val)
             if mfp_abs_0_in is not None:
                 fields['mfp_i_abs_0'] = mfp_abs_0_in
             fields['mfp_i_sca_0'] = mfp_sca_0
+        elif self._mfp_i_sca_0 is not None:
+            fields['mfp_i_sca_0'] = self._resolve_field(self._mfp_i_sca_0, n_tot)
         elif self._mfp_i_sca_0 is not None:
             fields['mfp_i_sca_0'] = self._resolve_field(self._mfp_i_sca_0, n_tot)
 
@@ -259,13 +260,6 @@ class LineRt:
                     fields[key] = np.asarray(fields[key], dtype=np.float64) * self._unit_l0
                 elif key in ('b_sca',) or key.startswith('vel_'):
                     fields[key] = np.asarray(fields[key], dtype=np.float64) * v_factor
-
-        v_factor = self._unit_t0 / self._unit_l0
-        for key in list(fields):
-            if key.startswith('mfp_i_'):
-                fields[key] = np.asarray(fields[key], dtype=np.float64) * self._unit_l0
-            elif key in ('b_sca',) or key.startswith('vel_'):
-                fields[key] = np.asarray(fields[key], dtype=np.float64) * v_factor
 
         photons = self._generate_photons(n_tot, mesh, b_sca_val)
 
@@ -426,13 +420,9 @@ class LineRt:
         luminosity = src.get('luminosity', None)
         flux = src.get('flux', None)
         vel_offset = float(src.get('vel_offset', 0.0))
-        amplitude = float(src.get('amplitude', 1.0))
+        sigma = float(src.get('sigma', 0.0))
 
-        sigma = src.get('sigma', None)
-        if sigma is None:
-            sigma = float(np.mean(b_sca_val)) / np.sqrt(2.0)
-        else:
-            sigma = float(sigma)
+        n_col = 9 if sigma != 0.0 else 8
 
         if s_type == "slab":
             x_min = mesh['x_min']
@@ -468,11 +458,11 @@ class LineRt:
             else:
                 proper = 1.0 / n_ph
 
-            ph = np.zeros((n_ph, 10), dtype=np.float64)
+            ph = np.zeros((n_ph, n_col), dtype=np.float64)
             ph[:, 6] = proper
             ph[:, 7] = vel_offset
-            ph[:, 8] = sigma
-            ph[:, 9] = amplitude
+            if n_col >= 9:
+                ph[:, 8] = sigma
             ph[:, 0] = x_pos
             ph[:, 1] = np.random.uniform(y_lo, y_hi, n_ph)
             ph[:, 2] = np.random.uniform(z_lo, z_hi, n_ph)
@@ -488,11 +478,11 @@ class LineRt:
             else:
                 proper = 1.0 / n_ph
 
-            ph = np.zeros((n_ph, 10), dtype=np.float64)
+            ph = np.zeros((n_ph, n_col), dtype=np.float64)
             ph[:, 6] = proper
             ph[:, 7] = vel_offset
-            ph[:, 8] = sigma
-            ph[:, 9] = amplitude
+            if n_col >= 9:
+                ph[:, 8] = sigma
 
             pos = src.get('position', (0.0, 0.0, 0.0))
             ph[:, 0] = float(pos[0])

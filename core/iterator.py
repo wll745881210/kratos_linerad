@@ -66,14 +66,15 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
 
     for cycle in range(n_cycles):
         field_file = os.path.join(work_dir, f"fields_cycle{cycle}.bin")
-        write_field_data(field_file, fields, mesh)
+        write_field_data(field_file, fields, mesh, unit_l0=unit_l0)
 
         photon_file = os.path.join(work_dir, f"photons_cycle{cycle}.bin")
         ph_arr = np.asarray(source_photons, dtype=np.float64).copy()
         if ph_arr.shape[1] >= 8:
             v_factor = unit_t0 / unit_l0
             ph_arr[:, 7] *= v_factor
-            ph_arr[:, 8] *= v_factor
+            if ph_arr.shape[1] >= 9:
+                ph_arr[:, 8] *= v_factor
         scale_factor = write_photon_data(photon_file, ph_arr)
 
         prefix = f"cycle{cycle}"
@@ -90,7 +91,7 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         if 'photons' in output:
             v_factor = unit_t0 / unit_l0
             phot = output['photons']
-            for key in ('vel', 'x', 'l', 'sigma'):
+            for key in ('vel', 'x', 'l'):
                 if key in phot:
                     arr = np.asarray(phot[key], dtype=np.float64)
                     if key in ('x', 'l'):

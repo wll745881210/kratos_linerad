@@ -128,7 +128,7 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
     n_photon : int
     n_step, n_scat : int
     n_fld : int  Number of flux/field components
-    ph_mode : int  0=coherent, 1=CFR
+    ph_mode : int  0=CFR, 1=R_IIA (USampler)
     par_overrides : dict  Additional par file overrides
     unit_l0 : float  code length unit in CGS (cm per code-length)
     unit_t0 : float  code time unit in CGS (s per code-time)
@@ -168,7 +168,7 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
         # Generate fields
         fields = model.make_fields(populations, step='pre', cycle=cycle)
         field_file = os.path.join(work_dir, f'fields_cycle{cycle}.bin')
-        write_field_data(field_file, fields, mesh)
+        write_field_data(field_file, fields, mesh, unit_l0=unit_l0)
 
         # Write photon binary and capture proper-weight scale factor
         photons = model.generate_photons(populations, mesh, cycle)

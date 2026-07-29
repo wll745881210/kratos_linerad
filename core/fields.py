@@ -71,8 +71,8 @@ def make_spherical_mesh(r_face, theta_face, phi_face):
     }
 
 
-def write_kratos_fields(filename, fields, mesh):
-    write_field_data(filename, fields, mesh)
+def write_kratos_fields(filename, fields, mesh, unit_l0=1.0):
+    write_field_data(filename, fields, mesh, unit_l0=unit_l0)
 
 
 def read_kratos_output(filename):

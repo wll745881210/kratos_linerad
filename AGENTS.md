@@ -12,13 +12,24 @@ HTTP proxy for external downloads: `http://127.0.0.1:7892`. Use `export http_pro
 
 | Directory | Purpose |
 |-----------|---------|
-| `molecular/` | Species data, cross sections, population solver |
-| `core/` | Field functions, source generation, iterator, visualization |
-| `pipeline/` | Kratos I/O, par-file management, orchestrator |
-| `ui/` | Jupyter widget interface |
-| `docs/` | PHYSICS.md (authoritative spec), examples |
+| `core/` | `LineRt` orchestrator, field functions, source generation, iterator, visualization, consistency checks |
+| `molecular/` | Species data (LAMDA), cross sections, population solver, LAMDA downloader |
+| `pipeline/` | Kratos I/O, par-file templating, low-level `run_pipeline()` |
+| `ui/` | Jupyter ipywidgets interface |
+| `web/` | Panel dashboard (`panel serve web/app.py`) |
+| `cli.py` | CLI entrypoint (`line-rt` console script, registered in `setup.py`) |
+| `tests/` | Standalone test scripts — run individually, e.g. `python tests/test_A_absorption_only.py` |
+| `docs/reference_mcrt/mcrt.py` | Reference Python MCRT (numba). ph_mode=1 uses USampler table-lookup R_IIA. `plot_neufeld.py` validates vs Neufeld (1990). |
 | `~/apps/kratos_line_rt/` | Kratos build tree (symlinked to Seafile source) |
 | `~/scratch/line_rt/` | **Runtime working directory** — all test runs happen here |
+
+---
+
+## Architecture: two-level API
+
+**High level — `LineRt` class** (`core/line_rt.py:25`): single-entry-point orchestrator. Configure geometry, species/source via constructor + `add_source()`, then call `run()`. Handles mesh creation, field resolution, photon generation, consistency checks, and the full MC → population → MC cycle loop. This is what README examples and the CLI use.
+
+**Low level — `iterate()`** (`core/iterator.py:16`): bare loop over writes→run→read→update. Takes raw arrays; no species resolution or source generation. `LineRt.run()` delegates to this.
 
 ---
 
@@ -47,27 +58,41 @@ The `[line_rt]` section must contain:
 [line_rt]
 field_file  = fields_cycle0.bin
 photon_file = photons_cycle0.bin
-ph_mode     = 0          # 0=CFR, 1=partial redistribution
+ph_mode     = 0          # 0=CFR (Gaussian), 1=R_IIA (USampler)
 b_sca       = 1.0        # Doppler b (scattering) — used for overlap integral
 const_abs   = 1          # always 1 (absorption is wavelength-independent)
 n_fld       = 1
 num_rng     = 16381
+a_voigt     = 0.0        # Voigt damping parameter (0 = pure Gaussian)
+ray_output  = 0          # 1 = enable raw ray output binary
+ray_id      = -1         # target cell index for ray output (-1 = all cells)
 ```
+
+**ph_mode values:**
+- `0` — CFR: `Δv = −v·d̂`, `σ_ph = σ_th` (no random velocity)
+- `1` — R_IIA: exact USampler kernel + Voigt opacity table
 
 **There is no `b_abs` parameter anymore.** Absorption MFP is purely user-provided (via `base_fields` in Python), never derived from the line-center cross-section formula.
 
 ### Unit system
 
-The `[unit]` section converts CGS → Kratos code units:
+**The par file MUST have everything in code units — except the `[unit]` section itself.**
 
 ```ini
 [unit]
-length  = 1.49598e13    # AU → cm
-time    = 1.0
-density = 1.0
+length  = 1.49598e13    # code unit to cm (CGS)
+time    = 1.0            # code unit to second (CGS)
+density = 1.0            # code unit to g/cm^3 (CGS)
+
+[mesh]
+x_min = -3.34 0 0        # CODE units (NOT CGS)
+x_max = 3.34 1 1         # CODE units
+
+[line_rt]
+b_sca = 1.3369e-7        # CODE units (b_CGS × unit_t0 / unit_l0)
 ```
 
-Python pipeline uses pure CGS; Kratos converts internally.
+The `[unit]` section is for reference/documentation — Kratos does NOT automatically convert mesh coordinates or line_rt parameters. The Python pipeline converts everything to code units before writing the par file. Field binary coordinates (`x0`, `dx`) must also be in code units, matching `geo.x_cc()`.
 
 ---
 
@@ -87,6 +112,7 @@ make clean && make USRDIR=usr_ext/line_rt -j8
 - **Always specify `USRDIR=usr_ext/line_rt`.** Without it the default `USRDIR=usr` won't link the line_rt module.
 - **Never compile in `~/Seafile/`.** Source lives there but object/bin files go to `~/apps/kratos_line_rt/` (symlinked).
 - The binary is at `~/apps/kratos_line_rt/bin/kratos`.
+- **`~/Seafile/seafile_sync/code/kratos/` and `~/Seafile/seafile_sync/code/kratos/usr_ext/` are SEPARATE git repos.** Git operations in one do NOT affect the other. Never checkout/commit in the wrong repo.
 
 ### Usr-ext source files
 
@@ -96,7 +122,7 @@ make clean && make USRDIR=usr_ext/line_rt -j8
 | `usr_ext/line_rt/photon.h` | `proc_geo` (scattering physics), `proc_phys` (excitation) |
 | `usr_ext/line_rt/pool.h` | Escaped photon output writing |
 | `usr_ext/line_rt/gen.h` | Photon generation from binary |
-| `usr_ext/line_rt/intg.h` | Integrator parameters |
+| `usr_ext/line_rt/intg.h` | Integrator parameters, Voigt interpolation table |
 | `usr_ext/line_rt/block_data.h` | `rad_t` struct — all per-cell field data |
 | `usr_ext/line_rt/line_rt.h` | Profile functions (b_sca only) |
 
@@ -126,9 +152,9 @@ Key functions:
 
 | Function | File | Returns |
 |----------|------|---------|
-| `compute_opacity(pops, b_sca)` | `molecular/lamda_format.py` | `mfp_sca` only (absorption MFP is user-provided) |
-| `update_populations(exc_flux, flx, pops, cycle, b_sca)` | `molecular/lamda_format.py` | Updated population dict |
-| `make_fields(pops, step, cycle, base_fields)` | `molecular/lamda_format.py` | Field dict — includes `mfp_i_abs_0` only if in `base_fields` |
+| `compute_opacity(pops, b_sca, transition_idx)` | `molecular/lamda_format.py` | `mfp_sca` only (absorption MFP is user-provided) |
+| `update_populations(exc_flux, flx, pops, cycle, dx, b_sca, T, colliders, transition_idx)` | `molecular/lamda_format.py` | Updated population dict |
+| `make_fields(pops, step, cycle, base_fields, unit_l0, unit_t0, transition_idx)` | `molecular/lamda_format.py` | Field dict — includes `mfp_i_abs_0` only if in `base_fields` |
 | `write_field_data(filename, fields, mesh)` | `pipeline/kratos_io.py` | Writes binary (no `b_abs_` prefix anymore) |
 | `write_photon_data(filename, photons)` | `pipeline/kratos_io.py` | Writes photon binary |
 
@@ -136,14 +162,14 @@ Key functions:
 
 | Key | Content |
 |-----|---------|
-| `mfp_i_sca_0_` | **Inverse** scattering MFP at line centre (σ₀ × n_lower) [l]⁻¹ |
-| `mfp_i_abs_0_` | **Inverse** absorption MFP [l]⁻¹ |
+| `mfp_i_sca_0_` | **Inverse** scattering MFP at line centre (σ₀ × n_lower) [code-l]⁻¹ |
+| `mfp_i_abs_0_` | **Inverse** absorption MFP [code-l]⁻¹ |
 
 > **Suffix convention:** `_i` means "inverse" (reciprocal). ALL `mfp_i_*` values are inverse mean free paths (cm⁻¹), NOT actual mean free paths (cm). For τ₀ = 100 over length L: `mfp_i_sca_0 = 100/L`, not `L/100`.
 >
 > | `b_sca_` | Doppler b for scattering overlap integral |
-| `vel_0_`, `vel_1_`, `vel_2_` | Bulk velocity (3 components) |
-| `temp_` | Temperature (optional, diagnostic) |
+> | `vel_0_`, `vel_1_`, `vel_2_` | Bulk velocity (3 components) |
+> | `temp_` | Temperature (optional, diagnostic) |
 
 ---
 
@@ -161,28 +187,38 @@ cd ~/scratch/line_rt
 python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_parallel.py
 ```
 
+Neufeld validation (Python reference MCRT):
+
+```bash
+cd ~/scratch/line_rt
+python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/reference_mcrt/plot_neufeld.py [output_prefix]
+```
+
+Full research record: `~/scratch/line_rt/fiducial/neufeld_test.md`
+
 ---
 
 ## Common pitfalls
 
-1. **Don't derive absorption opacity from `cross_section()`.** `mfp_i_abs_0` must come from `base_fields`.
-2. **Don't add `b_abs` back.** It was intentionally removed everywhere.
-3. **Always run Kratos from `~/scratch/line_rt/`** where the binary field/photon files live.
-4. **Always pass a `.par` file.** Kratos won't run without one.
-5. **`compute_opacity()` returns only `mfp_sca`** — a single ndarray, not a tuple.
-6. **One excitation flux → one transition, not all levels.** `solve_populations()` applies F_ext × σ₀ only to the (lower↔upper) pair of the target transition.
-7. **`dv_c` does not exist anymore.** Removed from photon struct, binary format, and all I/O. The photon binary is now 10-column: x,y,z, dir_x,dir_y,dir_z, proper, vel, sigma, amplitude.
-8. **Scattering modes per notes.tm §2.3.2:** `ph_mode=0` (CFR) = `Δv = −v·d̂`, `σ_ph = σ_th` (no random velocity). `ph_mode=1` (PRD) = `Δv = −v·d̂ + N(0,σ_th)`.
-9. **Proper-weight FP32 scaling:** `write_photon_data()` scales `proper` by `1/proper_max` to fit FP32. It now RETURNS the scale factor. Both `iterate()` and `run_pipeline()` MUST undo the scaling by multiplying flx and exc_flux by `1/scale_factor` after readback. Values in `output['flx']` and `output['exc_flux_flat']` are always in CGS.
-10. **Photon binary columns 7,8 are velocities → need CGS→code conversion:** `× unit_t0/unit_l0` before writing, `÷ unit_t0/unit_l0` (= `× unit_l0/unit_t0`) on readback for escaped photons.
+1. **Two-group validation rule.** `LineRt.run()` calls `check_consistency()` (`core/consistency.py:43`). You MUST provide either **Group 1** (species + n_species + temperature) or **Group 2** (b_sca + mfp_i_sca_0). Group 1 takes precedence. If both incomplete, `ConsistencyError` is raised. **Adding a new mode or parameter? Add it to `check_consistency()` too.**
+2. **Don't derive absorption opacity from `cross_section()`.** `mfp_i_abs_0` must come from `base_fields`.
+3. **Don't add `b_abs` back.** It was intentionally removed everywhere.
+4. **Always run Kratos from `~/scratch/line_rt/`** where the binary field/photon files live.
+5. **Always pass a `.par` file.** Kratos won't run without one.
+6. **`compute_opacity()` returns only `mfp_sca`** — a single ndarray, not a tuple.
+7. **One excitation flux → one transition, not all levels.** `solve_populations()` applies F_ext × σ₀ only to the (lower↔upper) pair of the target transition.
+8. **`dv_c` does not exist anymore.** Removed from photon struct, binary format, and all I/O. The photon binary columns are: x,y,z, dir_x,dir_y,dir_z, proper, [vel], [sv].  `write_photon_data()` accepts 7, 8, or 9 columns.
+9. **Proper-weight FP32 scaling:** `write_photon_data()` scales `proper` by `1/proper_max` to fit FP32. It RETURNS the scale factor. Both `iterate()` and `run_pipeline()` MUST undo the scaling by multiplying flx and exc_flux by `1/scale_factor` after readback. Values in `output['flx']` and `output['exc_flux_flat']` are always in CGS.
+10. **Photon binary columns 7 (vel) and 8 (sv, Gaussian σ) are velocities → need CGS→code conversion:** `× unit_t0/unit_l0` before writing, `÷ unit_t0/unit_l0` (= `× unit_l0/unit_t0`) on readback for escaped photons.
 11. **3D data reshape convention:** Kratos stores fields as `(nz, ny, nx)` (z slowest, x fastest in C++ row-major). `slice_plot_2d()` must reshape accordingly and `.T` transpose slices for pcolormesh.
 12. **Boundary cells produce NaN in excitation_flux** — both `iterate()` and `run_pipeline()` filter NaN to 0 before population update.
-13. **`photon.h:gen.h` line 107:** `par.sv = par.sigma` (NOT 0). `sv` = σ_ph is the photon's Gaussian width used in the overlap integral. Initializing it to 0 suppresses the photon's intrinsic profile.
+13. **`gen.h:104-107`:** `par.sv` is the photon's Gaussian σ (NOT the Doppler b). The relation is `b = σ·√2`. Read from binary column 8 when `ncol_ph >= 9`; defaults to 0.f (monochromatic at line centre) when not provided. After first scatter, `sv` is reset to the thermal σ (= `b_sca / √2`). **Column layout:** 0-2=pos, 3-5=dir, 6=proper, 7=vel, 8=sv.
 14. **`base_fields_cgs` must be kept separate** from the code-unit `fields` output to prevent double unit-conversion across cycles.
 15. **Boundary `kinds` MUST specify all 6 faces, not 3.** Kratos expects 6 values: `-x, +x, -y, +y, -z, +z`. Writing only 3 leaves the remaining undefined, defaulting to periodic. **The par template default is now all-free** (`fre fre fre fre fre fre`). For plane-parallel slabs, use `par_overrides={'kinds': 'fre fre per per per per'}` or `rt.set_boundary("fre fre per per per per")`.
 16. **Slab source uses `flux` not `luminosity`.** For extended slab sources, specify photon number flux [photons cm⁻² s⁻¹] (or energetic flux with `wavelength`). The proper per packet = flux × source_area_cm² / n_photon. Point sources still use `luminosity`.
 17. **Default boundaries are all-free.** Use `set_boundary(kinds)` on `LineRt` or `par_overrides={'kinds': ...}` in `iterate()` to configure boundaries for your geometry.
-18. **Regression tests: copy to temp directories, NEVER touch the trunk.** Before testing with historical versions (e.g. git-bisecting a regression), clone the repos to temp directories and work there. Never modify `~/apps/kratos_line_rt/` or `~/Seafile/seafile_sync/code/kratos/` or `~/Seafile/seafile_sync/code/line_rt_pipeline/` for A/B testing.
+18. **Internal emission photons** get added to the source photon array each cycle (`SpeciesData.generate_emission_photons()` at `core/iterator.py:134`). Padded/truncated to match the external source photon column count. Control with `n_emission_max` on `LineRt`.
+19. **Regression tests: copy to temp directories, NEVER touch the trunk.** Before testing with historical versions (e.g. git-bisecting a regression), clone the repos to temp directories and work there. Never modify `~/apps/kratos_line_rt/` or `~/Seafile/seafile_sync/code/kratos/` or `~/Seafile/seafile_sync/code/line_rt_pipeline/` for A/B testing.
 
    Template:
    ```bash
@@ -208,9 +244,10 @@ python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_paralle
    rm -rf /tmp/regtest_kratos /tmp/regtest_pipeline /tmp/regtest_run
    ```
 
-19. **Never use 1 for any `n_cell_global` component — minimum is 2.** Kratos requires at least 2 cells in each dimension. The mesh output (`.bin` file with block/grid data) may silently break with single-cell dimensions, producing only particle output but no field data.
+20. **Never use 1 for any `n_cell_global` component — minimum is 2.** Kratos requires at least 2 cells in each dimension. The mesh output (`.bin` file with block/grid data) may silently break with single-cell dimensions, producing only particle output but no field data.
+21. **`pipeline/kratos_io.py` depends on external binary I/O** from `~/Seafile/seafile_sync/code/kratos/visual/binary_io` — if Kratos source moves, update the `sys.path` hack in `core/fields.py` and the import in `kratos_io.py`.
 
-20. **`interp_t` table lifecycle (critical for correct const-memory usage).** When adding a pre-computed table to Kratos via `extension::interp_t`, follow the cooling-module pattern exactly (see `usr/extension/chem_therm/reaction/mol_cooling.cpp:25-34`):
+22. **Par file and field binary: everything in code units except `[unit]`.** Mesh coordinates (`x_min`, `x_max`), `b_sca`, and all field binary spatial grids (`x0`, `dx`) must be in code units — NOT CGS. The `[unit]` section is documentation-only; Kratos does NOT convert mesh or `[line_rt]` parameters. `geo.x_cc()` returns code units. Python converts CGS → code before writing: positions / `unit_l0`, velocities × `unit_t0/unit_l0`, inverse lengths × `unit_l0`.
 
     ```cpp
     // 1. Allocate host copy of the table (interp_t will own and free it)
@@ -234,4 +271,3 @@ python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_paralle
     - `usr/extension/chem_therm/reaction/mol_cooling.h:26-31` — interp members in a device-accessible struct
     - `usr/extension/chem_therm/reaction/mol_cooling.cpp:25-34` — `set_intp` lambda: malloc → setup → to_const
     - `usr_ext/line_rt/intg.h:38-50` — our Voigt table (follows this pattern)
-
