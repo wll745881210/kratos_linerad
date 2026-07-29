@@ -254,7 +254,7 @@ Full research record: `~/scratch/line_rt/fiducial/neufeld_test.md`
    rm -rf /tmp/regtest_kratos /tmp/regtest_pipeline /tmp/regtest_run
    ```
 
-20. **Never use 1 for any `n_cell_global` component — minimum is 2.** Kratos requires at least 2 cells in each dimension. The mesh output (`.bin` file with block/grid data) may silently break with single-cell dimensions, producing only particle output but no field data.
+20. **CRITICAL: n_cell_global minimum is 2 in EVERY dimension. `n_cell=1` WILL silently fail — Kratos produces only particle output with no field data or escaped photons.** This is the #1 pitfall. Never use `n_cell_global = 1 2 2` or any dimension with 1 cell. Always `>=2` for each component. The mesh output `.bin` file is produced but contains zero flux fields, and `n_cell` comes back as `None` from `read_output()`. Purely a Kratos requirement; the Python reference MCRT can use n_cell=1 but Kratos cannot.
 21. **`pipeline/kratos_io.py` depends on external binary I/O** from `~/Seafile/seafile_sync/code/kratos/visual/binary_io` — if Kratos source moves, update the `sys.path` hack in `core/fields.py` and the import in `kratos_io.py`.
 
 22. **Par file and field binary: everything in code units except `[unit]`.** Mesh coordinates (`x_min`, `x_max`), `b_sca`, and all field binary spatial grids (`x0`, `dx`) must be in code units — NOT CGS. The `[unit]` section is documentation-only; Kratos does NOT convert mesh or `[line_rt]` parameters. `geo.x_cc()` returns code units. Python converts CGS → code before writing: positions / `unit_l0`, velocities × `unit_t0/unit_l0`, inverse lengths × `unit_l0`.
