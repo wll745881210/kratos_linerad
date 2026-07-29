@@ -17,7 +17,7 @@ Flow:
 import subprocess, sys, os, time, shutil
 import numpy as np
 
-from kratos_io import (
+from .kratos_io import (
     write_field_data, write_photon_data, read_output, write_par_file
 )
 
