@@ -85,28 +85,44 @@ def build_usampler(a_voigt, u_max=6.0, du=5e-3, n_lin=101, n_log=121, x_max=300.
 
 
 @njit
+def _cdf_lookup_row(C_grid, ix, u_vec, rval):
+    row = C_grid[ix]  # type: 1D array
+    nu = len(u_vec)
+    lo, hi = 0, nu
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if row[mid] < rval:
+            lo = mid + 1
+        else:
+            hi = mid
+    k = lo
+    if k < 1:
+        k = 1
+    if k >= nu:
+        k = nu - 1
+    denom = max(row[k] - row[k - 1], 1e-300)
+    return u_vec[k - 1] + (rval - row[k - 1]) / denom * (u_vec[k] - u_vec[k - 1])
+
+
+@njit
 def _sample_u_par_usampler(xa, u_grid, xg_grid, C_grid):
     n_xg = len(xg_grid)
-    j = np.searchsorted(xg_grid, xa) - 1
+    lo, hi = 0, n_xg
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if xg_grid[mid] < xa:
+            lo = mid + 1
+        else:
+            hi = mid
+    j = lo - 1
     if j < 0:
         j = 0
     if j >= n_xg - 1:
         j = n_xg - 2
     f = (xa - xg_grid[j]) / (xg_grid[j + 1] - xg_grid[j])
     r = np.random.random()
-
-    def _cdf_lookup(row, u_vec):
-        k = np.searchsorted(row, r)
-        if k < 1:
-            k = 1
-        n_u = len(u_vec)
-        if k >= n_u:
-            k = n_u - 1
-        denom = max(row[k] - row[k - 1], 1e-300)
-        return u_vec[k - 1] + (r - row[k - 1]) / denom * (u_vec[k] - u_vec[k - 1])
-
-    u0 = _cdf_lookup(C_grid[j], u_grid)
-    u1 = _cdf_lookup(C_grid[j + 1], u_grid)
+    u0 = _cdf_lookup_row(C_grid, j, u_grid, r)
+    u1 = _cdf_lookup_row(C_grid, j + 1, u_grid, r)
     return (1.0 - f) * u0 + f * u1
 
 
@@ -402,13 +418,12 @@ def run_mcrt(mesh, photons, b_sca, mfp_i_sca_0, mfp_i_abs_0,
 
     use_parallel = parallel and _HAVE_PARALLEL and n_ph > 1
 
-    us_grid = np.zeros(0, dtype=np.float64)
     if ph_mode == 1 and a_voigt > 1e-9:
         u_grid, xg_grid, C_grid = build_usampler(a_voigt)
     else:
-        u_grid = us_grid
-        xg_grid = us_grid
-        C_grid = us_grid
+        u_grid = np.zeros(1, dtype=np.float64)
+        xg_grid = np.zeros(1, dtype=np.float64)
+        C_grid = np.zeros((1, 1), dtype=np.float64)
 
     if use_parallel:
         n_thr = multiprocessing.cpu_count()

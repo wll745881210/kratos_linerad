@@ -43,9 +43,8 @@ def write_field_data(filename, fields, mesh, unit_l0=1.0):
         key = prefix
         if key not in fields:
             continue
-        data = np.asarray(fields[key], dtype=np.float32)
-
-        arr = data.reshape(nc[2], nc[1], nc[0])
+        raw = np.asarray(fields[key], dtype=np.float32)
+        arr = raw.reshape(nc[2], nc[1], nc[0])
         padded = np.pad(arr, ((0, 1), (0, 1), (0, 1)), mode='edge')
 
         bio.cache(f'{prefix}n_pts', n_pts,  dtype='int32')
