@@ -1,0 +1,40 @@
+[mesh]
+n_cell_global = 64 2 2
+x_min         = -5.0 0 0
+x_max         = 5.0 1 1
+
+[cycle]
+n_cycle_lim    = 1
+t_lim          = 2.0
+dt_output      = 2.0
+t_output_next  = 2.0
+final_output   = 1
+
+[unit]
+length   = 1.49598e13
+time     = 1.0
+density  = 1.0
+
+[particle]
+step_max        = 200000
+n_step          = 5000000
+n_scat          = 5000000
+n_photon        = 50000
+output          = 1
+
+[line_rt]
+field_file      = fields_a0_v5.bin
+photon_file     = photons_a0_v5.bin
+photon_pref     = par
+ph_mode         = 0
+b_sca           = 6.6846e-09
+num_rng         = 16381
+n_ph_read       = -1
+const_abs       = 1
+n_fld           = 1
+a_voigt         = 0.0
+ray_output      = 1
+ray_id          = -1
+
+[boundary]
+kinds = fre fre per per per per

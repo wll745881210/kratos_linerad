@@ -52,6 +52,16 @@ cd ~/scratch/line_rt
 
 ### Par-file essentials
 
+A minimal working par file (a=0 plane-parallel MCRT, ph_mode=0) is at:
+
+```
+pipeline/a0_test.par
+```
+
+It can be used as a template for simple MCRT validation runs. Copy it to
+`~/scratch/line_rt/` and edit `[mesh]`, `[line_rt]` `b_sca`, and
+`field_file`/`photon_file` paths as needed.
+
 The `[line_rt]` section must contain:
 
 ```ini
