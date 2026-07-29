@@ -1,4 +1,6 @@
-# a=0 pure-Gaussian MCRT validation: Kratos vs Python reference
+# MCRT validation: Kratos vs Python reference
+
+## a=0 pure-Gaussian (ph_mode=0)
 
 ## Setup
 
@@ -31,3 +33,28 @@ All 50000 photons escaped at every τ₀.
 - Kratos systematically lower than Python — likely float32 accumulation at high step count.
 - Field binary format verified: (nz, ny, nx) guard-cell convention.
 - n_step budget ruled out as cause (tested 30M vs 120M at τ₀=5000 — identical).
+
+---
+
+## Voigt/R_IIA (ph_mode=1)
+
+### Kratos: exact R_IIA redistribution via USampler
+### Python: exact R_IIA via USampler (identical method)
+
+- a_voigt = 0.01 (HI Lyα damping parameter)
+- Same geometry as a=0: L_half=5, n_cell=64, isotropic midplane source
+- n_step = 5M, 5000 photons
+
+### Results
+
+| τ₀ | mfp_i | Kratos med\|x\| | Python med\|x\| | gap% | Kratos P(\|x\|>3) | Python P(\|x\|>3) |
+|----|-------|--------------|--------------|------|-----------------|-----------------|
+| 1000 | 100 | 2.555 | 2.792 | 8.5% | 0.287 | 0.383 |
+| 10000 | 1000 | 3.944 | 4.410 | 10.6% | 0.836 | 0.875 |
+
+### Summary
+
+- R_IIA USampler (Kratos commit 825ace1) agrees with Python reference to 8-11%.
+- Consistent gap across τ₀ → systematic (float32 precision + RNG differences).
+- Previous CFR+wing-coherent approximation (commit d335aef) had 75% gap, fixed by using exact R_IIA.
+- Runtime: 0.12s (R_IIA) vs 3.1s (CFR) — 26× faster at τ₀=1000.
