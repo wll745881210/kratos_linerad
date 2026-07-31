@@ -8,8 +8,8 @@ prefix_output  = pipeline
 n_cycle_lim    = 0
 n_display_freq = 1
 t_lim          = 1.2e-1
-dt_output      = 4e99
-t_output_next  = 4e99
+dt_output      = 1e32
+t_output_next  = 1e32
 final_output   = 1
 output_mesh    = 1
 
@@ -36,8 +36,6 @@ n_ph_read       = -1
 const_abs       = 1
 n_fld           = 1
 a_voigt         = 0       ; Voigt damping parameter (0 = pure Gaussian)
-ray_output      = 0       ; 1 = enable raw ray output binary
-ray_id          = -1      ; target cell index for ray output (-1 = all)
 
 [boundary]
 kinds = fre fre fre fre fre fre

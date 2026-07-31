@@ -166,6 +166,24 @@ The reason: in the gas rest frame, the re-emitted photon is at line center (Δv_
 
 This is the "coherent redistribution / complete frequency redistribution" (ph_mode=0) case.
 
+**R_IIA modes (ph_mode = 1/2/3):** the re-emitted frequency is drawn
+from the angle-averaged redistribution kernel `P(u|x) ∝ exp(−u²) / (a² + (x−u)²)`
+via an inverse-CDF table lookup (USampler), with directional
+correlation `g = dir_old·dir`. All three modes share the same kernel
+and table; they differ only in where the tables live and how the
+Voigt opacity is evaluated:
+
+| ph_mode | USampler table | Voigt opacity | Notes |
+|---------|----------------|---------------|-------|
+| 0 | — (CFR, Gaussian kick) | 2D table, global mem | σ_ph = σ_th |
+| 1 | global mem (freed) | 2D table, global mem (128 KiB) | debug |
+| 2 | constant mem (251×40, log-CDF) | 1D log-space table, const mem (5000 pts) | production |
+| 3 | constant mem | approximate `voigt_H` blend (photon.h) | fastest; underestimates med\|x\| at low aτ₀ |
+
+See `docs/debug/debug.md` "Jul 31 afternoon session" for the
+validation numbers (a=0.149, Neufeld eq. 2.24) and the Humlicek
+W4 / TG2006 evaluation.
+
 ---
 
 ## 5. Cross Sections
@@ -458,6 +476,13 @@ sv  = b / sqrtf(2.f);                                          // σ_ph = σ_th
 
 The combined velocity offset in the gas frame is: Δv_gas = (−v·d̂) + (v·d̂) = 0 — the photon is at line center.
 
+For `ph_mode=1/2/3` (R_IIA), the frequency is instead sampled from
+the USampler table (`intg.h:sample_upar`), which draws `u` from
+`P(u|x) ∝ exp(−u²)/(a²+(x−u)²)`; `vel = u·b_sca` and the scattering
+direction is correlated with the incoming direction
+(`g = dir_old·dir`). ph_mode=3 uses the approximate `voigt_H` blend
+for the opacity profile; ph_modes 1/2 use the tabulated Voigt.
+
 ### B.3 Absorption
 
 Absorption is wavelength-independent (`const_abs=1`), using only the user-provided `mfp_i_abs_0`:
@@ -470,11 +495,14 @@ proper *= expf(-tau_abs);
 
 ### B.4 Photon Binary Format
 
-Photon binary uses 10 columns per packet:
+Photon binary uses 7, 8, or 9 columns per packet:
 ```
-x[3] | dir[3] | proper | vel | sigma | amplitude
+x[3] | dir[3] | proper | [vel] | [sv]
 ```
-Column 9 (`sigma`) = σ_ph used in the overlap integral (not 0 — initialized from `par.sigma` in `gen.h:107`).
+- Column 7 (`vel`) = bulk velocity offset (code units). Optional; default 0.
+- Column 8 (`sv`) = Gaussian σ of the photon's frequency distribution (code units). `b = σ·√2`. After first scatter, reset to thermal σ = `b_sca / √2`. Optional; default 0 (monochromatic at line centre).
+
+`write_photon_data()` accepts 7, 8, or 9 columns. Kratos `gen.h` reads `ncol_ph` and uses columns 7/8 only when present.
 
 ### B.5 Ray Output Binary Format
 
@@ -489,4 +517,6 @@ These are identical to `rad_flx_field` and `rad_excitation_flux_field` — writt
 
 **Python readback:** `kratos_io.read_output()` returns these as `result['ray_flx']` and `result['ray_exc_flux']` (1D float64 arrays, n_tot elements in (nz, ny, nx) order — identical layout to the standard `flx` and `excitation_flux` keys).
 
-**Use case:** Enable end-to-end verification of the flux accumulation physics by comparing the standard and ray output fields, or by focusing on a single diagnostic cell via `ray_id`.
+**Use case:** Enable end-to-end verification of the flux accumulation physics by comparing the standard and ray output fields.
+
+**Note:** The `ray_id` parameter is read from the par file but not currently used in the output logic - all cells are always written when `ray_output=1`.

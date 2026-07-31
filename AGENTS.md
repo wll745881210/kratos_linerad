@@ -20,6 +20,7 @@ HTTP proxy for external downloads: `http://127.0.0.1:7892`. Use `export http_pro
 | `cli.py` | CLI entrypoint (`line-rt` console script, registered in `setup.py`) |
 | `tests/` | Standalone test scripts — run individually, e.g. `python tests/test_A_absorption_only.py` |
 | `docs/reference_mcrt/mcrt.py` | Reference Python MCRT (numba). ph_mode=1 uses USampler table-lookup R_IIA. `plot_neufeld.py` validates vs Neufeld (1990). |
+| `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py` | **Standalone Kratos regression test** (self-contained, no pipeline imports). Wide `aτ₀` sweep vs Neufeld eq (2.24) for ph_modes 1/2/3, golden med\|x\| table, PASS/FAIL exit code. Run: `python3 test_scaling_wide.py --kratos-bin ~/apps/kratos_line_rt/bin/kratos` |
 | `~/apps/kratos_line_rt/` | Kratos build tree (symlinked to Seafile source) |
 | `~/scratch/line_rt/` | **Runtime working directory** — all test runs happen here |
 
@@ -68,19 +69,39 @@ The `[line_rt]` section must contain:
 [line_rt]
 field_file  = fields_cycle0.bin
 photon_file = photons_cycle0.bin
-ph_mode     = 0          # 0=CFR (Gaussian), 1=R_IIA (USampler)
+ph_mode     = 0          # 0=CFR (Gaussian), 1/2/3=R_IIA (USampler)
 b_sca       = 1.0        # Doppler b (scattering) — used for overlap integral
 const_abs   = 1          # always 1 (absorption is wavelength-independent)
 n_fld       = 1
 num_rng     = 16381
 a_voigt     = 0.0        # Voigt damping parameter (0 = pure Gaussian)
-ray_output  = 0          # 1 = enable raw ray output binary
-ray_id      = -1         # target cell index for ray output (-1 = all cells)
 ```
 
 **ph_mode values:**
-- `0` — CFR: `Δv = −v·d̂`, `σ_ph = σ_th` (no random velocity)
-- `1` — R_IIA: exact USampler kernel + Voigt opacity table
+- `0` – CFR: `Δv = −v·d̂`, `σ_ph = σ_th` (no random velocity)
+- `1` – R_IIA: exact USampler kernel (log-CDF table, global mem) + 2D Voigt opacity table (global mem, 128 KiB)
+- `2` – R_IIA: same USampler kernel, but tables in **constant memory**: coarse log-CDF USampler (251×40, `du=0.048`) + 1D log-space Voigt table (5000 pts, `u∈[0,50]`, built from the host-side scipy 2D table). Fastest exact mode.
+- `3` – R_IIA: const-mem USampler only; scattering profile uses the approximate analytic `voigt_H` blend in `photon.h` (Gauss core + Lorentz wing crossover). Fastest overall but underestimates `med|x|` at low `aτ₀` (~0.77–0.94× Neufeld for `aτ₀=30–1192`); converges at high `aτ₀`.
+
+All R_IIA modes (1/2/3) share the same scattering kernel (`g = dir_old·dir` directional correlation). Modes 1 and 2 agree to ~1–2% (`med|x|`); use `2` for production, `1` for debug (global-mem table). `ph_mode=2`/`3` use the constant-memory pool — **not freed** in `finalize` (`free_dev_mem=false`); the 60 KiB const pool is a bump allocator.
+
+### `[cycle]` section (output control)
+
+For single-run MCRT tests (one Kratos invocation = one output file), use this canonical pattern:
+
+```ini
+[cycle]
+prefix_output  = test        # output filename prefix -> test_00000.bin
+n_cycle_lim    = 0           # 0 or 1 (no difference with t_output_next=1e32)
+t_lim          = 600.0       # simulation time limit
+t_output_next  = 1e32        # disable time-based output (never triggers)
+dt_output      = 1e32        # output interval (disabled by t_output_next)
+final_output   = 1           # guarantee one output when the run finishes
+```
+
+- `t_output_next = 1e32` disables time-based output entirely, preventing an empty cycle-0 file. With `final_output = 1`, exactly ONE output file is produced: `{prefix_output}_00000.bin`.
+- `prefix_output` sets the output filename prefix. Example: `prefix_output = aa` generates `aa_00000.bin`.
+- Without `t_output_next = 1e32`, Kratos may emit an empty cycle-0 output before the real output at cycle-1.
 
 **There is no `b_abs` parameter anymore.** Absorption MFP is purely user-provided (via `base_fields` in Python), never derived from the line-center cross-section formula.
 
@@ -281,3 +302,15 @@ Full research record: `~/scratch/line_rt/fiducial/neufeld_test.md`
     - `usr/extension/chem_therm/reaction/mol_cooling.h:26-31` — interp members in a device-accessible struct
     - `usr/extension/chem_therm/reaction/mol_cooling.cpp:25-34` — `set_intp` lambda: malloc → setup → to_const
     - `usr_ext/line_rt/intg.h:38-50` — our Voigt table (follows this pattern)
+
+23. **τ-convention for Neufeld/Lyα validation: mean depth vs line-centre.** Both Kratos and Python use the raw-Hjerting opacity `κ(x) = mfp_i_sca_0 × H(a,x)` with `∫H(a,x)dx = √π`. The **half-slab mean depth** (the convention-independent quantity, = Neufeld's τ₀) is:
+
+    ```
+    τ_m = mfp_i_sca_0 × √π × L_slab / 2
+    ```
+
+    To run at a target mean depth `τ_m`: set `mfp_i_sca_0 = 2τ_m / (√π × L_slab)` (note the factor 2 for the half-slab). For `mcrt_slab(tau0=...)`: its `tau0` arg is `mfp × L_slab`, so pass `tau0 = 2τ_m / √π`.
+
+    Compare against the **Neufeld original eq. (2.24)** in the mean-depth convention (peak `0.881(aτ₀)^(1/3)`), NOT the Verhamme (2006) line-centre transcription (peak `1.066(aτ_lc)^(1/3)`). The Verhamme form assumes `H(a,0)=1`; for `a ≳ 0.1` this fails (`H(0.5,0)=0.616`, a 1.62× error in τ). The relation `τ_N = √π τ_lc` is only valid for `H(a,0)=1`; the correct relation is `τ_N = √π τ_lc / H(a,0)`.
+
+    See `docs/debug/debug.md` Bug 6 and `~/scratch/line_rt/fiducial/neufeld_test.md` §2.3/§6/§9 for the full convention saga.
