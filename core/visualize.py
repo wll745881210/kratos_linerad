@@ -161,9 +161,9 @@ def default_plot(results, fields=None, slice_plane="z", slice_idx=None,
 
         if dyn_range:
             vmin, vmax = _log_limits(data)
-            norm = LogNorm(vmin=vmin, vmax=vmax) if vmin else None
+            norm = LogNorm(vmin=vmin, vmax=vmax) if vmin else LogNorm()
         else:
-            norm = None
+            norm = LogNorm()
 
         pc = slice_plot_2d(ax_i, data, mesh, plane=plane,
                            slice_idx=slice_idx, log=True, cmap="turbo",

@@ -46,7 +46,7 @@ n_cycle   = 3
 
 def n_total_callable(X, Y, Z):
     res = np.full(X.shape, n_species, dtype=np.float64);
-    # res[X > 0] *= 1e2;
+    res[X > 0] *= 2;
     return res;
 
 def temperature_callable(X, Y, Z):

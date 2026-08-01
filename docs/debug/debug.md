@@ -209,6 +209,92 @@ negligible at a=0.01 (`H(0.01,0) = 0.9888`).
 both codes agreed with each other and with the fiducial; only the
 analytic comparison was mis-calibrated.
 
+### Bug 7: Periodic-boundary wrapping asymmetry (`particle_base.h:45`, Aug 1)
+
+**Symptom:** In the 64×2×2 plane-parallel mesh with `kinds='fre fre per per per per'`
+(y,z periodic), the flux map showed the upper row (y=1) systematically
+higher than the lower row (y=0) when scattering was enabled (n_scat≥1).
+With n_scat=0 (no scattering) only normal fluctuations appeared. A prior
+agent tried commenting-out code in `particle_base.h:130-148` (adding
+`par.i[a]+=1` in `fix()`) - it "fixed" the visual but broke transport
+(double march of `par.i`).
+
+**Root cause:** `regulate()` (particle_base.h:45) used strict `<`:
+```cpp
+if( x[a] < bmap.xlim[0][a] )   // 0.0 < 0.0  -> false!
+```
+When `proc_geo` snaps `x[1]` to exactly `xlim[0][1]` (the lower face, e.g. 0.0)
+after a -y crossing, `0.0 < 0.0` is false -> regulate does NOT wrap `x`
+(`x[1]` stays 0.0) and returns false -> `proc_flag & regulate` = false ->
+`g_l` not reloaded. The photon is now in cell y=1 but `g_l` still has cell
+y=0 boundaries. Crossing +y face worked (`0.2 >= 0.2` true), causing the
+asymmetry. Only manifests with scattering because n_scat=0 photons move
+dir=[1,0,0] only (never cross y/z faces).
+
+**Fix:** `<` -> `<=`:
+```cpp
+if( x[a] <= bmap.xlim[0][a] )   // 0.0 <= 0.0  -> true, wraps correctly
+```
+
+### Bug 8: interp_t data-ordering mismatch (`ijkl` convention, Aug 2)
+
+**Symptom:** An x-dependent density field (`res[x>0] *= 1e3`) produced
+"streaks" in the flux map instead of a clean reflection at x=0.
+
+**Root cause:** `interp_t` with `ijkl=true` (default) expects data in
+`(x, y, z)` C-order (x slowest, z fastest): `idx = ix*ny*nz + iy*nz + iz`.
+But `write_field_data()` wrote data in `(nz, ny, nx)` order (z slowest,
+x fastest - the Kratos *output* convention from AGENTS.md pitfall 11).
+The metadata `n_pts=[nx,ny,nz]` said x-first, but the data was z-slowest.
+For uniform fields this is invisible; for x-dependent fields the gradient
+gets scrambled across the y-z plane.
+
+**Fix:** Write `ijkl=0` flag to the binary; `interp_t::read_bin` reads it.
+With `ijkl=false`, `idx = iz*ny*nx + iy*nx + ix`, matching `(nz,ny,nx)`
+data directly. `write_field_data()` now writes 3D `(nz,ny,nx)` arrays
+with `np.pad` + ravel, no transpose. `interp_gen.py` (Kratos `visual/`)
+also patched to write `ijkl=0`.
+
+### Bug 9: `_cell_centers_cgs` unit bug (Aug 2)
+
+**Symptom:** HL example with `res[x>0] *= 1e3` produced uniform
+`n_species_val` everywhere (should be 78.37 for x<0, 78367 for x>0).
+
+**Root cause:** `core/line_rt.py:_cell_centers_cgs` line 329:
+```python
+cx = x_min[0] + (ix + 0.5) * dx[0] * self._unit_l0
+#     ^^^^^^^^                      ^^^^^^^^^^^^
+#     code units (e.g. -5)          CGS (e.g. 2.34e12)
+# cx = -5 + 2.34e12 ≈ 2.34e12  -> all positive!
+```
+Only `dx[0]` was multiplied by `unit_l0`; `x_min[0]` was left in code units.
+The mixed-unit addition made all coordinates positive, so `x > 0` was
+always true.
+
+**Fix:** Multiply the entire expression by `unit_l0`:
+```python
+cx = (x_min[0] + (np.arange(nx) + 0.5) * dx[0]) * self._unit_l0
+```
+
+### Bug 10: `n_scat=0` silently disables all scattering (Aug 1)
+
+**Symptom:** T2b absorption+scattering test (first run) gave f_esc
+identical across τ_m values - pure absorption behavior (E₂(τ_a))
+despite having a scattering opacity field.
+
+**Root cause:** `photon.h:209`:
+```cpp
+if( n_scat > 0 && dtau_s > tau_remain )
+```
+This gates ALL scattering on the remaining-scatter budget. With `n_scat=0`
+(copied from the T2a pure-absorption par template), no scattering ever
+triggers. The par template `a0_test.par` uses `n_scat=5000000`;
+`line_rt_pipeline.par` uses `n_scat=10000`. The test had copied the
+wrong value.
+
+**Fix:** Set `n_scat` appropriately in the test par template (5000000).
+Documented in AGENTS.md pitfall 4 and `usr_ext/line_rt/tests/README.md`.
+
 ---
 
 ## Verification: USampler tables are identical
@@ -393,6 +479,10 @@ to statistical noise from only 5000 photons at extreme τ.
 | 4   | `n_scat=2` in par file     | +24.5% single-scatter gap | Set `n_scat=1`                      | -         |
 | 5   | Voigt peak-normalized      | +14.45% unlimited gap     | `voigt_profile * √π`                | -         |
 | 6   | Half-slab τ bookkeeping    | constant 0.79× vs Neufeld | `mfp = 2τ/(√π L)`; Neufeld eq 2.24  | -         |
+| 7   | `regulate` strict `<`      | y-asymmetric flux map     | `<` -> `<=` in `particle_base.h:45` | (Kratos)  |
+| 8   | interp_t data ordering     | streaks in x-gradient     | write `ijkl=0` flag                 | `097db8b` |
+| 9   | `_cell_centers_cgs` units  | uniform n_species         | multiply entire expr by `unit_l0`   | `097db8b` |
+| 10  | `n_scat=0` disables scatter| pure-absorption behavior  | set `n_scat` ≥ 1 in par             | -         |
 
 After all fixes: single-scatter gap -0.12%, unlimited-scatter gap
 -1.31%, seed audit mean gap -0.68% ± 2.07%, wide-scaling sweep
@@ -406,6 +496,7 @@ After all fixes: single-scatter gap -0.12%, unlimited-scatter gap
 | ---------------------------- | ---------------------- | ------------------------------------------------------------------------------ |
 | `test_scaling_wide.py`       | `usr_ext/line_rt/tests/` | Standalone Kratos regression: wide aτ₀ sweep, ph_modes 1/2/3, golden med\|x\|, PASS/FAIL (default WORKDIR `/tmp/line_rt_regress`) |
 | `test_absorption.py`         | `tests/`               | Pure-absorption plane-parallel: f_esc vs E₂(τ/2)                               |
+| `test_absorption_scattering.py` | `tests/`            | Absorption+scattering: Kratos vs Python MC vs Neufeld cosh (4.33)              |
 | `compare_escaped.py`         | `tests/archive/`       | (archived) Self-generating K-vs-P comparison                                   |
 | `test_neufeld.py`            | `tests/archive/`       | (archived) Three-way: Kratos vs Python vs fiducial                             |
 | `test_scaling.py`            | `tests/archive/`       | (archived) τ₀ scaling sweep (a=0.01, latent factor-2)                          |
@@ -514,3 +605,80 @@ thermal temperature, molecular weight), not the selected line/band.
 (`LineRt.run()`) end-to-end test passes with split files verified:
 `fields_fixed.bin` + `fields_cycle0.bin` produced, par file contains
 `field_fixed_file`, Kratos runs successfully.
+
+## Task 3: Python pipeline update + 3D refactor + default_plot (Aug 2)
+
+### 3D array convention
+
+All field arrays, populations, exc_flux, and flx are now 3D `(nz, ny, nx)`
+throughout the pipeline (previously 1D raveled). Callables (`n_species`,
+`temperature`, `vel`) receive `(X, Y, Z)` tuples of 3D arrays in CGS [cm].
+`_cell_centers_cgs(mesh)` returns `(X, Y, Z)` with `X, Y, Z` shaped
+`(nz, ny, nx)`. Removed all `.ravel()` from field/population processing
+in `lamda_format.py`, `equilibrium.py`, `iterator.py`, `pipeline.py`.
+
+### interp_t ijkl flag
+
+`interp_t` (Kratos `usr/extension/algo/interp.h`) now reads an `ijkl`
+tag from the binary. `ijkl=0` (what we write) indexes as
+`idx = iz*ny*nx + iy*nx + ix` (z-slowest), matching `(nz, ny, nx)` C-order
+data directly - no transpose needed. Default remains `ijkl=true` if the
+tag is absent (backward compat for old binaries). `write_field_data()`
+writes `ijkl=0`. `interp_gen.py` (Kratos `visual/`) also patched to
+write `ijkl=0`.
+
+### _cell_centers_cgs unit bug (FIXED)
+
+`cx = x_min[0] + (ix+0.5)*dx[0]*unit_l0` was wrong: only `dx` was
+multiplied by `unit_l0`, so `cx = -5 + 2.3e12 ≈ all positive`. Fixed to
+`cx = (x_min[0] + (np.arange(nx)+0.5)*dx[0]) * unit_l0` (multiply entire
+expression). This bug caused x-gradient callables to produce uniform
+fields (invisible for uniform cases).
+
+### Emissivity in cycle output
+
+`iterator.py` now calls `species.compute_emissivity()` every cycle
+(regardless of whether emission photons are spawned) and stores the
+result as `output['emissivity']` (3D, erg/s/cm^3/sr).
+
+### default_plot() multi-panel function
+
+`core/visualize.py:default_plot(results, fields, slice_plane, slice_idx,
+dyn_range)` generates a 2-column, N-row panel grid:
+
+- Default fields: `['spectrum', 'flx', 'mfp_i_sca_0', 'b_sca',
+  'excited_fraction', 'emissivity']` (3 rows x 2 cols).
+- 'spectrum' = histogram in km/s (non-colormap); all others = log
+  colormaps.
+- `dyn_range=True`: upper = 10^ceil(log10(max)); lower =
+  10^(upper_dex - clip(span, 1, 6)).
+- `dyn_range=False` (default): unconstrained log scale (LogNorm with
+  auto vmin/vmax from matplotlib).
+- Missing fields -> blank panel with title preserved.
+- xy slice at middle-z by default; configurable via `slice_plane`/
+  `slice_idx`.
+- `slice_plot_2d` now respects an explicit `norm` kwarg.
+
+### CLI rewrite
+
+`cli.py` rewritten to use `LineRt` directly (old version imported a
+nonexistent `linert` module). Argparse groups: Geometry, Species,
+Explicit opacity, Source, RT parameters, Output.
+
+### UI update
+
+`ui/widgets.py` + `ui/panels.py`: ph_mode options updated (0=CFR,
+1=R_IIA global, 2=R_IIA const, 3=R_IIA blend); field widget names fixed
+(`mfp_i_sca_0`, `mfp_i_abs_0`); removed `n_thread`.
+
+### /tmp/line_rt default
+
+All temporary outputs (`.par`, `.bin`) now go to per-run subdirs under
+`/tmp/line_rt/` (was `~/scratch/line_rt/`). Path printed at startup.
+
+### Validation
+
+- `test_scaling_wide.py`: PASS (med|x| ratios 0.97-1.03 vs golden).
+- `test_absorption_scattering.py`: PASS (K/P 1.01-1.09).
+- `plane_parallel_hl.py`: 3 cycles, 6-panel default_plot PNG.
+- `plane_parallel_lowlevel.py`: 3 cycles, 6-panel default_plot PNG.
