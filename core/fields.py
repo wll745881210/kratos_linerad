@@ -102,7 +102,10 @@ def slice_plot_2d(ax, data, mesh, plane="xy", slice_idx=None, log=True, cmap="tu
             data_3d = data.reshape(nz, ny, nx)
     else:
         data_3d = data
-    norm = LogNorm() if log else None
+    if "norm" in kwargs:
+        norm = kwargs.pop("norm")
+    else:
+        norm = LogNorm() if log else None
 
     if coords == "cartesian":
         xe = _edges_from_mesh(mesh, 0)

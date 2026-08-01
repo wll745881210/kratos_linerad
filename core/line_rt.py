@@ -232,6 +232,7 @@ class LineRt:
             n_species_val = None
 
         b_sca_val = self._resolve_b_sca(XYZ)
+        self._b_sca_resolved = b_sca_val
         mfp_abs_val = self._resolve_field(self._mfp_i_abs_0, XYZ)
         vel_vals = self._resolve_vel(XYZ)
 
@@ -298,6 +299,9 @@ class LineRt:
             "populations": final_pops,
             "mesh": mesh,
             "run_dir": work_dir,
+            "unit_l0": self._unit_l0,
+            "unit_t0": self._unit_t0,
+            "b_sca": getattr(self, "_b_sca_resolved", None),
             "exc_flux_flat": results[-1].get("exc_flux_flat", None) if results else None,
             "flx": results[-1].get("flx", None) if results else None,
             "spectrum": spectrum,
@@ -521,11 +525,5 @@ class LineRt:
         return ph
 
     def _plot_results(self, out):
-        from .visualize import plot_flux, plot_population, plot_spectrum
-        import matplotlib.pyplot as plt
-        fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-        plot_flux(out, ax=axes[0])
-        plot_population(out, ax=axes[1])
-        plot_spectrum(out, ax=axes[2])
-        fig.tight_layout()
-        plt.show()
+        from .visualize import default_plot
+        default_plot(out)

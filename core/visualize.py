@@ -8,6 +8,211 @@ from .fields import slice_plot_2d
 _PLANE_MAP = {"x": "yz", "y": "xz", "z": "xy"}
 
 
+# ── Default multi-panel plot ────────────────────────────────────────
+
+
+_DEFAULT_FIELDS = [
+    "spectrum", "flx", "mfp_i_sca_0", "b_sca", "excited_fraction", "emissivity",
+]
+
+_FIELD_LABELS = {
+    "flx":              r"flux [photons cm$^{-2}$ s$^{-1}$]",
+    "mfp_i_sca_0":      r"mfp_i_sca_0 [cm$^{-1}$]",
+    "b_sca":            r"b_sca [km s$^{-1}$]",
+    "excited_fraction": r"n$_{\rm exc}$ / n$_{\rm tot}$",
+    "emissivity":       r"$\epsilon$ [erg s$^{-1}$ cm$^{-3}$ sr$^{-1}$]",
+}
+
+_FIELD_TITLES = {
+    "spectrum":         "Emergent Spectrum",
+    "flx":              "Flux Map",
+    "mfp_i_sca_0":      "mfp_i_sca_0",
+    "b_sca":            "b_sca",
+    "excited_fraction": "Excited Fraction",
+    "emissivity":       "Emissivity",
+}
+
+
+def _log_limits(data):
+    """Return (vmin, vmax) for a log colormap.
+
+    vmax = 10^ceil(log10(max)).
+    vmin = 10^(vmax_dex - d)  with  d = clip(log10(vmax/min_positive), 1, 6).
+    Returns (None, None) if no positive values.
+    """
+    pos = data[data > 0]
+    if pos.size == 0:
+        return None, None
+    dmax = float(pos.max())
+    upper_dex = int(np.ceil(np.log10(dmax)))
+    vmax = 10.0 ** upper_dex
+    dmin = float(pos.min())
+    span = upper_dex - np.log10(dmin)
+    span = int(np.clip(span, 1, 6))
+    vmin = 10.0 ** (upper_dex - span)
+    return vmin, vmax
+
+
+def _extract_field(results, field, unit_l0=1.0, unit_t0=1.0):
+    """Extract a 3D field array or spectrum data from the results dict.
+
+    Returns (data_3d_or_none, is_spectrum).
+    """
+    last = results.get("results", [{}])[-1] if results.get("results") else {}
+
+    if field == "spectrum":
+        return None, True
+
+    if field == "excited_fraction":
+        pops = results.get("populations", None)
+        if pops is None:
+            pops = last.get("populations", None)
+        if pops is None:
+            return None, False
+        n0 = np.asarray(pops.get("n0", pops.get("n_total", np.ones(1))),
+                        dtype=np.float64)
+        n_exc_keys = [k for k in pops if k.startswith("n") and k != "n0"
+                      and k != "n_total"]
+        n_exc = np.zeros_like(n0)
+        for k in n_exc_keys:
+            n_exc = n_exc + np.asarray(pops[k], dtype=np.float64)
+        denom = n0 + n_exc
+        denom[denom == 0] = 1.0
+        return n_exc / denom, False
+
+    if field == "b_sca":
+        b = results.get("b_sca", None)
+        if b is None:
+            return None, False
+        b = np.asarray(b, dtype=np.float64)
+        # convert cm/s -> km/s
+        return b * 1e-5, False
+
+    # generic: look in results first, then last cycle output
+    val = results.get(field, None)
+    if val is None:
+        val = last.get(field, None)
+    if val is None:
+        return None, False
+    return np.asarray(val, dtype=np.float64), False
+
+
+def default_plot(results, fields=None, slice_plane="z", slice_idx=None,
+                 ax=None, figsize=None, output_path=None):
+    """Multi-panel default plot for LineRt results.
+
+    2-column layout; number of rows = ceil(len(fields)/2).
+
+    Parameters
+    ----------
+    results : dict  from LineRt.run()
+    fields : list[str] or None  field names (default: spectrum, flx,
+        mfp_i_sca_0, b_sca, excited_fraction, emissivity).
+    slice_plane : str  "x"|"y"|"z"  slice axis for colormaps (default "z"
+        -> xy plane).
+    slice_idx : int or None  cell index along slice_plane (default: middle).
+    ax : array of Axes or None  (created if None).
+    figsize : tuple or None.
+    output_path : str or None  save figure if given.
+    """
+    if fields is None:
+        fields = list(_DEFAULT_FIELDS)
+
+    n = len(fields)
+    nrows = (n + 1) // 2
+    ncols = 2
+
+    if ax is None:
+        fig, axes = plt.subplots(nrows, ncols,
+                                 figsize=figsize or (12, 4 * nrows),
+                                 squeeze=False)
+    else:
+        axes = np.atleast_2d(ax)
+        fig = axes[0, 0].figure
+
+    mesh = results.get("mesh", {})
+    unit_l0 = results.get("unit_l0", 1.0)
+    unit_t0 = results.get("unit_t0", 1.0)
+    plane = _PLANE_MAP.get(slice_plane, "xy")
+
+    for i, field in enumerate(fields):
+        row, col = divmod(i, ncols)
+        ax_i = axes[row, col]
+        title = _FIELD_TITLES.get(field, field)
+
+        data, is_spectrum = _extract_field(results, field, unit_l0, unit_t0)
+
+        if is_spectrum:
+            _draw_spectrum(ax_i, results)
+            ax_i.set_title(title)
+            continue
+
+        if data is None:
+            ax_i.set_title(title)
+            ax_i.text(0.5, 0.5, "(no data)", transform=ax_i.transAxes,
+                      ha="center", va="center", fontsize=10)
+            ax_i.set_xticks([])
+            ax_i.set_yticks([])
+            continue
+
+        vmin, vmax = _log_limits(data)
+        norm = LogNorm(vmin=vmin, vmax=vmax) if vmin else None
+
+        pc = slice_plot_2d(ax_i, data, mesh, plane=plane,
+                           slice_idx=slice_idx, log=True, cmap="turbo",
+                           norm=norm)
+        if pc is not None:
+            cbar = plt.colorbar(pc, ax=ax_i)
+            cbar.set_label(_FIELD_LABELS.get(field, field))
+        ax_i.set_title(title)
+
+    # hide unused subplots
+    for i in range(n, nrows * ncols):
+        row, col = divmod(i, ncols)
+        axes[row, col].set_visible(False)
+
+    fig.tight_layout()
+    if output_path:
+        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    return fig, axes
+
+
+def _draw_spectrum(ax, results, bins=80):
+    """Draw emergent spectrum histogram in km/s."""
+    vel = np.array([])
+    weights = np.array([])
+    spec = results.get("spectrum", {})
+    if spec:
+        vel = np.asarray(spec.get("vel", []))
+        weights = np.asarray(spec.get("n", spec.get("weights",
+                           np.ones_like(vel))))
+    if len(vel) == 0:
+        for r in reversed(results.get("results", [])):
+            phot = r.get("photons", {})
+            vel = np.asarray(phot.get("vel", []))
+            if len(vel) > 0:
+                l_arr = np.asarray(phot.get("l", np.ones_like(vel)))
+                weights = l_arr.ravel() if l_arr.size == vel.size \
+                    else np.ones_like(vel)
+                break
+
+    if len(vel) == 0:
+        ax.text(0.5, 0.5, "(no escaped photons)", transform=ax.transAxes,
+                ha="center", va="center", fontsize=10)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        return
+
+    vel_kms = vel.ravel() * 1e-5
+    ax.hist(vel_kms, bins=bins, weights=weights.ravel(),
+            histtype="step", color="black")
+    ax.set_xlabel(r"$\Delta v$ [km s$^{-1}$]")
+    ax.set_ylabel("count")
+
+
+# ── Legacy single-panel helpers (kept for backward compat) ──────────
+
+
 def _find_median(data_flat, mesh, axis):
     """Return median cell centre coordinate in CGS for a given axis."""
     n = int(mesh["n_cell"]["xyz".index(axis)])

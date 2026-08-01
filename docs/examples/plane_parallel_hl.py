@@ -46,7 +46,7 @@ n_cycle   = 3
 
 def n_total_callable(X, Y, Z):
     res = np.full(X.shape, n_species, dtype=np.float64);
-    res[X > 0] *= 1e2;
+    # res[X > 0] *= 1e2;
     return res;
 
 def temperature_callable(X, Y, Z):
@@ -89,40 +89,14 @@ print(f"Mesh: {rt._n_cell}, sources: {len(rt._sources)}")
 print( "Running %d MC cycles ..." % n_cycle );
 results = rt.run()
 
-# ── 4. Plot (same 4 panels as lowlevel) ─────────────────────────────
-res_list = results["results"]
-mesh = results["mesh"]
+# ── 4. Plot (default multi-panel) ────────────────────────────────────
+from core.visualize import default_plot
 
-fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-
-if "photons" in res_list[-1]:
-    plot_emergent_spectrum(axes[0, 0], res_list[-1]["photons"], bins=60,
-                           xlim=(-3e5, 3e5))
-axes[0, 0].set_title("Emergent Spectrum")
-
-plot_flux_slice(axes[0, 1], res_list[-1]["flx"], mesh, title="Flux Map", slice_idx = 0)
-
-final_pops = results["populations"]
-if len(final_pops) >= 2:
-    vals = list(final_pops.values())
-    n_g, n_e = vals[0], vals[1]
-    plot_population_map(axes[1, 0], n_e / (n_g + n_e + 1e-30), mesh, title="Excited Fraction")
-
-emis = res_list[-1].get("emissivity")
-if emis is not None:
-    plot_flux_slice(axes[1, 1], emis, mesh, title="Emissivity",
-                    log=True, cbar_label=r"$\epsilon$ [erg s$^{-1}$ cm$^{-3}$ sr$^{-1}$]")
-else:
-    mfp_sca = res_list[-1].get("mfp_i_sca_0")
-    if mfp_sca is not None:
-        plot_flux_slice(axes[1, 1], mfp_sca, mesh, title="mfp_i_sca_0",
-                        log=False, cbar_label=r"mfp_i_sca_0 [cm$^{-1}$]")
-
-fig.tight_layout()
 outpath = os.path.join(os.path.dirname(__file__), "plane_parallel_hl_results.png")
-fig.savefig(outpath, dpi=150)
+default_plot(results, output_path=outpath)
 print(f"\nResults saved to {outpath}")
 
+res_list = results["results"]
 for k, res in enumerate(res_list):
     flx = res.get("flx")
     exc = res.get("exc_flux_flat", res.get("excitation_flux"))

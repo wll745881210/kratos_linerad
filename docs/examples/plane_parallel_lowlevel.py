@@ -101,34 +101,23 @@ results, final_pops = iterate(
     par_overrides={"kinds": "fre fre per per per per"},
 )
 
-# ── 7. Plot ─────────────────────────────────────────────────────────
-fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+# ── 7. Plot (default multi-panel) ────────────────────────────────────
+from core.visualize import default_plot
 
-if "photons" in results[-1]:
-    plot_emergent_spectrum(axes[0, 0], results[-1]["photons"], bins=60,
-                           xlim=(-3e5, 3e5))
-axes[0, 0].set_title("Emergent Spectrum")
+hl_results = {
+    "results":       results,
+    "populations":   final_pops,
+    "mesh":          mesh,
+    "unit_l0":       l0,
+    "unit_t0":       t0,
+    "b_sca":         fields.get("b_sca", np.full(shape3d, b_sca)),
+    "flx":           results[-1].get("flx"),
+    "spectrum":      {"vel": results[-1].get("photons", {}).get("vel", np.array([])),
+                      "n":   np.ones(len(results[-1].get("photons", {}).get("vel", [])))},
+}
 
-plot_flux_slice(axes[0, 1], results[-1]["flx"], mesh, title="Flux Map")
-
-if len(final_pops) >= 2:
-    vals = list(final_pops.values())
-    n_g, n_e = vals[0], vals[1]
-    plot_population_map(axes[1, 0], n_e / (n_g + n_e + 1e-30), mesh, title="Excited Fraction")
-
-emis = results[-1].get("emissivity")
-if emis is not None:
-    plot_flux_slice(axes[1, 1], emis, mesh, title="Emissivity",
-                    log=True, cbar_label=r"$\epsilon$ [erg s$^{-1}$ cm$^{-3}$ sr$^{-1}$]")
-else:
-    mfp_sca = results[-1].get("mfp_i_sca_0")
-    if mfp_sca is not None:
-        plot_flux_slice(axes[1, 1], mfp_sca, mesh, title="mfp_i_sca_0",
-                        log=False, cbar_label=r"mfp_i_sca_0 [cm$^{-1}$]")
-
-fig.tight_layout()
 outpath = os.path.join(os.path.dirname(__file__), "plane_parallel_lowlevel_results.png")
-fig.savefig(outpath, dpi=150)
+default_plot(hl_results, output_path=outpath)
 print(f"\nResults saved to {outpath}")
 
 for k, res in enumerate(results):
