@@ -181,6 +181,8 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         if species is not None and hasattr(species, "generate_emission_photons") and cycle < n_cycles - 1:
             temp_field = fields.get('temp', np.zeros(mesh['n_tot'],
                                                      dtype=np.float64))
+            output['emissivity'] = species.compute_emissivity(
+                populations, transition_idx, temp_field)
             emission_ph = species.generate_emission_photons(
                 populations, transition_idx, temp_field, mesh,
                 n_per_cell_max=n_emission_max)

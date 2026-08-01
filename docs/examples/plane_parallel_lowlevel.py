@@ -116,10 +116,15 @@ if len(final_pops) >= 2:
     n_g, n_e = vals[0], vals[1]
     plot_population_map(axes[1, 0], n_e / (n_g + n_e + 1e-30), mesh, title="Excited Fraction")
 
-mfp_sca = results[-1].get("mfp_i_sca_0")
-if mfp_sca is not None:
-    plot_flux_slice(axes[1, 1], mfp_sca, mesh, title="mfp_i_sca_0",
-                    log=False, cbar_label=r"mfp_i_sca_0 [cm$^{-1}$]")
+emis = results[-1].get("emissivity")
+if emis is not None:
+    plot_flux_slice(axes[1, 1], emis, mesh, title="Emissivity",
+                    log=True, cbar_label=r"$\epsilon$ [erg s$^{-1}$ cm$^{-3}$ sr$^{-1}$]")
+else:
+    mfp_sca = results[-1].get("mfp_i_sca_0")
+    if mfp_sca is not None:
+        plot_flux_slice(axes[1, 1], mfp_sca, mesh, title="mfp_i_sca_0",
+                        log=False, cbar_label=r"mfp_i_sca_0 [cm$^{-1}$]")
 
 fig.tight_layout()
 outpath = os.path.join(os.path.dirname(__file__), "plane_parallel_lowlevel_results.png")

@@ -42,11 +42,11 @@ tr_idx = co.find_transition_idx(tr)
 sigma_co = co.cross_section(0, b_sca)
 L_slab_cm = 10.0 * AU   # x_min=-5, x_max=5 -> L=10 AU
 n_species = (tau0_slab / L_slab_cm) / sigma_co   # cm^-3
-n_cycle   = 1
+n_cycle   = 3
 
 def n_total_callable(X, Y, Z):
     res = np.full(X.shape, n_species, dtype=np.float64);
-    res[X > 0.10 * AU] *= 1e1;
+    res[X > 0] *= 1e2;
     return res;
 
 def temperature_callable(X, Y, Z):
@@ -56,9 +56,9 @@ def vx_callable(X, Y, Z):
     return np.zeros(X.shape, dtype=np.float64)
 
 rt = LineRt(
-    n_cell=(64, 4, 2),
-    x_min=(-5, 0, 0),
-    x_max=(5, 0.2, 0.2),
+    n_cell=(64, 16, 2),
+    x_min=(-8, -2, 0),
+    x_max=( 8, 2, 0.2),
     unit_l0=AU, unit_t0=1.0,
 
     species="CO", transition_idx=tr_idx,
@@ -78,7 +78,7 @@ rt.set_boundary("fre fre per per per per")
 # Lowlevel: F0 = 1e6 photon/cm^2/s, sv = b_sca/sqrt(2), x=-4.999
 F0_cgs = 1e6   # photon number flux [photons cm^-2 s^-1]
 rt.add_source(
-    type="slab", x=-4.999, direction="+x",
+    type="slab", x=-5, direction="+x",
     n_photon=20000,
     flux=F0_cgs,            # photon number flux (no wavelength)
     sigma=b_sca / np.sqrt(2),
@@ -101,18 +101,22 @@ if "photons" in res_list[-1]:
 axes[0, 0].set_title("Emergent Spectrum")
 
 plot_flux_slice(axes[0, 1], res_list[-1]["flx"], mesh, title="Flux Map", slice_idx = 0)
-plot_flux_slice(axes[1, 0], res_list[-1]["flx"], mesh, title="Flux Map", slice_idx = 1)
 
-# final_pops = results["populations"]
-# if len(final_pops) >= 2:
-#     vals = list(final_pops.values())
-#     n_g, n_e = vals[0], vals[1]
-#     plot_population_map(axes[1, 0], n_e / (n_g + n_e + 1e-30), mesh, title="Excited Fraction")
+final_pops = results["populations"]
+if len(final_pops) >= 2:
+    vals = list(final_pops.values())
+    n_g, n_e = vals[0], vals[1]
+    plot_population_map(axes[1, 0], n_e / (n_g + n_e + 1e-30), mesh, title="Excited Fraction")
 
-mfp_sca = res_list[-1].get("mfp_i_sca_0")
-if mfp_sca is not None:
-    plot_flux_slice(axes[1, 1], mfp_sca, mesh, title="mfp_i_sca_0",
-                    log=False, cbar_label=r"mfp_i_sca_0 [cm$^{-1}$]")
+emis = res_list[-1].get("emissivity")
+if emis is not None:
+    plot_flux_slice(axes[1, 1], emis, mesh, title="Emissivity",
+                    log=True, cbar_label=r"$\epsilon$ [erg s$^{-1}$ cm$^{-3}$ sr$^{-1}$]")
+else:
+    mfp_sca = res_list[-1].get("mfp_i_sca_0")
+    if mfp_sca is not None:
+        plot_flux_slice(axes[1, 1], mfp_sca, mesh, title="mfp_i_sca_0",
+                        log=False, cbar_label=r"mfp_i_sca_0 [cm$^{-1}$]")
 
 fig.tight_layout()
 outpath = os.path.join(os.path.dirname(__file__), "plane_parallel_hl_results.png")
