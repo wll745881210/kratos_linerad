@@ -87,9 +87,12 @@ x_max = {L_HALF} 1 1
 n_cell_global = {N_CELL} 2 2
 
 [cycle]
-n_cycle_lim = 1
-t_lim  = 2
-dt_output = 2
+prefix_output = test
+n_cycle_lim   = 0
+t_lim         = 2
+t_output_next = 1e32
+dt_output     = 1e32
+final_output  = 1
 
 [particle]
 n_step = {N_STEP}
@@ -106,8 +109,6 @@ const_abs   = 1
 n_fld       = 1
 num_rng     = 16381
 a_voigt     = {A_VOIGT}
-ray_output  = 0
-ray_id      = -1
 
 [boundary]
 kinds = fre fre per per per per

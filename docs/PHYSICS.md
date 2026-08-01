@@ -252,25 +252,62 @@ Dimension check: `[n][l]⁻²[t]⁻¹ × [l]² = [t]⁻¹` (with [n] treated as 
 
 For levels g (ground, index 0) and e (excited, index 1):
 
-```
-n_e / n_g = Γ / (A_ul + (g_l/g_u) × Γ)                    (dimensionless)
+**Rate balance:** the lower level is depopulated by photon excitation
+(Γ) and by induced absorption from the thermal radiation background
+(R_abs); the upper level is depopulated by spontaneous decay (A_ul)
+and by stimulated emission from the background (R_stim).
 
-n_exc_frac = n_e / n_total
-           = Γ / (A_ul + Γ × (1 + g_l/g_u))                (dimensionless)
-```
-
-where A_ul is the Einstein A coefficient for spontaneous decay [t]⁻¹.
-
-With collisions (collisional de-excitation rate C_ul):
+The thermal Planck background at temperature T enters through the
+Bose-Einstein occupation number:
 
 ```
-n_e / n_g = (Γ + C_lu) / (A_ul + C_ul + (g_l/g_u) × Γ)
+x = 1 / (exp(hν / k_B T) - 1)          (dimensionless)
+
+R_abs  = (g_u / g_l) × x × A_ul        [t]⁻¹   (induced absorption)
+R_stim = x × A_ul                       [t]⁻¹   (stimulated emission)
+```
+
+where ν is the transition frequency, h the Planck constant, k_B the
+Boltzmann constant, and g_u, g_l the statistical weights.
+
+The population ratio is:
+
+```
+n_e / n_total = (Γ + R_abs) / (A_ul + R_stim + Γ + R_abs)   (dimensionless)
+```
+
+**Limiting behaviour:**
+
+- **Zero external flux (Γ = 0):** reduces to the Boltzmann
+  distribution n_e/n_total = R_abs / (A_ul + R_stim + R_abs),
+  i.e. n_e/n_g = (g_u/g_l) × exp(−hν / k_B T).  At high T the
+  Boltzmann factor → 1 and n_e/n_total → g_u / (g_u + g_l).
+
+- **Strong external flux (Γ ≫ A_ul):** n_e/n_total → 1 (all
+  particles pumped to the upper level), regardless of temperature.
+
+- **No thermal background (T = 0 or T = None):** R_abs = R_stim = 0,
+  giving n_e/n_total = Γ / (A_ul + Γ).
+
+**Consistency with MCRT opacity:** the MCRT uses σ₀ × n_lower (no
+stimulated-emission correction in the opacity).  The Γ term therefore
+does NOT include a (g_l/g_u) × Γ stimulated-emission contribution.
+Adding one would cap n_e/n_total at g_u/(g_u + g_l) < 1 even for
+arbitrarily strong flux, contradicting the opacity model.
+
+With collisions (collisional de-excitation rate C_ul, excitation rate
+C_lu = (g_u/g_l) × exp(−hν/k_B T) × C_ul by detailed balance):
+
+```
+n_e / n_total = (Γ + R_abs + C_lu) / (A_ul + R_stim + C_ul + Γ + R_abs)
 ```
 
 ### 6.3 Multi-Level Statistical Equilibrium
 
 Linear system for N levels:
 - For each pair i ≠ j: M[i,j] = R_rad[j→i] + R_col[j→i](T)
+  - R_rad includes spontaneous (A_ul), induced absorption (R_abs),
+    and stimulated emission (R_stim) from the Planck background at T
 - Diagonal: M[i,i] = −Σ_{j≠i} M[j,i]
 - Replace last row with Σ_i n_i = n_total
 - Solve: M · n = b

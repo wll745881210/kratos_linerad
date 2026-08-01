@@ -7,6 +7,8 @@ c_cgs = 2.99792458e10
 k_B   = 1.380649e-16
 sqrt_pi = 1.77245385091
 
+import pdb
+
 
 class Transition(NamedTuple):
     upper: int
@@ -144,6 +146,7 @@ class SpeciesData:
 
     def compute_opacity(self, populations, b_sca=1e5,
                           transition_idx=None):
+        pdb.set_trace(  )
         mfp_sca = np.zeros_like(populations.get('n0',
                    populations.get('n_total', np.ones(1))),
                    dtype=np.float64)
@@ -155,11 +158,41 @@ class SpeciesData:
             n_l = np.asarray(populations.get(f'n{lower}',
                                np.zeros_like(mfp_sca)), dtype=np.float64)
             sigma_s = self.cross_section(t_idx, b_sca)
+            print( n_l.shape, sigma_s.shape, mfp_sca.shape )
             mfp_sca += n_l * sigma_s
         return mfp_sca
 
     def update_populations(self, exc_flux, flx, populations, cycle, dx=1.0, b_sca=1e5,
                              T=None, colliders=None, transition_idx=0):
+        """Update level populations from the Kratos excitation flux.
+
+        Parameters
+        ----------
+        exc_flux : ndarray (n_cells,)
+            Overlap-integrated excitation fluence F_ext for the target
+            transition (CGS, [n][l]^-2[t]^-1).
+        flx : ndarray or None
+            Total flux (diagnostic, not used for population update).
+        populations : dict
+            Current population dict (e.g. from initial_populations).
+        cycle : int
+            Current cycle index.
+        b_sca : float
+            Doppler b-parameter [cm/s] for the scattering cross-section
+            sigma_0.  Must be a scalar (not per-cell array).
+        T : ndarray or float or None
+            Gas temperature [K].  When provided, the Planck radiation
+            background at T is included in the statistical equilibrium
+            (induced absorption R_abs + stimulated emission R_stim via
+            the Bose-Einstein occupation number).  At zero external flux
+            this thermalises the populations to the Boltzmann
+            distribution.  When None, only spontaneous decay + external
+            excitation Gamma are considered.
+        colliders : dict or None
+            Collider densities for collisional (de-)excitation.
+        transition_idx : int
+            Index into self.transitions for the pumped transition.
+        """
         from .equilibrium import solve_populations
         pop_vals = list(populations.values())
         n_cells = len(pop_vals[0]) if pop_vals else 1

@@ -17,9 +17,14 @@ Flow:
 import subprocess, sys, os, time, shutil
 import numpy as np
 
-from .kratos_io import (
-    write_field_data, write_photon_data, read_output, write_par_file
-)
+try:
+    from .kratos_io import (
+        write_field_data, write_photon_data, read_output, write_par_file
+    )
+except ImportError:
+    from kratos_io import (
+        write_field_data, write_photon_data, read_output, write_par_file
+    )
 
 KRATOS_EXE = os.path.expanduser('~/apps/kratos_line_rt/bin/kratos')
 _PAR_TEMPLATE = os.path.join(os.path.dirname(__file__), 'line_rt_pipeline.par')
@@ -111,7 +116,7 @@ def run_kratos_cycle(work_dir, cycle, field_file, photon_file,
     return output, log_text, elapsed
 
 
-def run_pipeline(model, mesh, work_dir, n_cycles=3,
+def run_pipeline(model, mesh, work_dir=None, n_cycles=3,
                  n_photon=10000, n_step=1000, n_scat=100,
                  n_fld=2, ph_mode=0, par_overrides=None,
                  keep_intermediate=True,
@@ -123,7 +128,8 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
     ----------
     model : PopulationModel
     mesh : dict from make_cartesian_mesh()
-    work_dir : str
+    work_dir : str  Output directory.  If None, a per-run subdir
+        under /tmp/line_rt/ is created.
     n_cycles : int
     n_photon : int
     n_step, n_scat : int
@@ -138,7 +144,12 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
     results : list of dicts (one per cycle)
     final_populations : dict
     """
+    if work_dir is None:
+        import time
+        work_dir = os.path.join("/tmp/line_rt",
+                                f"run_{time.strftime('%Y%m%d_%H%M%S')}")
     os.makedirs(work_dir, exist_ok=True)
+    print(f"[run_pipeline] Run directory: {work_dir}")
     n_tot = mesh['n_tot']
 
     if par_overrides is None:
@@ -156,19 +167,35 @@ def run_pipeline(model, mesh, work_dir, n_cycles=3,
         'ph_mode': str(ph_mode),
         'n_fld': str(n_fld),
         'n_cycle_lim': '0',
+        't_output_next': '1e32',
+        'dt_output': '1e32',
+        'final_output': '1',
     }
     base_overrides.update(par_overrides)
 
     populations = model.initial_populations(n_tot)
     results = []
 
+    # Write line-independent fields (b_sca, vel) ONCE - they
+    # depend only on the gas, not the selected line/band.
+    fields0 = model.make_fields(populations, step='pre', cycle=0)
+    fixed_fields = {k: v for k, v in fields0.items()
+                    if k in ('b_sca', 'vel_0', 'vel_1', 'vel_2', 'temp')}
+    fixed_file = os.path.join(work_dir, 'fields_fixed.bin')
+    write_field_data(fixed_file, fixed_fields, mesh, unit_l0=unit_l0,
+                     group='fixed')
+    base_overrides['field_fixed_file'] = 'fields_fixed.bin'
+
     for cycle in range(n_cycles):
         print(f'\n=== Cycle {cycle} / {n_cycles} ===')
 
-        # Generate fields
+        # Generate line-dependent fields (mfp_i_sca_0, mfp_i_abs_0)
         fields = model.make_fields(populations, step='pre', cycle=cycle)
+        line_fields = {k: v for k, v in fields.items()
+                       if k in ('mfp_i_sca_0', 'mfp_i_abs_0')}
         field_file = os.path.join(work_dir, f'fields_cycle{cycle}.bin')
-        write_field_data(field_file, fields, mesh, unit_l0=unit_l0)
+        write_field_data(field_file, line_fields, mesh,
+                         unit_l0=unit_l0, group='line')
 
         # Write photon binary and capture proper-weight scale factor
         photons = model.generate_photons(populations, mesh, cycle)

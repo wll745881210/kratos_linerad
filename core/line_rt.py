@@ -6,7 +6,7 @@ via __init__ and add_source(), then call run() to execute.
 
 Usage:
     rt = LineRt(species="CO", n_species=1e4, temperature=100.0)
-    rt.add_source(n_photon=50000, luminosity=0.8*Lsun, wavelength=2.35e-4)
+    rt.add_source(n_photon=50000, luminosity=0.8*Lsun, wavelength=2.6e-1)
     results = rt.run()
 """
 
@@ -44,38 +44,42 @@ class LineRt:
     transition_idx : int
         0-based index into species transitions.
     n_species : float | callable | None
-        Number density of the scatterer [cm⁻³]. If callable, receives
-        n_cells and returns an ndarray.
-    temperature : float | None
-        Gas temperature [K]. Required when species is given.
+        Number density of the scatterer [cm⁻³]. If callable, receives an
+        ``(n_tot, 3)`` array of CGS cell-centre coordinates and returns an
+        ndarray of length ``n_tot``.
+    temperature : float | callable | None
+        Gas temperature [K]. Required when species is given. If callable,
+        receives ``(n_tot, 3)`` CGS coords and returns ``(n_tot,)`` array.
     b_sca : float | callable | None
         Doppler b-parameter [cm/s]. Auto-computed from T if species given.
+        If callable, receives ``(n_tot, 3)`` CGS coords.
     mfp_i_sca_0 : float | callable | None
         Inverse scattering mean free path [cm⁻¹]. Required if no species.
+        If callable, receives ``(n_tot, 3)`` CGS coords.
     mfp_i_abs_0 : float | callable | None
         Inverse absorption mean free path [cm⁻¹] (default 0).
+        If callable, receives ``(n_tot, 3)`` CGS coords.
     vel : tuple | None
         Bulk velocity (vx, vy, vz) [cm/s]. Each component: float | callable.
+        Callables receive ``(n_tot, 3)`` CGS coords.
     mol_mass : float
         Molecular mass [amu] for computing b_sca from temperature.
     a_voigt : float or None
         Voigt damping parameter a. If None (default), uses pure Gaussian profile.
     ph_mode : int
-        0=CFR, 1=PRD.
+        0=CFR (Gaussian), 1/2/3=R_IIA (USampler). See AGENTS.md for details.
     n_step, n_scat : int
         Max path segments and scattering events per photon packet.
+    n_fld : int
+        Number of flux/field components (default 1).
     n_cycles : int
-        Number of MC → population → MC cycles.
+        Number of MC -> population -> MC cycles.
     path : str or None
-        Working directory. Default: ~/scratch/line_rt/<auto-dir>.
+        Working directory. Default: per-run subdir under /tmp/line_rt/.
     visualize : bool
         If True, automatically plot results after run().
     n_emission_max : int
         Max internal emission photons per cell per cycle.
-    ray_output : bool
-        If True, enable raw ray output binary (flx + excitation_flux per cell).
-    ray_id : int
-        Target cell index for ray output (-1 = all cells).
     snapshot : callable or None
         Called after each cycle: fn(results=output, cycle=cycle, populations=pops).
     """
@@ -87,12 +91,11 @@ class LineRt:
                  unit_l0=1.49598e13, unit_t0=1.0,
                  species=None, transition_idx=0,
                  n_species=None, temperature=None,
-                  b_sca=None, mfp_i_sca_0=None, mfp_i_abs_0=0.0,
+                 b_sca=None, mfp_i_sca_0=None, mfp_i_abs_0=0.0,
                   vel=None, mol_mass=28.0, a_voigt=None,
-                 ph_mode=0, n_step=10000, n_scat=10000, n_cycles=3,
+                 ph_mode=0, n_step=10000, n_scat=10000, n_fld=1, n_cycles=3,
                   path=None, visualize=True,
                   n_emission_max=10,
-                  ray_output=False, ray_id=-1,
                   snapshot=None):
         self._n_cell = tuple(n_cell)
         self._x_min = tuple(x_min)
@@ -113,12 +116,11 @@ class LineRt:
         self._ph_mode = ph_mode
         self._n_step = n_step
         self._n_scat = n_scat
+        self._n_fld = n_fld
         self._n_cycles = n_cycles
         self._path = path
         self._visualize = visualize
         self._n_emission_max = n_emission_max
-        self._ray_output = ray_output
-        self._ray_id = ray_id
         self._snapshot = snapshot
         self._sources = []
         self._boundary_kinds = "fre fre fre fre fre fre"
@@ -222,19 +224,20 @@ class LineRt:
         mesh = self._build_mesh()
         species = self._species_obj
         n_tot = mesh['n_tot']
+        coords = self._cell_centers_cgs(mesh)
 
         if species is not None and self._n_species is not None:
-            n_species_val = self._resolve_field(self._n_species, n_tot)
+            n_species_val = self._resolve_field(self._n_species, coords)
         else:
             n_species_val = None
 
-        b_sca_val = self._resolve_b_sca(n_tot)
-        mfp_abs_val = self._resolve_field(self._mfp_i_abs_0, n_tot)
-        vel_vals = self._resolve_vel(n_tot)
+        b_sca_val = self._resolve_b_sca(coords)
+        mfp_abs_val = self._resolve_field(self._mfp_i_abs_0, coords)
+        vel_vals = self._resolve_vel(coords)
 
         fields = {
             'b_sca':       b_sca_val,
-            'temp':        self._resolve_field(self._temperature, n_tot),
+            'temp':        self._resolve_field(self._temperature, coords),
             'vel_0':       vel_vals[0],
             'vel_1':       vel_vals[1],
             'vel_2':       vel_vals[2],
@@ -249,9 +252,7 @@ class LineRt:
                 fields['mfp_i_abs_0'] = mfp_abs_0_in
             fields['mfp_i_sca_0'] = mfp_sca_0
         elif self._mfp_i_sca_0 is not None:
-            fields['mfp_i_sca_0'] = self._resolve_field(self._mfp_i_sca_0, n_tot)
-        elif self._mfp_i_sca_0 is not None:
-            fields['mfp_i_sca_0'] = self._resolve_field(self._mfp_i_sca_0, n_tot)
+            fields['mfp_i_sca_0'] = self._resolve_field(self._mfp_i_sca_0, coords)
 
         v_factor = self._unit_t0 / self._unit_l0
         if species is None:
@@ -268,10 +269,8 @@ class LineRt:
         from .iterator import iterate
         a_voigt_val = self._resolve_a_voigt(b_sca_val)
         par_overrides = {'kinds': self._boundary_kinds,
-                         'a_voigt': str(float(a_voigt_val))}
-        if self._ray_output:
-            par_overrides['ray_output'] = '1'
-            par_overrides['ray_id'] = str(self._ray_id)
+                         'a_voigt': str(float(a_voigt_val)),
+                         'n_fld': str(int(self._n_fld))}
         results, final_pops = iterate(
             photons, species, fields, mesh,
             n_cycles=self._n_cycles,
@@ -298,10 +297,9 @@ class LineRt:
             "results": results,
             "populations": final_pops,
             "mesh": mesh,
+            "run_dir": work_dir,
             "exc_flux_flat": results[-1].get("exc_flux_flat", None) if results else None,
             "flx": results[-1].get("flx", None) if results else None,
-            "ray_flx": results[-1].get("ray_flx", None) if results else None,
-            "ray_exc_flux": results[-1].get("ray_exc_flux", None) if results else None,
             "spectrum": spectrum,
             "sources": list(self._sources),
         }
@@ -312,6 +310,29 @@ class LineRt:
         return out
 
     # ── Helpers ─────────────────────────────────────────────────────
+
+    def _cell_centers_cgs(self, mesh):
+        """Return (n_tot, 3) array of cell-centre positions in CGS [cm].
+
+        Ordering matches the Kratos field-binary convention: 1D arrays
+        are laid out as (nz, ny, nx) in C-order (z slowest, x fastest),
+        consistent with ``write_field_data``'s ``reshape(nz, ny, nx)``.
+        """
+        n_cell = np.asarray(mesh['n_cell'])
+        x_min = np.asarray(mesh['x_min'], dtype=np.float64)
+        dx = np.asarray(mesh['dx'], dtype=np.float64)
+        nx, ny, nz = int(n_cell[0]), int(n_cell[1]), int(n_cell[2])
+        # Cell centres in code units
+        ix = np.arange(nx)
+        iy = np.arange(ny)
+        iz = np.arange(nz)
+        cx = x_min[0] + (ix + 0.5) * dx[0] * self._unit_l0;
+        cy = x_min[1] + (iy + 0.5) * dx[1] * self._unit_l0;
+        cz = x_min[2] + (iz + 0.5) * dx[2] * self._unit_l0;
+        # indexing='ij' with (z, y, x) -> shape (nz, ny, nx)
+        Z, Y, X = np.meshgrid(cx, cy, cz, indexing='ij')
+        return [ X, Y, Z ];
+    #
 
     def _resolve_species(self):
         if self._species_name is None:
@@ -341,24 +362,24 @@ class LineRt:
             x_max=self._x_max,
         )
 
-    def _resolve_field(self, value, n_tot):
+    def _resolve_field(self, value, coords):
         if value is None:
-            return np.zeros(n_tot, dtype=np.float64)
+            return np.zeros( coords[ 0 ].shape, dtype=np.float64)
         if isinstance(value, np.ndarray):
-            return np.asarray(value, dtype=np.float64).ravel()
+            return np.asarray(value, dtype=np.float64)
         if callable(value) and not isinstance(value, (int, float)):
-            return np.asarray(value(n_tot), dtype=np.float64).ravel()
-        return np.full(n_tot, float(value), dtype=np.float64)
+            return np.asarray(value(coords), dtype=np.float64).ravel()
+        return np.full( coords[ 0 ].shape, float(value), dtype=np.float64)
 
-    def _resolve_b_sca(self, n_tot):
+    def _resolve_b_sca(self, coords):
         if self._b_sca is not None:
-            return self._resolve_field(self._b_sca, n_tot)
+            return self._resolve_field(self._b_sca, coords)
         if self._species_obj is not None:
-            temp_vals = self._resolve_field(self._temperature, n_tot)
+            temp_vals = self._resolve_field(self._temperature, coords)
             b_vals = np.sqrt(2.0 * 1.380649e-16 * np.maximum(temp_vals, 0.1)
                              / (self._mol_mass * 1.67262192e-24))
             return b_vals
-        return np.full(n_tot, 1e5, dtype=np.float64)
+        return np.full(coords[ 0 ].shape, 1e5, dtype=np.float64)
 
     def _resolve_a_voigt(self, b_sca_val):
         """Resolve Voigt damping parameter a = A_ul * lambda / (4 * pi * b)."""
@@ -375,7 +396,8 @@ class LineRt:
                     return A_ul * wavelength_cm / (4.0 * np.pi * b_mean)
         return 0.0
 
-    def _resolve_vel(self, n_tot):
+    def _resolve_vel(self, coords):
+        n_tot = coords[ 0 ].shape
         if self._vel is None:
             return (np.zeros(n_tot, dtype=np.float64),
                     np.zeros(n_tot, dtype=np.float64),
@@ -383,7 +405,7 @@ class LineRt:
         out = []
         for i, v in enumerate(self._vel):
             if callable(v) and not isinstance(v, (int, float, np.ndarray)):
-                out.append(np.asarray(v(n_tot), dtype=np.float64).ravel())
+                out.append(np.asarray(v(coords), dtype=np.float64).ravel())
             else:
                 out.append(np.full(n_tot, float(v), dtype=np.float64))
         return tuple(out)
@@ -398,12 +420,16 @@ class LineRt:
 
     def _resolve_path(self):
         if self._path is not None:
+            os.makedirs(self._path, exist_ok=True)
             return self._path
-        base = os.path.expanduser("~/scratch/line_rt")
+        base = "/tmp/line_rt"
         os.makedirs(base, exist_ok=True)
         import time
         ts = time.strftime("%Y%m%d_%H%M%S")
-        return os.path.join(base, f"rt_{ts}")
+        run_dir = os.path.join(base, f"rt_{ts}")
+        os.makedirs(run_dir, exist_ok=True)
+        print(f"[LineRt] Run directory: {run_dir}")
+        return run_dir
 
     def _generate_photons(self, n_tot, mesh, b_sca_val):
         parts = []

@@ -52,9 +52,13 @@ def check_consistency(*, species=None, transition_idx=0,
     species : SpeciesData or None
     transition_idx : int
     n_species : float | callable or None
-    temperature : float or None (K)
+        Number density [cm⁻³]. If callable, receives (n_tot, 3) CGS coords.
+    temperature : float | callable or None (K)
+        If callable, receives (n_tot, 3) CGS coords.
     b_sca : float | callable or None
+        Doppler b [cm/s]. If callable, receives (n_tot, 3) CGS coords.
     mfp_i_sca_0 : float | callable or None
+        Inverse scattering MFP [cm⁻¹]. If callable, receives (n_tot, 3) CGS coords.
     sources : list[dict] or None
     mol_mass : float (g/mol)
     unit_l0, unit_t0 : float
@@ -108,22 +112,21 @@ def check_consistency(*, species=None, transition_idx=0,
                 E_l_K = float(species.levels[lower, 0])
                 lam_um = 299792.458 / nu_GHz if nu_GHz > 0 else float('inf')
 
-                if _is_callable(temperature):
-                    b_val = _compute_b(float(np.mean(np.asarray(
-                        temperature(256), dtype=np.float64))), mol_mass)
-                else:
-                    b_val = _compute_b(temperature, mol_mass)
-                sigma = species.cross_section(t_idx, b_val)
-                info['b_sca_val'] = b_val
-                info['cross_section'] = sigma
-
                 print(f"  Transition #{t_idx}: "
-                      f"J={upper}→{lower}, "
+                      f"J={upper}->{lower}, "
                       f"E_u={E_u_K:.1f} K, E_l={E_l_K:.1f} K, "
                       f"g_u={g_u:.0f}, g_l={g_l:.0f}, "
                       f"A_ul={A_ul:.2e} s⁻¹, "
                       f"ν={nu_GHz:.3f} GHz, λ={lam_um:.1f} µm")
-                print(f"  σ₀ (b={b_val:.1e} cm/s) = {sigma:.2e} cm²")
+                if _is_callable(temperature):
+                    b_val = None  # cannot evaluate without mesh coords
+                    print(f"  σ₀ = (b_sca to be resolved from callable at runtime)")
+                else:
+                    b_val = _compute_b(float(temperature), mol_mass)
+                    sigma = species.cross_section(t_idx, b_val)
+                    info['b_sca_val'] = b_val
+                    info['cross_section'] = sigma
+                    print(f"  σ₀ (b={b_val:.1e} cm/s) = {sigma:.2e} cm²")
             else:
                 info['cross_section'] = None
     else:

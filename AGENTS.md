@@ -20,9 +20,9 @@ HTTP proxy for external downloads: `http://127.0.0.1:7892`. Use `export http_pro
 | `cli.py` | CLI entrypoint (`line-rt` console script, registered in `setup.py`) |
 | `tests/` | Standalone test scripts — run individually, e.g. `python tests/test_A_absorption_only.py` |
 | `docs/reference_mcrt/mcrt.py` | Reference Python MCRT (numba). ph_mode=1 uses USampler table-lookup R_IIA. `plot_neufeld.py` validates vs Neufeld (1990). |
-| `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py` | **Standalone Kratos regression test** (self-contained, no pipeline imports). Wide `aτ₀` sweep vs Neufeld eq (2.24) for ph_modes 1/2/3, golden med\|x\| table, PASS/FAIL exit code. Run: `python3 test_scaling_wide.py --kratos-bin ~/apps/kratos_line_rt/bin/kratos` |
+| `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py` | **Standalone Kratos regression test** (self-contained, no pipeline imports). Wide `aτ₀` sweep vs Neufeld eq (2.24) for ph_modes 1/2/3, golden med\|x\| table, PASS/FAIL exit code. Run: `python3 test_scaling_wide.py --kratos-root ~/apps/kratos_line_rt` |
 | `~/apps/kratos_line_rt/` | Kratos build tree (symlinked to Seafile source) |
-| `~/scratch/line_rt/` | **Runtime working directory** — all test runs happen here |
+| `~/scratch/line_rt/` | Historical runtime dir; new runs default to per-run subdirs under `/tmp/line_rt/`. `fiducial/` subdir holds reference test records. |
 
 ---
 
@@ -36,7 +36,7 @@ HTTP proxy for external downloads: `http://127.0.0.1:7892`. Use `export http_pro
 
 ## Running Kratos
 
-**ALWAYS run under `~/scratch/line_rt/`.** The Python pipeline writes field/photon binary files there, and Kratos reads them via the par file's `field_file` / `photon_file` entries.
+**ALWAYS run under a per-run subdir of `/tmp/line_rt/`** (auto-created by the pipeline). The Python pipeline writes field/photon binary files there, and Kratos reads them via the par file's `field_file` / `photon_file` entries. The run directory is printed at startup (e.g. `[LineRt] Run directory: /tmp/line_rt/rt_20260801_120000`).
 
 Kratos requires a `.par` file. The canonical template lives at:
 
@@ -47,7 +47,7 @@ line_rt_pipeline/pipeline/line_rt_pipeline.par
 Minimal invocation:
 
 ```bash
-cd ~/scratch/line_rt
+cd /tmp/line_rt/<run_dir>
 ~/apps/kratos_line_rt/bin/kratos <par_file>
 ```
 
@@ -60,22 +60,28 @@ pipeline/a0_test.par
 ```
 
 It can be used as a template for simple MCRT validation runs. Copy it to
-`~/scratch/line_rt/` and edit `[mesh]`, `[line_rt]` `b_sca`, and
-`field_file`/`photon_file` paths as needed.
+a per-run subdir of `/tmp/line_rt/` and edit `[mesh]`, `[line_rt]` `b_sca`,
+and `field_file`/`photon_file` paths as needed.
 
 The `[line_rt]` section must contain:
 
 ```ini
 [line_rt]
-field_file  = fields_cycle0.bin
-photon_file = photons_cycle0.bin
-ph_mode     = 0          # 0=CFR (Gaussian), 1/2/3=R_IIA (USampler)
-b_sca       = 1.0        # Doppler b (scattering) — used for overlap integral
-const_abs   = 1          # always 1 (absorption is wavelength-independent)
-n_fld       = 1
-num_rng     = 16381
-a_voigt     = 0.0        # Voigt damping parameter (0 = pure Gaussian)
+field_file       = fields_cycle0.bin   # line-dependent (mfp_i_sca_0, mfp_i_abs_0)
+field_fixed_file = fields_fixed.bin    # line-independent (b_sca, vel) - optional, falls back to field_file
+photon_file      = photons_cycle0.bin
+ph_mode          = 0          # 0=CFR (Gaussian), 1/2/3=R_IIA (USampler)
+b_sca            = 1.0        # Doppler b (scattering) - used for overlap integral
+const_abs        = 1          # always 1 (absorption is wavelength-independent)
+n_fld            = 1
+num_rng          = 16381
+a_voigt          = 0.0        # Voigt damping parameter (0 = pure Gaussian)
 ```
+
+**Field file split (Task 2):** Fields are split into two groups to prepare for multi-line problems:
+- `field_file` (line-dependent): `mfp_i_sca_0`, `mfp_i_abs_0` - change per cycle as populations evolve and differ per transition.
+- `field_fixed_file` (line-independent): `b_sca`, `vel_0..2` - depend only on the gas (bulk velocity, thermal temperature, molecular weight), fixed across lines. Written once per simulation.
+- If `field_fixed_file` is omitted, Kratos falls back to reading `b_sca`/`vel` from `field_file` (backward compatibility).
 
 **ph_mode values:**
 - `0` – CFR: `Δv = −v·d̂`, `σ_ph = σ_th` (no random velocity)
@@ -149,13 +155,23 @@ make clean && make USRDIR=usr_ext/line_rt -j8
 
 | File | Role |
 |------|------|
-| `usr_ext/line_rt/radiation.h` | Field I/O, `init_cond`, module setup |
+| `usr_ext/line_rt/radiation.h` | Field I/O, `init_cond` (GPU kernel), `ini_t` (interp tables, `to_device`/`free_device`) |
 | `usr_ext/line_rt/photon.h` | `proc_geo` (scattering physics), `proc_phys` (excitation) |
 | `usr_ext/line_rt/pool.h` | Escaped photon output writing |
 | `usr_ext/line_rt/gen.h` | Photon generation from binary |
 | `usr_ext/line_rt/intg.h` | Integrator parameters, Voigt interpolation table |
-| `usr_ext/line_rt/block_data.h` | `rad_t` struct — all per-cell field data |
+| `usr_ext/line_rt/block_data.h` | `rad_t` struct, block I/O (`copy_input` blank, `copy_output` device->host) |
 | `usr_ext/line_rt/line_rt.h` | Profile functions (b_sca only) |
+
+### GPU field initialization (Task 1)
+
+Field arrays (`mfp_i_sca_0`, `mfp_i_abs_0`, `b_sca`, `vel[3]`) are initialized on the **GPU** by sampling device-resident `interp_t` tables at cell centers, NOT on the CPU. The flow:
+
+1. `ini_t::read()` loads `interp_t` tables from the field binary (host memory).
+2. `ini_t::to_device(dev)` (called in `init()`, after `p_dev` is available) moves tables to device global memory.
+3. `init_cond()` zeros device field arrays via `f_mset`, then launches `init_rad_fields_kernel` (2D grid: `n_th=(nx)`, `n_bl=(ny,nz)`) to sample tables at cell centers.
+4. `finalize()` calls `ini_t::free_device(dev)` to release table memory after init is done.
+5. **`block_data_t::copy_input` is intentionally blank** - prevents `copy_h2d()` from flushing GPU-initialized fields with uninitialized host garbage. Field copies happen only in `copy_output` (device->host).
 
 ---
 
@@ -175,9 +191,11 @@ make clean && make USRDIR=usr_ext/line_rt -j8
 ## Python pipeline workflow
 
 ```
-Cycle 0:  LTE populations → make_fields() → write binary → run Kratos
-Cycle 1+: read_output() → update_populations(F_ext) → make_fields() → write binary → run Kratos
+Cycle 0:  LTE populations -> make_fields() -> write line + fixed binaries -> run Kratos
+Cycle 1+: read_output() -> update_populations(F_ext) -> make_fields() -> write line binary -> run Kratos
 ```
+
+(line-dependent `field_file` is written per cycle; line-independent `field_fixed_file` is written once at cycle 0.)
 
 Key functions:
 
@@ -186,21 +204,24 @@ Key functions:
 | `compute_opacity(pops, b_sca, transition_idx)` | `molecular/lamda_format.py` | `mfp_sca` only (absorption MFP is user-provided) |
 | `update_populations(exc_flux, flx, pops, cycle, dx, b_sca, T, colliders, transition_idx)` | `molecular/lamda_format.py` | Updated population dict |
 | `make_fields(pops, step, cycle, base_fields, unit_l0, unit_t0, transition_idx)` | `molecular/lamda_format.py` | Field dict — includes `mfp_i_abs_0` only if in `base_fields` |
-| `write_field_data(filename, fields, mesh)` | `pipeline/kratos_io.py` | Writes binary (no `b_abs_` prefix anymore) |
+| `write_field_data(filename, fields, mesh, group='all')` | `pipeline/kratos_io.py` | Writes binary; `group='line'` (mfp_i_*), `'fixed'` (b_sca, vel), or `'all'` |
 | `write_photon_data(filename, photons)` | `pipeline/kratos_io.py` | Writes photon binary |
 
 ### Field keys written to Kratos
 
-| Key | Content |
-|-----|---------|
-| `mfp_i_sca_0_` | **Inverse** scattering MFP at line centre (σ₀ × n_lower) [code-l]⁻¹ |
-| `mfp_i_abs_0_` | **Inverse** absorption MFP [code-l]⁻¹ |
+**Split into two binary files (Task 2):**
+
+| File | Key | Content |
+|------|-----|---------|
+| `field_file` (line-dependent, per cycle) | `mfp_i_sca_0_` | **Inverse** scattering MFP at line centre (σ₀ × n_lower) [code-l]⁻¹ |
+| `field_file` | `mfp_i_abs_0_` | **Inverse** absorption MFP [code-l]⁻¹ |
+| `field_fixed_file` (line-independent, once) | `b_sca_` | Doppler b for scattering overlap integral |
+| `field_fixed_file` | `vel_0_`, `vel_1_`, `vel_2_` | Bulk velocity (3 components) |
+| `field_fixed_file` | `temp_` | Temperature (optional, diagnostic) |
 
 > **Suffix convention:** `_i` means "inverse" (reciprocal). ALL `mfp_i_*` values are inverse mean free paths (cm⁻¹), NOT actual mean free paths (cm). For τ₀ = 100 over length L: `mfp_i_sca_0 = 100/L`, not `L/100`.
 >
-> | `b_sca_` | Doppler b for scattering overlap integral |
-> | `vel_0_`, `vel_1_`, `vel_2_` | Bulk velocity (3 components) |
-> | `temp_` | Temperature (optional, diagnostic) |
+> If `field_fixed_file` is omitted in the par file, Kratos falls back to reading `b_sca`/`vel` from `field_file` (backward compat).
 
 ---
 
@@ -214,14 +235,14 @@ from docs.examples.plane_parallel import *
 Or run directly (generates plots):
 
 ```bash
-cd ~/scratch/line_rt
-python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_parallel.py
+cd /tmp/line_rt
+python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_parallel_hl.py
 ```
 
 Neufeld validation (Python reference MCRT):
 
 ```bash
-cd ~/scratch/line_rt
+cd /tmp/line_rt
 python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/reference_mcrt/plot_neufeld.py [output_prefix]
 ```
 
@@ -234,14 +255,16 @@ Full research record: `~/scratch/line_rt/fiducial/neufeld_test.md`
 1. **Two-group validation rule.** `LineRt.run()` calls `check_consistency()` (`core/consistency.py:43`). You MUST provide either **Group 1** (species + n_species + temperature) or **Group 2** (b_sca + mfp_i_sca_0). Group 1 takes precedence. If both incomplete, `ConsistencyError` is raised. **Adding a new mode or parameter? Add it to `check_consistency()` too.**
 2. **Don't derive absorption opacity from `cross_section()`.** `mfp_i_abs_0` must come from `base_fields`.
 3. **Don't add `b_abs` back.** It was intentionally removed everywhere.
-4. **Always run Kratos from `~/scratch/line_rt/`** where the binary field/photon files live.
+4. **Always run Kratos from a per-run subdir of `/tmp/line_rt/`** where the binary field/photon files live.
 5. **Always pass a `.par` file.** Kratos won't run without one.
 6. **`compute_opacity()` returns only `mfp_sca`** — a single ndarray, not a tuple.
 7. **One excitation flux → one transition, not all levels.** `solve_populations()` applies F_ext × σ₀ only to the (lower↔upper) pair of the target transition.
 8. **`dv_c` does not exist anymore.** Removed from photon struct, binary format, and all I/O. The photon binary columns are: x,y,z, dir_x,dir_y,dir_z, proper, [vel], [sv].  `write_photon_data()` accepts 7, 8, or 9 columns.
 9. **Proper-weight FP32 scaling:** `write_photon_data()` scales `proper` by `1/proper_max` to fit FP32. It RETURNS the scale factor. Both `iterate()` and `run_pipeline()` MUST undo the scaling by multiplying flx and exc_flux by `1/scale_factor` after readback. Values in `output['flx']` and `output['exc_flux_flat']` are always in CGS.
 10. **Photon binary columns 7 (vel) and 8 (sv, Gaussian σ) are velocities → need CGS→code conversion:** `× unit_t0/unit_l0` before writing, `÷ unit_t0/unit_l0` (= `× unit_l0/unit_t0`) on readback for escaped photons.
-11. **3D data reshape convention:** Kratos stores fields as `(nz, ny, nx)` (z slowest, x fastest in C++ row-major). `slice_plot_2d()` must reshape accordingly and `.T` transpose slices for pcolormesh.
+11. **Two distinct 3D data ordering conventions in Kratos:**
+    - **OUTPUT fields** (flx, exc_flux read via `read_output()`): `(nz, ny, nx)` (z slowest, x fastest in C++ row-major). `slice_plot_2d()` must reshape accordingly and `.T` transpose slices for pcolormesh.
+    - **INPUT field binaries** (`field_file`/`field_fixed_file`, read by `interp_t`): `(nx, ny, nz)` (x slowest, z fastest). `interp_t` with `ijkl=true` (default) indexes as `idx = ix*ny*nz + iy*nz + iz`. `write_field_data()` must transpose: `raw.reshape(nz, ny, nx).transpose(2, 1, 0)` before padding/writing. Getting this wrong scrambles coordinate-dependent fields across axes (invisible for uniform fields).
 12. **Boundary cells produce NaN in excitation_flux** — both `iterate()` and `run_pipeline()` filter NaN to 0 before population update.
 13. **`gen.h:104-107`:** `par.sv` is the photon's Gaussian σ (NOT the Doppler b). The relation is `b = σ·√2`. Read from binary column 8 when `ncol_ph >= 9`; defaults to 0.f (monochromatic at line centre) when not provided. After first scatter, `sv` is reset to the thermal σ (= `b_sca / √2`). **Column layout:** 0-2=pos, 3-5=dir, 6=proper, 7=vel, 8=sv.
 14. **`base_fields_cgs` must be kept separate** from the code-unit `fields` output to prevent double unit-conversion across cycles.
@@ -277,6 +300,16 @@ Full research record: `~/scratch/line_rt/fiducial/neufeld_test.md`
 
 20. **CRITICAL: n_cell_global minimum is 2 in EVERY dimension. `n_cell=1` WILL silently fail — Kratos produces only particle output with no field data or escaped photons.** This is the #1 pitfall. Never use `n_cell_global = 1 2 2` or any dimension with 1 cell. Always `>=2` for each component. The mesh output `.bin` file is produced but contains zero flux fields, and `n_cell` comes back as `None` from `read_output()`. Purely a Kratos requirement; the Python reference MCRT can use n_cell=1 but Kratos cannot.
 21. **`pipeline/kratos_io.py` depends on external binary I/O** from `~/Seafile/seafile_sync/code/kratos/visual/binary_io` — if Kratos source moves, update the `sys.path` hack in `core/fields.py` and the import in `kratos_io.py`.
+
+    **In self-contained regression tests (`test_scaling_wide.py`, `test_absorption_scattering.py`), never import `binary_io` at module top level.** Load it lazily inside a `resolve_kratos_root(kratos_root)` helper that (1) validates `<kratos-root>/bin/kratos` and `<kratos-root>/visual/binary_io.py` exist, (2) inserts `<kratos-root>/visual` into `sys.path`, and (3) returns `binary_io`. Use `importlib` so static checkers (pyright/Pylance) never flag `Import "binary_io" could not be resolved`:
+
+    ```python
+    import importlib
+    ...
+    binary_io = importlib.import_module('binary_io').binary_io
+    ```
+
+    A static `from binary_io import binary_io` triggers a false-positive LSP error (the module only resolves at runtime after `sys.path` is patched). Do NOT fix it with `# type: ignore` or LSP `extraPaths` — those are per-file/config hacks; `importlib` is the portable fix. See `usr_ext/line_rt/tests/README.md` (Troubleshooting) and the `--kratos-root` flag conventions there.
 
 22. **Par file and field binary: everything in code units except `[unit]`.** Mesh coordinates (`x_min`, `x_max`), `b_sca`, and all field binary spatial grids (`x0`, `dx`) must be in code units — NOT CGS. The `[unit]` section is documentation-only; Kratos does NOT convert mesh or `[line_rt]` parameters. `geo.x_cc()` returns code units. Python converts CGS → code before writing: positions / `unit_l0`, velocities × `unit_t0/unit_l0`, inverse lengths × `unit_l0`.
 

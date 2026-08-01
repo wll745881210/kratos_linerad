@@ -248,8 +248,8 @@ def plot_emergent_spectrum(ax, photons, bins=80, xlim=None, label=""):
 
 
 def plot_flux_slice(ax, flx, mesh, title="", log=True, cmap="turbo",
-                    cbar_label=None):
-    pc = slice_plot_2d(ax, flx, mesh, plane="xy", slice_idx=None,
+                    cbar_label=None, slice_idx = None ):
+    pc = slice_plot_2d(ax, flx, mesh, plane="xy", slice_idx=slice_idx,
                        log=log, cmap=cmap)
     label = cbar_label or "flux [photons cm$^{-2}$ s$^{-1}$]"
     plt.colorbar(pc, ax=ax, label=label)

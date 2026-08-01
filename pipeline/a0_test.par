@@ -25,6 +25,7 @@ output          = 1
 
 [line_rt]
 field_file      = fields_a0_v5.bin
+field_fixed_file = fields_fixed.bin
 photon_file     = photons_a0_v5.bin
 photon_pref     = par
 ph_mode         = 0

@@ -44,7 +44,28 @@ def solve_populations(species_data, exc_flux, n_total,
 
         n_total_c = np.maximum(n_total, 1e-30)
         Gamma = np.abs(exc_flux) * sigma_0
-        n_exc_frac = Gamma / (A_ul + Gamma * (1.0 + g_l / g_u))
+
+        # Thermal background (Planck) at temperature T.
+        # Bose-Einstein occupation: x = 1/(exp(h*nu/kT) - 1)
+        # R_abs = (g_u/g_l) * x * A_ul   (induced absorption)
+        # R_stim = x * A_ul               (stimulated emission)
+        # Without external radiation field (no background):
+        #   n_u/n = Gamma / (A_ul + Gamma)
+        # With Planck background at T:
+        #   n_u/n = (Gamma + R_abs) / (A_ul + R_stim + Gamma + R_abs)
+        # At Gamma=0 this reduces to the Boltzmann distribution.
+        T_arr = np.asarray(T, dtype=np.float64) if T is not None else None
+        if T_arr is not None:
+            nu = float(t[3]) * 1e9
+            dE = 6.62607015e-27 * nu
+            kB = 1.380649e-16
+            T_safe = np.maximum(T_arr.ravel(), 1e-10)
+            x_planck = 1.0 / (np.exp(dE / (kB * T_safe)) - 1.0)
+            R_abs = (g_u / g_l) * x_planck * A_ul
+            R_stim = x_planck * A_ul
+            n_exc_frac = (Gamma + R_abs) / (A_ul + R_stim + Gamma + R_abs)
+        else:
+            n_exc_frac = Gamma / (A_ul + Gamma)
         n_exc_frac = np.clip(n_exc_frac, 0, 0.9999)
 
         n[upper, :] = n_exc_frac * n_total_c
@@ -69,7 +90,20 @@ def solve_populations(species_data, exc_flux, n_total,
             continue
 
         if colliders is None or not species_data.collision_partners:
-            n_exc_frac = Gamma / (A_ul + Gamma * (1.0 + g_l / g_u))
+            T_c = None
+            if T is not None:
+                T_arr = np.asarray(T, dtype=np.float64)
+                T_c = float(T_arr.ravel()[c]) if T_arr.size > 1 else float(T_arr)
+            if T_c is not None and T_c > 0:
+                nu = float(t[3]) * 1e9
+                dE = 6.62607015e-27 * nu
+                kB = 1.380649e-16
+                x_planck = 1.0 / (np.exp(dE / (kB * T_c)) - 1.0)
+                R_abs = (g_u / g_l) * x_planck * A_ul
+                R_stim = x_planck * A_ul
+                n_exc_frac = (Gamma + R_abs) / (A_ul + R_stim + Gamma + R_abs)
+            else:
+                n_exc_frac = Gamma / (A_ul + Gamma)
             n_exc_frac = np.clip(n_exc_frac, 0, 0.9999)
             n[upper, c] = n_exc_frac * n_total_c
             n[lower, c] = n_total_c - n[upper, c]
@@ -87,7 +121,18 @@ def solve_populations(species_data, exc_flux, n_total,
                     if j == lower and i == upper:
                         rate += Gamma
                     if j == upper and i == lower:
-                        rate += A_ul + Gamma * g_l / g_u
+                        rate += A_ul
+                    if T is not None:
+                        T_c = T[c] if hasattr(T, '__len__') and T.ndim > 0 else T
+                        nu = float(t[3]) * 1e9
+                        dE = 6.62607015e-27 * nu
+                        kB = 1.380649e-16
+                        if T_c > 0:
+                            x_planck = 1.0 / (np.exp(dE / (kB * float(T_c))) - 1.0)
+                            if j == lower and i == upper:
+                                rate += (g_u / g_l) * x_planck * A_ul
+                            if j == upper and i == lower:
+                                rate += x_planck * A_ul
 
                     if T is not None and species_data.collision_partners:
                         T_c = T[c] if T.ndim > 0 else T

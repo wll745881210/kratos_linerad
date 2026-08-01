@@ -20,8 +20,9 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
             n_emission_max=10,
             unit_l0=1.49598e13, unit_t0=1.0):
     if work_dir is None:
-        work_dir = os.path.join(os.getcwd(), "iterate_output")
+        work_dir = os.path.join("/tmp/line_rt", "iterate_output")
     os.makedirs(work_dir, exist_ok=True)
+    print(f"[iterate] Run directory: {work_dir}")
 
     if par_overrides is None:
         par_overrides = {}
@@ -40,6 +41,9 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         "ph_mode": str(int(ph_mode)),
         "n_fld": "1",
         "n_cycle_lim": "0",
+        "t_output_next": "1e32",
+        "dt_output": "1e32",
+        "final_output": "1",
         "output": "1",
         "mol_mass": str(float(mol_mass)),
     }
@@ -63,10 +67,32 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
     if species is not None and hasattr(species, "make_fields"):
         fields = species.make_fields(populations, "pre", -1, base_fields=base_fields_cgs,
                                        unit_l0=unit_l0, unit_t0=unit_t0)
+        # make_fields may not return mfp_i_abs_0 (absorption is
+        # user-provided, not species-derived).  Preserve it from
+        # base_fields_cgs, converted to code units.
+        if 'mfp_i_abs_0' not in fields and 'mfp_i_abs_0' in base_fields_cgs:
+            v_factor = unit_l0  # inverse length: CGS -> code
+            fields['mfp_i_abs_0'] = np.asarray(base_fields_cgs['mfp_i_abs_0'],
+                                                dtype=np.float64).ravel() * v_factor
+
+    # Write line-independent fields (b_sca, vel) ONCE - these
+    # depend only on the gas (bulk motion, thermal temperature,
+    # molecular weight), not on the selected line/band.
+    fixed_fields = {k: v for k, v in fields.items()
+                    if k in ('b_sca', 'vel_0', 'vel_1', 'vel_2', 'temp')}
+    fixed_file = os.path.join(work_dir, "fields_fixed.bin")
+    write_field_data(fixed_file, fixed_fields, mesh, unit_l0=unit_l0,
+                     group='fixed')
+    base_overrides["field_fixed_file"] = "fields_fixed.bin"
 
     for cycle in range(n_cycles):
+        # Line-dependent fields (mfp_i_sca_0, mfp_i_abs_0) are
+        # written per cycle (populations evolve).
+        line_fields = {k: v for k, v in fields.items()
+                       if k in ('mfp_i_sca_0', 'mfp_i_abs_0')}
         field_file = os.path.join(work_dir, f"fields_cycle{cycle}.bin")
-        write_field_data(field_file, fields, mesh, unit_l0=unit_l0)
+        write_field_data(field_file, line_fields, mesh,
+                         unit_l0=unit_l0, group='line')
 
         photon_file = os.path.join(work_dir, f"photons_cycle{cycle}.bin")
         ph_arr = np.asarray(source_photons, dtype=np.float64).copy()
@@ -87,6 +113,10 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
             break
 
         output["cycle"] = cycle
+
+        if 'mfp_i_sca_0' in fields:
+            output['mfp_i_sca_0'] = np.asarray(fields['mfp_i_sca_0'],
+                                               dtype=np.float64).ravel()
 
         if 'photons' in output:
             v_factor = unit_t0 / unit_l0
@@ -119,8 +149,16 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
                 output['flx'] = flx
 
         if species is not None and hasattr(species, "update_populations"):
-            populations = species.update_populations(exc_flux, flx, populations, cycle,
-                                                       transition_idx=transition_idx)
+            T_field = base_fields_cgs.get('temp', None)
+            b_sca_field = base_fields_cgs.get('b_sca', None)
+            if b_sca_field is not None and hasattr(b_sca_field, '__len__'):
+                b_sca_scalar = float(np.mean(b_sca_field))
+            else:
+                b_sca_scalar = b_sca_field
+            populations = species.update_populations(
+                exc_flux, flx, populations, cycle,
+                transition_idx=transition_idx,
+                T=T_field, b_sca=b_sca_scalar)
             output['populations'] = {k: np.asarray(v, dtype=np.float64).copy()
                                      for k, v in populations.items()}
 
@@ -128,6 +166,9 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
             fields = species.make_fields(populations, "post", cycle, base_fields=base_fields_cgs,
                                            transition_idx=transition_idx,
                                            unit_l0=unit_l0, unit_t0=unit_t0)
+            if 'mfp_i_abs_0' not in fields and 'mfp_i_abs_0' in base_fields_cgs:
+                fields['mfp_i_abs_0'] = np.asarray(base_fields_cgs['mfp_i_abs_0'],
+                                                    dtype=np.float64).ravel() * unit_l0
 
         if species is not None and hasattr(species, "generate_emission_photons") and cycle < n_cycles - 1:
             temp_field = fields.get('temp', np.zeros(mesh['n_tot'],

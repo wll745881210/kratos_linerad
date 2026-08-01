@@ -86,9 +86,11 @@ def fields_panel(mesh=None):
     return widgets.VBox([
         widgets.HTML("<h3>Physical Fields</h3>"),
         w["field_type"],
-        w["mfp_i_sca"],
-        w["mfp_i_abs"],
+        w["mfp_i_sca_0"],
+        w["mfp_i_abs_0"],
         w["b_sca"],
+        w["temperature"],
+        w["mol_mass"],
         widgets.HBox([preview_button]),
         slice_output,
     ])
@@ -120,7 +122,6 @@ def iter_panel():
         w["n_scat"],
         w["n_step"],
         w["ph_mode"],
-        w["n_thread"],
         widgets.HBox([w["run_button"], w["stop_button"]]),
         progress_bar,
         output_area,

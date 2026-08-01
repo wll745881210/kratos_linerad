@@ -317,10 +317,10 @@ Doppler→wing transition where Neufeld is not valid.)
 `usr_ext/line_rt/tests/test_scaling_wide.py` — standalone (no
 pipeline imports), self-contained golden table above, PASS/FAIL
 exit code. Default WORKDIR `/tmp/line_rt_regress` (overridable with
-`--workdir`), `--kratos-bin` required:
+`--workdir`), `--kratos-root` required:
 
 ```bash
-python3 test_scaling_wide.py --kratos-bin ~/apps/kratos_line_rt/bin/kratos
+python3 test_scaling_wide.py --kratos-root ~/apps/kratos_line_rt
 ```
 
 ---
@@ -423,8 +423,8 @@ After all fixes: single-scatter gap -0.12%, unlimited-scatter gap
 | `usr_ext/line_rt/photon.h`           | Scattering physics (`scat`, `proc_geo`, `proc_phys`) |
 | `usr_ext/line_rt/intg.h`             | Unified USampler (log-CDF, global/const mem) + Voigt tables |
 | `usr_ext/line_rt/gen.h`              | Photon generation from binary                        |
-| `usr_ext/line_rt/radiation.h`        | Field I/O, `init_cond`                               |
-| `usr_ext/line_rt/block_data.h`       | `rad_t` struct, block I/O                            |
+| `usr_ext/line_rt/radiation.h`        | Field I/O, `init_cond` (GPU kernel), `ini_t` (interp tables, `to_device`/`free_device`) |
+| `usr_ext/line_rt/block_data.h`       | `rad_t` struct, block I/O (`copy_input` blank, `copy_output` device->host)            |
 | `usr_ext/line_rt/pool.h`             | Escaped photon output                                |
 | `usr_ext/line_rt/voigt_table_data.h` | Auto-generated Voigt table                           |
 | `usr_ext/line_rt/gen_voigt_table.py` | Table generator script                               |
@@ -440,3 +440,77 @@ profile, FP32/FP64, RNG) but never identified the two root causes
 (n_scat misconfiguration and Voigt normalization).  The agent was
 stopped at Turn 12.  The root causes were found by manual
 single-scatter isolation testing on Jul 31.
+
+---
+
+## Task 1: GPU field initialization (Aug 1)
+
+Moved field-array initialization (`mfp_i_sca_0`, `mfp_i_abs_0`, `b_sca`,
+`vel[3]`) from a CPU loop to a GPU kernel that samples device-resident
+`interp_t` tables at cell centers.
+
+**Why:** the CPU loop sampled interp tables on the host, then
+`copy_h2d()` copied the results to the device.  This was unnecessarily
+slow and, more importantly, fragile: `copy_input` (host->device) would
+flush GPU-initialized fields with uninitialized host garbage if called
+out of order.
+
+**Implementation (`usr_ext/line_rt/radiation.h`, `block_data.h`):**
+
+1. `ini_t` promoted to a public nested struct with `read()`,
+   `to_device(dev)`, `free_device(dev)`.
+2. `ini_t::read()` loads `interp_t` tables from the field binary (host).
+3. `init()` calls `ini.to_device(*mesh.p_dev)` after `prep_rng` (once
+   `p_dev` is available).
+4. `init_cond()` zeros device field arrays via `f_mset`, then launches
+   `init_rad_fields_kernel<bdt_T, ini_T>` (2D grid: `n_th=(nx)`,
+   `n_bl=(ny,nz)`), which samples the tables at cell centers with
+   `utils::max(...,0)` clamping.  No `copy_h2d()`.
+5. `finalize()` calls `ini.free_device(*mesh.p_dev)` to release table
+   memory after initialization is complete.
+6. **`block_data_t::copy_input` is intentionally blank** - prevents
+   `copy_h2d()` from flushing GPU-initialized fields with uninitialized
+   host garbage.  `copy_output` carries the field-copy logic for
+   device->host output transfers.
+
+**Validation:** `test_scaling_wide.py` 5/5 PASS (med|x| ratios
+0.999-1.004 vs golden); `test_absorption_scattering.py` PASS (K/P
+1.013-1.080).  GPU init produces identical results to the previous CPU
+init.
+
+---
+
+## Task 2: Split field binary into line-dependent + line-independent files (Aug 1)
+
+Fields are now split into two binary files to prepare for multi-line
+problems where `b_sca` and `vel` depend only on the gas (bulk motion,
+thermal temperature, molecular weight), not the selected line/band.
+
+**Kratos side (`usr_ext/line_rt/radiation.h`):**
+- `ini_t::read()` now opens two binaries in separate scopes:
+  1. `field_file` -> `mfp_i_sca_0`, `mfp_i_abs_0` (line-dependent)
+  2. `field_fixed_file` (optional) -> `b_sca`, `vel[3]` (line-independent)
+- If `field_fixed_file` is absent, falls back to `field_file` (backward
+  compatibility).  Uses `args.get<std::string>("line_rt",
+  "field_fixed_file", "")` with empty-string default.
+- Each binary is opened/closed in its own scope to avoid reusing a
+  freed `binary_io` buffer.
+
+**Python side:**
+- `write_field_data(filename, fields, mesh, group='all')` -
+  `group='line'` writes only `mfp_i_sca_0`/`mfp_i_abs_0`;
+  `group='fixed'` writes only `b_sca`/`vel_*`; `group='all'` writes
+  both (backward compat).  Accepts field dict keys with or without
+  trailing underscore.
+- `iterator.py`: writes `fields_fixed.bin` once before the cycle loop
+  (`group='fixed'`); writes `fields_cycle{N}.bin` per cycle
+  (`group='line'`).  Sets `field_fixed_file` par override.
+- `pipeline.py`: same split pattern for the low-level interface.
+- Par templates (`line_rt_pipeline.par`, `a0_test.par`): added
+  `field_fixed_file = fields_fixed.bin`.
+
+**Validation:** standalone regression tests still pass (they don't set
+`field_fixed_file`, so Kratos uses the fallback).  High-level pipeline
+(`LineRt.run()`) end-to-end test passes with split files verified:
+`fields_fixed.bin` + `fields_cycle0.bin` produced, par file contains
+`field_fixed_file`, Kratos runs successfully.

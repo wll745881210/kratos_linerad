@@ -58,8 +58,8 @@ def fields_widgets(mesh=None):
             value="Uniform",
             description="Field Type:",
         ),
-        "mfp_i_sca": widgets.FloatText(value=0.1, description="MFP sca:"),
-        "mfp_i_abs": widgets.FloatText(value=0.01, description="MFP abs:"),
+        "mfp_i_sca_0": widgets.FloatText(value=1e-13, description="MFP_i sca:"),
+        "mfp_i_abs_0": widgets.FloatText(value=0.0, description="MFP_i abs:"),
         "b_sca": widgets.FloatText(value=1e5, description="B sca:"),
         "temperature": widgets.FloatText(value=100.0, description="Temp (K):"),
         "n_fld": widgets.IntText(value=1, description="N Fld:"),
@@ -73,18 +73,17 @@ def fields_widgets(mesh=None):
 def iter_widgets():
     return {
         "n_cycles": widgets.IntSlider(
-            value=5, min=1, max=20, step=1, description="N Cycles:",
+            value=3, min=1, max=20, step=1, description="N Cycles:",
         ),
-        "n_photon": widgets.IntText(value=50000, description="N Photon:"),
+        "n_photon": widgets.IntText(value=20000, description="N Photon:"),
         "n_scat": widgets.IntText(value=10000, description="N Scat:"),
         "n_step": widgets.IntText(value=10000, description="N Step:"),
         "ph_mode": widgets.Dropdown(
-            options=[("0=coherent", 0), ("1=CFR", 1)],
-            value=1,
+            options=[("0=CFR", 0), ("1=R_IIA (global)", 1),
+                     ("2=R_IIA (const mem)", 2), ("3=R_IIA (blend)", 3)],
+            value=0,
             description="Ph Mode:",
-        ),
-        "n_thread": widgets.IntSlider(
-            value=1, min=1, max=8, step=1, description="N Thread:",
+            style={"description_width": "initial"},
         ),
         "run_button": widgets.Button(description="Run", button_style="success"),
         "stop_button": widgets.Button(description="Stop", button_style="danger"),

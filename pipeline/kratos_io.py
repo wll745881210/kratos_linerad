@@ -10,24 +10,41 @@ from binary_io import binary_io
 import numpy as np
 
 
-def write_field_data(filename, fields, mesh, unit_l0=1.0):
+_LINE_FIELD_PREFIXES = ['mfp_i_sca_0_', 'mfp_i_abs_0_', 'temp_']
+_FIXED_FIELD_PREFIXES = ['b_sca_', 'vel_0_', 'vel_1_', 'vel_2_']
+
+
+def write_field_data(filename, fields, mesh, unit_l0=1.0, group='all'):
     """
     Write Kratos field binary.
+
+    Split into two groups (Task 2): line-dependent fields
+    (mfp_i_sca_0, mfp_i_abs_0) that change per cycle / per line,
+    and line-independent fields (b_sca, vel) that stay fixed
+    across lines.  This prepares the pipeline for multi-line
+    problems where bulk velocity and thermal broadening depend
+    only on the gas, not the selected transition.
 
     Parameters
     ----------
     filename : str
     fields : dict
         Keys: 'mfp_i_sca_0', 'mfp_i_abs_0', 'b_sca',
-              'vel_0', 'vel_1', 'vel_2'
+              'vel_0', 'vel_1', 'vel_2', ['temp_']
         Values: flat float32 arrays of length n_tot
     mesh : dict
         'n_cell' : ndarray[int32], 'x_min' : ndarray[float32],
         'dx' : ndarray[float32]
     unit_l0 : float
-        Ignored — kept for API compatibility. Kratos uses CGS
+        Ignored - kept for API compatibility. Kratos uses CGS
         coordinates for geo.x_cc(), so the field binary grid must
         use CGS x0/dx matching the par-file mesh.
+    group : {'all', 'line', 'fixed'}
+        'line'  - write only line-dependent fields (mfp_i_sca_0,
+                  mfp_i_abs_0, temp_)  -> field_file
+        'fixed' - write only line-independent fields (b_sca,
+                  vel_0..2)             -> field_fixed_file
+        'all'   - write both (backward compat, single file)
     """
     bio = binary_io(filename)
     n_cell = np.asarray(mesh['n_cell'], dtype=np.int32)
@@ -37,14 +54,27 @@ def write_field_data(filename, fields, mesh, unit_l0=1.0):
     n_pts = (n_cell + 1).astype(np.int32)
     nc = n_cell.astype(np.int32)
 
-    for prefix in ['mfp_i_sca_0_', 'mfp_i_abs_0_',
-                   'b_sca_', 'temp_',
-                   'vel_0_', 'vel_1_', 'vel_2_']:
-        key = prefix
-        if key not in fields:
+    if group == 'all':
+        prefixes = _LINE_FIELD_PREFIXES + _FIXED_FIELD_PREFIXES
+    elif group == 'line':
+        prefixes = _LINE_FIELD_PREFIXES
+    elif group == 'fixed':
+        prefixes = _FIXED_FIELD_PREFIXES
+    else:
+        raise ValueError(f"group must be 'all', 'line', or 'fixed', got {group!r}")
+
+    for prefix in prefixes:
+        # Accept keys with or without trailing underscore
+        key = prefix.rstrip('_') if prefix.endswith('_') else prefix
+        if key not in fields and prefix not in fields:
             continue
-        raw = np.asarray(fields[key], dtype=np.float32)
-        arr = raw.reshape(nc[2], nc[1], nc[0])
+        raw = np.asarray(fields.get(key, fields.get(prefix)),
+                         dtype=np.float32)
+        # interp_t (ijkl=true) expects data in (x, y, z) order:
+        # dim-0 (x) slowest, dim-2 (z) fastest.  The pipeline
+        # generates flat arrays in (z, y, x) C-order (ix fastest),
+        # so reshape to (nz, ny, nx) then transpose to (nx, ny, nz).
+        arr = raw; # .reshape(nc[2], nc[1], nc[0])
         padded = np.pad(arr, ((0, 1), (0, 1), (0, 1)), mode='edge')
 
         bio.cache(f'{prefix}n_pts', n_pts,  dtype='int32')
@@ -53,7 +83,7 @@ def write_field_data(filename, fields, mesh, unit_l0=1.0):
         bio.cache(f'{prefix}data', padded.ravel().astype(np.float32),
                   dtype='float32')
     bio.save()
-    print(f'Wrote fields: {filename}')
+    print(f'Wrote fields ({group}): {filename}')
 
 
 def write_photon_data(filename, photons, n_col=None):
