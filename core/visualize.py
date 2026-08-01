@@ -98,7 +98,8 @@ def _extract_field(results, field, unit_l0=1.0, unit_t0=1.0):
 
 
 def default_plot(results, fields=None, slice_plane="z", slice_idx=None,
-                 ax=None, figsize=None, output_path=None):
+                 ax=None, figsize=None, output_path=None,
+                 dyn_range=False):
     """Multi-panel default plot for LineRt results.
 
     2-column layout; number of rows = ceil(len(fields)/2).
@@ -114,6 +115,9 @@ def default_plot(results, fields=None, slice_plane="z", slice_idx=None,
     ax : array of Axes or None  (created if None).
     figsize : tuple or None.
     output_path : str or None  save figure if given.
+    dyn_range : bool  if True, apply logarithmic dynamic-range constraints
+        (upper = 10^ceil(log10(max)); lower = 10^(upper_dex - clip(span,1,6))).
+        If False (default), use unconstrained log scale.
     """
     if fields is None:
         fields = list(_DEFAULT_FIELDS)
@@ -155,8 +159,11 @@ def default_plot(results, fields=None, slice_plane="z", slice_idx=None,
             ax_i.set_yticks([])
             continue
 
-        vmin, vmax = _log_limits(data)
-        norm = LogNorm(vmin=vmin, vmax=vmax) if vmin else None
+        if dyn_range:
+            vmin, vmax = _log_limits(data)
+            norm = LogNorm(vmin=vmin, vmax=vmax) if vmin else None
+        else:
+            norm = None
 
         pc = slice_plot_2d(ax_i, data, mesh, plane=plane,
                            slice_idx=slice_idx, log=True, cmap="turbo",
