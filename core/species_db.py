@@ -14,16 +14,15 @@ Usage:
 import os
 
 
-_PROJECT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-_EMBEDDED_DIR = os.path.join(_PROJECT, "molecular", "embedded")
+_PROJECT      = os.path.dirname( \
+                os.path.dirname( os.path.realpath( __file__ ) ) );
+_EMBEDDED_DIR = os.path.join( _PROJECT, 'molecular', 'embedded' );
 
-_SPECTRA = {
-    "CO": os.path.join(_EMBEDDED_DIR, "co.dat"),
-    "OH": os.path.join(_EMBEDDED_DIR, "oh.dat"),
-}
+_SPECTRA = { 'CO' : os.path.join( _EMBEDDED_DIR, 'co.dat' ), \
+             'OH' : os.path.join( _EMBEDDED_DIR, 'oh.dat' ), };
 
 
-def load_species(name_or_path, *, freq_GHz=None):
+def load_species( name_or_path, *, freq_GHz = None ):
     """Load species data from a LAMDA file.
 
     Parameters
@@ -39,27 +38,27 @@ def load_species(name_or_path, *, freq_GHz=None):
     -------
     SpeciesData | (SpeciesData, Transition)
     """
-    from molecular.lamda_format import load_lamda, load_species_transition, \
-        SpeciesData, Transition
+    from molecular.lamda_format import load_lamda, \
+        load_species_transition, SpeciesData, Transition
 
     if name_or_path in _SPECTRA:
-        path = _SPECTRA[name_or_path]
+        path = _SPECTRA[ name_or_path ];
     else:
-        path = name_or_path
+        path = name_or_path;
 
-    if not os.path.exists(path):
-        available = ", ".join(_SPECTRA.keys())
-        raise FileNotFoundError(
-            f"Species file not found: {path}\n"
-            f"Known species: {available}")
+    if not os.path.exists( path ):
+        available = ', '.join( _SPECTRA.keys( ) );
+        raise FileNotFoundError( \
+            "Species file not found: %s\n" \
+            "Known species: %s" % ( path, available ) );
 
     if freq_GHz is not None:
-        return load_species_transition(path, freq_GHz=freq_GHz)
+        return load_species_transition( path, freq_GHz = freq_GHz );
     else:
-        with open(path) as f:
-            return load_lamda(f.read())
+        with open( path ) as f:
+            return load_lamda( f.read( ) );
 
 
-def list_species():
+def list_species( ):
     """Return list of short names for known embedded species."""
-    return list(_SPECTRA.keys())
+    return list( _SPECTRA.keys( ) );

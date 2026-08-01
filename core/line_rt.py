@@ -11,16 +11,21 @@ Usage:
 """
 
 import os
-import numpy as np
+from numpy import asarray, zeros, full, arange, meshgrid, sqrt, maximum, \
+                  mean, abs, arccos, sin, cos, pi, vstack, array, \
+                  ones_like, random, ndarray, float64;
 
 from .source import make_cartesian_mesh
 from .fields import uniform_field
 from .species_db import load_species
 from .consistency import check_consistency, ConsistencyError, _compute_b
 
-h_cgs = 6.62607015e-27
-c_cgs = 2.99792458e10
+h_cgs = 6.62607015e-27;    # Planck constant [ erg s ]
+c_cgs = 2.99792458e10;     # speed of light [ cm / s ]
 
+
+############################################################
+# LineRt class
 
 class LineRt:
     """High-level orchestrator for a line radiative-transfer simulation.
@@ -65,7 +70,8 @@ class LineRt:
     mol_mass : float
         Molecular mass [amu] for computing b_sca from temperature.
     a_voigt : float or None
-        Voigt damping parameter a. If None (default), uses pure Gaussian profile.
+        Voigt damping parameter a. If None (default), uses pure Gaussian
+        profile.
     ph_mode : int
         0=CFR (Gaussian), 1/2/3=R_IIA (USampler). See AGENTS.md for details.
     n_step, n_scat : int
@@ -81,53 +87,53 @@ class LineRt:
     n_emission_max : int
         Max internal emission photons per cell per cycle.
     snapshot : callable or None
-        Called after each cycle: fn(results=output, cycle=cycle, populations=pops).
+        Called after each cycle: fn(results=output, cycle=cycle,
+                                    populations=pops).
     """
 
-    def __init__(self, *,
-                 n_cell=(64, 2, 2),
-                 x_min=(-5., 0., 0.),
-                 x_max=(5., 0.2, 0.2),
-                 unit_l0=1.49598e13, unit_t0=1.0,
-                 species=None, transition_idx=0,
-                 n_species=None, temperature=None,
-                 b_sca=None, mfp_i_sca_0=None, mfp_i_abs_0=0.0,
-                  vel=None, mol_mass=28.0, a_voigt=None,
-                 ph_mode=0, n_step=10000, n_scat=10000, n_fld=1, n_cycles=3,
-                  path=None, visualize=True,
-                  n_emission_max=10,
-                  snapshot=None):
-        self._n_cell = tuple(n_cell)
-        self._x_min = tuple(x_min)
-        self._x_max = tuple(x_max)
-        self._unit_l0 = unit_l0
-        self._unit_t0 = unit_t0
-        self._species_name = species
-        self._species_obj = None
-        self._transition_idx = transition_idx
-        self._n_species = n_species
-        self._temperature = temperature
-        self._b_sca = b_sca
-        self._mfp_i_sca_0 = mfp_i_sca_0
-        self._mfp_i_abs_0 = mfp_i_abs_0
-        self._vel = vel
-        self._mol_mass = mol_mass
-        self._a_voigt = a_voigt
-        self._ph_mode = ph_mode
-        self._n_step = n_step
-        self._n_scat = n_scat
-        self._n_fld = n_fld
-        self._n_cycles = n_cycles
-        self._path = path
-        self._visualize = visualize
-        self._n_emission_max = n_emission_max
-        self._snapshot = snapshot
-        self._sources = []
-        self._boundary_kinds = "fre fre fre fre fre fre"
+    def __init__( self, *, n_cell = ( 64, 2, 2 ), \
+                  x_min = ( -5., 0., 0. ), x_max = ( 5., 0.2, 0.2 ), \
+                  unit_l0 = 1.49598e13, unit_t0 = 1.0, \
+                  species = None, transition_idx = 0, \
+                  n_species = None, temperature = None, \
+                  b_sca = None, mfp_i_sca_0 = None, \
+                  mfp_i_abs_0 = 0.0, vel = None, mol_mass = 28.0, \
+                  a_voigt = None, ph_mode = 0, n_step = 10000, \
+                  n_scat = 10000, n_fld = 1, n_cycles = 3, \
+                  path = None, visualize = True, n_emission_max = 10, \
+                  snapshot = None ):
+        self._n_cell         = tuple( n_cell );
+        self._x_min          = tuple( x_min );
+        self._x_max          = tuple( x_max );
+        self._unit_l0        = unit_l0;
+        self._unit_t0        = unit_t0;
+        self._species_name   = species;
+        self._species_obj    = None;
+        self._transition_idx = transition_idx;
+        self._n_species      = n_species;
+        self._temperature    = temperature;
+        self._b_sca          = b_sca;
+        self._mfp_i_sca_0    = mfp_i_sca_0;
+        self._mfp_i_abs_0    = mfp_i_abs_0;
+        self._vel            = vel;
+        self._mol_mass       = mol_mass;
+        self._a_voigt        = a_voigt;
+        self._ph_mode        = ph_mode;
+        self._n_step         = n_step;
+        self._n_scat         = n_scat;
+        self._n_fld          = n_fld;
+        self._n_cycles       = n_cycles;
+        self._path           = path;
+        self._visualize      = visualize;
+        self._n_emission_max = n_emission_max;
+        self._snapshot       = snapshot;
+        self._sources        = [ ];
+        self._boundary_kinds = 'fre fre fre fre fre fre';
 
-    # ── Boundary configuration ──────────────────────────────────────
+    ########################################################
+    # Boundary configuration
 
-    def set_boundary(self, kinds):
+    def set_boundary( self, kinds ):
         """Set boundary conditions for all 6 faces.
 
         Parameters
@@ -138,25 +144,27 @@ class LineRt:
             Example: "fre fre per per per per" for free x-faces,
             periodic y,z (plane-parallel slab).
         """
-        kr = kinds.lower().split()
-        if len(kr) != 6:
-            raise ValueError(f"Need 6 boundary kinds (got {len(kr)}): "
-                             "-x +x -y +y -z +z")
+        kr = kinds.lower( ).split( );
+        if len( kr ) != 6:
+            raise ValueError( \
+                "Need 6 boundary kinds (got %d): " \
+                "-x +x -y +y -z +z" % len( kr ) );
         for k in kr:
-            if k not in ("fre", "per"):
-                raise ValueError(f"Boundary kind must be 'fre' or 'per', got '{k}'")
-        self._boundary_kinds = " ".join(kr)
-        return self
+            if k not in ( 'fre', 'per' ):
+                raise ValueError( \
+                    "Boundary kind must be 'fre' or 'per', got '%s'" % k );
+        self._boundary_kinds = ' '.join( kr );
+        return self;
 
-    # ── Source registration ─────────────────────────────────────────
+    ########################################################
+    # Source registration
 
-    def add_source(self, *,
-                   type="slab", n_photon=50000,
-                   luminosity=None, flux=None, wavelength=None,
-                   x=None, direction="+x",
-                   y_range=None, z_range=None,
-                   position=None,
-                   vel_offset=0.0, sigma=0.0):
+    def add_source( self, *, type = 'slab', n_photon = 50000, \
+                    luminosity = None, flux = None, \
+                    wavelength = None, x = None, \
+                    direction = '+x', y_range = None, \
+                    z_range = None, position = None, \
+                    vel_offset = 0.0, sigma = 0.0 ):
         """Add an external photon source.
 
         Parameters
@@ -195,16 +203,25 @@ class LineRt:
             Initial photon intrinsic Doppler width [cm/s] (sv).
             0 → monochromatic at line centre.
         """
-        src = dict(type=type, n_photon=n_photon, luminosity=luminosity,
-                   flux=flux, wavelength=wavelength, x=x, direction=direction,
-                   y_range=y_range, z_range=z_range, position=position,
-                   vel_offset=vel_offset, sigma=sigma)
-        self._sources.append(src)
-        return self
+        src = { 'type'      : type, \
+                'n_photon'  : n_photon, \
+                'luminosity': luminosity, \
+                'flux'      : flux, \
+                'wavelength': wavelength, \
+                'x'         : x, \
+                'direction' : direction, \
+                'y_range'   : y_range, \
+                'z_range'   : z_range, \
+                'position'  : position, \
+                'vel_offset': vel_offset, \
+                'sigma'     : sigma, };
+        self._sources.append( src );
+        return self;
 
-    # ── Run ─────────────────────────────────────────────────────────
+    ########################################################
+    # Run
 
-    def run(self, **overrides):
+    def run( self, **overrides ):
         """Run the RT simulation and return results.
 
         Returns
@@ -218,312 +235,314 @@ class LineRt:
             'spectrum'      — {"vel": ..., "n": ...}
             'sources'       — list[dict] (source configs used)
         """
-        self._resolve_species()
-        self._check()
+        self._resolve_species( );
+        self._check( );
 
-        mesh = self._build_mesh()
-        species = self._species_obj
-        n_tot = mesh['n_tot']
-        XYZ = self._cell_centers_cgs(mesh)
+        mesh = self._build_mesh( );
+        species = self._species_obj;
+        n_tot = mesh[ 'n_tot' ];
+        XYZ = self._cell_centers_cgs( mesh );
 
         if species is not None and self._n_species is not None:
-            n_species_val = self._resolve_field(self._n_species, XYZ)
+            n_species_val = self._resolve_field( self._n_species, XYZ );
         else:
-            n_species_val = None
+            n_species_val = None;
 
-        b_sca_val = self._resolve_b_sca(XYZ)
-        self._b_sca_resolved = b_sca_val
-        mfp_abs_val = self._resolve_field(self._mfp_i_abs_0, XYZ)
-        vel_vals = self._resolve_vel(XYZ)
+        b_sca_val = self._resolve_b_sca( XYZ );
+        self._b_sca_resolved = b_sca_val;
+        mfp_abs_val = self._resolve_field( self._mfp_i_abs_0, XYZ );
+        vel_vals = self._resolve_vel( XYZ );
 
-        fields = {
-            'b_sca':       b_sca_val,
-            'temp':        self._resolve_field(self._temperature, XYZ),
-            'vel_0':       vel_vals[0],
-            'vel_1':       vel_vals[1],
-            'vel_2':       vel_vals[2],
-            'mfp_i_abs_0': mfp_abs_val,
-        }
+        fields = { 'b_sca'       : b_sca_val, \
+                   'temp'        : self._resolve_field( self._temperature, \
+                                                        XYZ ), \
+                   'vel_0'       : vel_vals[ 0 ], \
+                   'vel_1'       : vel_vals[ 1 ], \
+                   'vel_2'       : vel_vals[ 2 ], \
+                   'mfp_i_abs_0' : mfp_abs_val, };
 
         if species is not None:
-            mfp_sca_0, mfp_abs_0_in = self._resolve_mfp_species(species, n_tot,
-                                                                   b_sca_val,
-                                                                   n_species_val)
+            mfp_sca_0, mfp_abs_0_in = self._resolve_mfp_species( \
+                species, n_tot, b_sca_val, n_species_val );
             if mfp_abs_0_in is not None:
-                fields['mfp_i_abs_0'] = mfp_abs_0_in
-            fields['mfp_i_sca_0'] = mfp_sca_0
+                fields[ 'mfp_i_abs_0' ] = mfp_abs_0_in;
+            fields[ 'mfp_i_sca_0' ] = mfp_sca_0;
         elif self._mfp_i_sca_0 is not None:
-            fields['mfp_i_sca_0'] = self._resolve_field(self._mfp_i_sca_0, XYZ)
+            fields[ 'mfp_i_sca_0' ] = self._resolve_field( \
+                self._mfp_i_sca_0, XYZ );
 
-        v_factor = self._unit_t0 / self._unit_l0
+        v_factor = self._unit_t0 / self._unit_l0;
         if species is None:
-            for key in list(fields):
-                if key.startswith('mfp_i_'):
-                    fields[key] = np.asarray(fields[key], dtype=np.float64) * self._unit_l0
-                elif key in ('b_sca',) or key.startswith('vel_'):
-                    fields[key] = np.asarray(fields[key], dtype=np.float64) * v_factor
+            for key in list( fields ):
+                if key.startswith( 'mfp_i_' ):
+                    fields[ key ] = asarray( fields[ key ], \
+                                             dtype = float64 ) * self._unit_l0;
+                elif key in ( 'b_sca', ) or key.startswith( 'vel_' ):
+                    fields[ key ] = asarray( fields[ key ], \
+                                             dtype = float64 ) * v_factor;
 
-        photons = self._generate_photons(n_tot, mesh, b_sca_val)
+        photons = self._generate_photons( n_tot, mesh, b_sca_val );
 
-        work_dir = self._resolve_path()
+        work_dir = self._resolve_path( );
 
         from .iterator import iterate
-        a_voigt_val = self._resolve_a_voigt(b_sca_val)
-        par_overrides = {'kinds': self._boundary_kinds,
-                         'a_voigt': str(float(a_voigt_val)),
-                         'n_fld': str(int(self._n_fld))}
-        results, final_pops = iterate(
-            photons, species, fields, mesh,
-            n_cycles=self._n_cycles,
-            n_step=self._n_step, n_scat=self._n_scat,
-            ph_mode=self._ph_mode,
-            work_dir=work_dir,
-            n_species=n_species_val,
-            transition_idx=self._transition_idx,
-            mol_mass=self._mol_mass,
-            unit_l0=self._unit_l0, unit_t0=self._unit_t0,
-            n_emission_max=self._n_emission_max,
-            callback=self._snapshot,
-            par_overrides=par_overrides,
-        )
+        a_voigt_val = self._resolve_a_voigt( b_sca_val );
+        par_overrides = { 'kinds'   : self._boundary_kinds, \
+                          'a_voigt' : str( float( a_voigt_val ) ), \
+                          'n_fld'   : str( int( self._n_fld ) ) };
+        results, final_pops = iterate( \
+            photons, species, fields, mesh, \
+            n_cycles = self._n_cycles, n_step = self._n_step, \
+            n_scat = self._n_scat, ph_mode = self._ph_mode, \
+            work_dir = work_dir, n_species = n_species_val, \
+            transition_idx = self._transition_idx, \
+            mol_mass = self._mol_mass, \
+            unit_l0 = self._unit_l0, unit_t0 = self._unit_t0, \
+            n_emission_max = self._n_emission_max, \
+            callback = self._snapshot, par_overrides = par_overrides );
 
-        spectrum = {"vel": np.array([]), "n": np.array([])}
-        if results and results[-1].get("photons"):
-            phot = results[-1]["photons"]
-            if "vel" in phot:
-                spectrum = {"vel": np.asarray(phot["vel"]),
-                            "n": np.ones_like(phot["vel"])}
+        spectrum = { 'vel' : array( [ ] ), 'n' : array( [ ] ) };
+        if results and results[ -1 ].get( 'photons' ):
+            phot = results[ -1 ][ 'photons' ];
+            if 'vel' in phot:
+                spectrum = { 'vel' : asarray( phot[ 'vel' ] ), \
+                             'n'   : ones_like( phot[ 'vel' ] ) };
 
-        out = {
-            "results": results,
-            "populations": final_pops,
-            "mesh": mesh,
-            "run_dir": work_dir,
-            "unit_l0": self._unit_l0,
-            "unit_t0": self._unit_t0,
-            "b_sca": getattr(self, "_b_sca_resolved", None),
-            "exc_flux_flat": results[-1].get("exc_flux_flat", None) if results else None,
-            "flx": results[-1].get("flx", None) if results else None,
-            "spectrum": spectrum,
-            "sources": list(self._sources),
-        }
+        out = { 'results'      : results, \
+                'populations'  : final_pops, \
+                'mesh'         : mesh, \
+                'run_dir'      : work_dir, \
+                'unit_l0'      : self._unit_l0, \
+                'unit_t0'      : self._unit_t0, \
+                'b_sca'        : getattr( self, '_b_sca_resolved', None ), \
+                'exc_flux_flat': ( results[ -1 ].get( 'exc_flux_flat', None ) \
+                                   if results else None ), \
+                'flx'          : ( results[ -1 ].get( 'flx', None ) \
+                                   if results else None ), \
+                'spectrum'     : spectrum, \
+                'sources'      : list( self._sources ), };
 
         if self._visualize:
-            self._plot_results(out)
+            self._plot_results( out );
 
-        return out
+        return out;
 
-    # ── Helpers ─────────────────────────────────────────────────────
+    ########################################################
+    # Helpers
 
-    def _cell_centers_cgs(self, mesh):
+    def _cell_centers_cgs( self, mesh ):
         """Return (n_tot, 3) array of cell-centre positions in CGS [cm].
 
         Ordering matches the Kratos field-binary convention: 1D arrays
         are laid out as (nz, ny, nx) in C-order (z slowest, x fastest),
         consistent with ``write_field_data``'s ``reshape(nz, ny, nx)``.
         """
-        n_cell = np.asarray(mesh['n_cell'])
-        x_min = np.asarray(mesh['x_min'], dtype=np.float64)
-        dx = np.asarray(mesh['dx'], dtype=np.float64)
-        nx, ny, nz = int(n_cell[0]), int(n_cell[1]), int(n_cell[2])
+        n_cell = asarray( mesh[ 'n_cell' ] );
+        x_min = asarray( mesh[ 'x_min' ], dtype = float64 );
+        dx = asarray( mesh[ 'dx' ], dtype = float64 );
+        nx, ny, nz = int( n_cell[ 0 ] ), int( n_cell[ 1 ] ), \
+                     int( n_cell[ 2 ] );
         # Cell centres in CGS [cm]
-        cx = (x_min[0] + (np.arange(nx) + 0.5) * dx[0]) * self._unit_l0
-        cy = (x_min[1] + (np.arange(ny) + 0.5) * dx[1]) * self._unit_l0
-        cz = (x_min[2] + (np.arange(nz) + 0.5) * dx[2]) * self._unit_l0
+        cx = ( x_min[ 0 ] + ( arange( nx ) + 0.5 ) * dx[ 0 ] ) * self._unit_l0;
+        cy = ( x_min[ 1 ] + ( arange( ny ) + 0.5 ) * dx[ 1 ] ) * self._unit_l0;
+        cz = ( x_min[ 2 ] + ( arange( nz ) + 0.5 ) * dx[ 2 ] ) * self._unit_l0;
         # (nz, ny, nx) C-order: z slowest, x fastest
-        Z, Y, X = np.meshgrid(cz, cy, cx, indexing='ij')
-        return X, Y, Z
-    #
+        Z, Y, X = meshgrid( cz, cy, cx, indexing = 'ij' );
+        return X, Y, Z;
 
-    def _resolve_species(self):
+    def _resolve_species( self ):
         if self._species_name is None:
-            return
-        if isinstance(self._species_name, str):
-            self._species_obj = load_species(self._species_name)
+            return;
+        if isinstance( self._species_name, str ):
+            self._species_obj = load_species( self._species_name );
         else:
-            self._species_obj = self._species_name
+            self._species_obj = self._species_name;
 
-    def _check(self):
-        check_consistency(
-            species=self._species_obj,
-            transition_idx=self._transition_idx,
-            n_species=self._n_species,
-            temperature=self._temperature,
-            b_sca=self._b_sca,
-            mfp_i_sca_0=self._mfp_i_sca_0,
-            sources=self._sources,
-            mol_mass=self._mol_mass,
-            unit_l0=self._unit_l0, unit_t0=self._unit_t0,
-        )
+    def _check( self ):
+        check_consistency( \
+            species = self._species_obj, \
+            transition_idx = self._transition_idx, \
+            n_species = self._n_species, \
+            temperature = self._temperature, \
+            b_sca = self._b_sca, \
+            mfp_i_sca_0 = self._mfp_i_sca_0, \
+            sources = self._sources, \
+            mol_mass = self._mol_mass, \
+            unit_l0 = self._unit_l0, unit_t0 = self._unit_t0 );
 
-    def _build_mesh(self):
-        return make_cartesian_mesh(
-            n_cell=self._n_cell,
-            x_min=self._x_min,
-            x_max=self._x_max,
-        )
+    def _build_mesh( self ):
+        return make_cartesian_mesh( \
+            n_cell = self._n_cell, x_min = self._x_min, \
+            x_max = self._x_max );
 
-    def _resolve_field(self, value, XYZ):
+    def _resolve_field( self, value, XYZ ):
         if value is None:
-            return np.zeros( XYZ[0].shape, dtype=np.float64)
-        if isinstance(value, np.ndarray):
-            return np.asarray(value, dtype=np.float64)
-        if callable(value) and not isinstance(value, (int, float)):
-            return np.asarray(value(*XYZ), dtype=np.float64)
-        return np.full( XYZ[0].shape, float(value), dtype=np.float64)
+            return zeros( XYZ[ 0 ].shape, dtype = float64 );
+        if isinstance( value, ndarray ):
+            return asarray( value, dtype = float64 );
+        if callable( value ) and not isinstance( value, ( int, float ) ):
+            return asarray( value( *XYZ ), dtype = float64 );
+        return full( XYZ[ 0 ].shape, float( value ), dtype = float64 );
 
-    def _resolve_b_sca(self, XYZ):
+    def _resolve_b_sca( self, XYZ ):
         if self._b_sca is not None:
-            return self._resolve_field(self._b_sca, XYZ)
+            return self._resolve_field( self._b_sca, XYZ );
         if self._species_obj is not None:
-            temp_vals = self._resolve_field(self._temperature, XYZ)
-            b_vals = np.sqrt(2.0 * 1.380649e-16 * np.maximum(temp_vals, 0.1)
-                             / (self._mol_mass * 1.67262192e-24))
-            return b_vals
-        return np.full(XYZ[0].shape, 1e5, dtype=np.float64)
+            temp_vals = self._resolve_field( self._temperature, XYZ );
+            b_vals = sqrt( 2.0 * 1.380649e-16 * \
+                           maximum( temp_vals, 0.1 ) / \
+                           ( self._mol_mass * 1.67262192e-24 ) );
+            return b_vals;
+        return full( XYZ[ 0 ].shape, 1e5, dtype = float64 );
 
-    def _resolve_a_voigt(self, b_sca_val):
+    def _resolve_a_voigt( self, b_sca_val ):
         """Resolve Voigt damping parameter a = A_ul * lambda / (4 * pi * b)."""
         if self._a_voigt is not None:
-            return float(self._a_voigt)
-        if self._species_obj is not None and self._species_obj.transitions is not None:
-            t = self._species_obj.transitions[self._transition_idx]
-            A_ul = float(t[2])
-            freq_GHz = float(t[3])
+            return float( self._a_voigt );
+        if self._species_obj is not None and \
+           self._species_obj.transitions is not None:
+            t = self._species_obj.transitions[ self._transition_idx ];
+            A_ul = float( t[ 2 ] );
+            freq_GHz = float( t[ 3 ] );
             if freq_GHz > 0 and A_ul > 0:
-                wavelength_cm = c_cgs / (freq_GHz * 1e9)
-                b_mean = float(np.mean(np.abs(np.asarray(b_sca_val))))
+                wavelength_cm = c_cgs / ( freq_GHz * 1e9 );
+                b_mean = float( mean( abs( asarray( b_sca_val ) ) ) );
                 if b_mean > 0:
-                    return A_ul * wavelength_cm / (4.0 * np.pi * b_mean)
-        return 0.0
+                    return A_ul * wavelength_cm / ( 4.0 * pi * b_mean );
+        return 0.0;
 
-    def _resolve_vel(self, XYZ):
-        shape = XYZ[0].shape
+    def _resolve_vel( self, XYZ ):
+        shape = XYZ[ 0 ].shape;
         if self._vel is None:
-            return (np.zeros(shape, dtype=np.float64),
-                    np.zeros(shape, dtype=np.float64),
-                    np.zeros(shape, dtype=np.float64))
-        out = []
-        for i, v in enumerate(self._vel):
-            if callable(v) and not isinstance(v, (int, float, np.ndarray)):
-                out.append(np.asarray(v(*XYZ), dtype=np.float64))
+            return ( zeros( shape, dtype = float64 ), \
+                     zeros( shape, dtype = float64 ), \
+                     zeros( shape, dtype = float64 ) );
+        out = [ ];
+        for i, v in enumerate( self._vel ):
+            if callable( v ) and not isinstance( v, ( int, float, ndarray ) ):
+                out.append( asarray( v( *XYZ ), dtype = float64 ) );
             else:
-                out.append(np.full(shape, float(v), dtype=np.float64))
-        return tuple(out)
+                out.append( full( shape, float( v ), dtype = float64 ) );
+        return tuple( out );
 
-    def _resolve_mfp_species(self, species, n_tot, b_sca_val, n_species_val):
-        pops = species.initial_populations(n_species_val)
-        mfp_sca = species.compute_opacity(pops, b_sca=b_sca_val,
-                                           transition_idx=self._transition_idx)
-        mfp_sca_0 = np.asarray(mfp_sca, dtype=np.float64)
-        return mfp_sca_0, None
+    def _resolve_mfp_species( self, species, n_tot, b_sca_val, \
+                              n_species_val ):
+        pops = species.initial_populations( n_species_val );
+        mfp_sca = species.compute_opacity( pops, b_sca = b_sca_val, \
+                                           transition_idx = \
+                                             self._transition_idx );
+        mfp_sca_0 = asarray( mfp_sca, dtype = float64 );
+        return mfp_sca_0, None;
 
-    def _resolve_path(self):
+    def _resolve_path( self ):
         if self._path is not None:
-            os.makedirs(self._path, exist_ok=True)
-            return self._path
-        base = "/tmp/line_rt"
-        os.makedirs(base, exist_ok=True)
+            os.makedirs( self._path, exist_ok = True );
+            return self._path;
+        base = '/tmp/line_rt';
+        os.makedirs( base, exist_ok = True );
         import time
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        run_dir = os.path.join(base, f"rt_{ts}")
-        os.makedirs(run_dir, exist_ok=True)
-        print(f"[LineRt] Run directory: {run_dir}")
-        return run_dir
+        ts = time.strftime( '%Y%m%d_%H%M%S' );
+        run_dir = os.path.join( base, 'rt_%s' % ts );
+        os.makedirs( run_dir, exist_ok = True );
+        print( '[LineRt] Run directory: %s' % run_dir );
+        return run_dir;
 
-    def _generate_photons(self, n_tot, mesh, b_sca_val):
-        parts = []
+    def _generate_photons( self, n_tot, mesh, b_sca_val ):
+        parts = [ ];
         for src in self._sources:
-            parts.append(self._generate_one_source(src, mesh, b_sca_val))
+            parts.append( self._generate_one_source( src, mesh, b_sca_val ) );
         if not parts:
-            return np.zeros((0, 10), dtype=np.float64)
-        return np.vstack(parts)
+            return zeros( ( 0, 10 ), dtype = float64 );
+        return vstack( parts );
 
-    def _generate_one_source(self, src, mesh, b_sca_val):
-        n_ph = int(src.get('n_photon', 50000))
-        s_type = src.get('type', 'slab')
-        wavelength = src.get('wavelength', None)
-        luminosity = src.get('luminosity', None)
-        flux = src.get('flux', None)
-        vel_offset = float(src.get('vel_offset', 0.0))
-        sigma = float(src.get('sigma', 0.0))
+    def _generate_one_source( self, src, mesh, b_sca_val ):
+        n_ph = int( src.get( 'n_photon', 50000 ) );
+        s_type = src.get( 'type', 'slab' );
+        wavelength = src.get( 'wavelength', None );
+        luminosity = src.get( 'luminosity', None );
+        flux = src.get( 'flux', None );
+        vel_offset = float( src.get( 'vel_offset', 0.0 ) );
+        sigma = float( src.get( 'sigma', 0.0 ) );
 
-        n_col = 9 if sigma != 0.0 else 8
+        n_col = 9 if sigma != 0.0 else 8;
 
-        if s_type == "slab":
-            x_min = mesh['x_min']
-            x_max_vals = np.array(mesh['x_min']) + np.array(mesh['dx']) * np.array(mesh['n_cell'])
+        if s_type == 'slab':
+            x_min = mesh[ 'x_min' ];
+            x_max_vals = array( mesh[ 'x_min' ] ) + \
+                         array( mesh[ 'dx' ] ) * array( mesh[ 'n_cell' ] );
 
-            x_pos = src.get('x') if src.get('x') is not None else x_min[0]
-            x_pos = float(x_pos)
-            y_rng = src.get('y_range', None)
-            z_rng = src.get('z_range', None)
-            y_lo = y_rng[0] if y_rng is not None else x_min[1]
-            y_lo = float(y_lo)
-            y_hi = y_rng[1] if y_rng is not None else x_max_vals[1]
-            y_hi = float(y_hi)
-            z_lo = z_rng[0] if z_rng is not None else x_min[2]
-            z_lo = float(z_lo)
-            z_hi = z_rng[1] if z_rng is not None else x_max_vals[2]
-            z_hi = float(z_hi)
-            direction = src.get('direction', '+x')
-            dx_sign = 1.0 if direction == '+x' else -1.0
+            x_pos = src.get( 'x' ) if src.get( 'x' ) is not None \
+                    else x_min[ 0 ];
+            x_pos = float( x_pos );
+            y_rng = src.get( 'y_range', None );
+            z_rng = src.get( 'z_range', None );
+            y_lo = y_rng[ 0 ] if y_rng is not None else x_min[ 1 ];
+            y_lo = float( y_lo );
+            y_hi = y_rng[ 1 ] if y_rng is not None else x_max_vals[ 1 ];
+            y_hi = float( y_hi );
+            z_lo = z_rng[ 0 ] if z_rng is not None else x_min[ 2 ];
+            z_lo = float( z_lo );
+            z_hi = z_rng[ 1 ] if z_rng is not None else x_max_vals[ 2 ];
+            z_hi = float( z_hi );
+            direction = src.get( 'direction', '+x' );
+            dx_sign = 1.0 if direction == '+x' else -1.0;
 
-            source_area_cm2 = (y_hi - y_lo) * (z_hi - z_lo) * self._unit_l0 * self._unit_l0
+            source_area_cm2 = ( y_hi - y_lo ) * ( z_hi - z_lo ) * \
+                              self._unit_l0 * self._unit_l0;
 
             if flux is not None and wavelength is not None:
-                E_ph = h_cgs * c_cgs / float(wavelength)
-                proper = (float(flux) / E_ph) * source_area_cm2 / n_ph
+                E_ph = h_cgs * c_cgs / float( wavelength );
+                proper = ( float( flux ) / E_ph ) * source_area_cm2 / n_ph;
             elif flux is not None:
-                proper = float(flux) * source_area_cm2 / n_ph
+                proper = float( flux ) * source_area_cm2 / n_ph;
             elif wavelength is not None and luminosity is not None:
-                E_ph = h_cgs * c_cgs / float(wavelength)
-                proper = float(luminosity) / E_ph / n_ph
+                E_ph = h_cgs * c_cgs / float( wavelength );
+                proper = float( luminosity ) / E_ph / n_ph;
             elif luminosity is not None:
-                proper = float(luminosity) / n_ph
+                proper = float( luminosity ) / n_ph;
             else:
-                proper = 1.0 / n_ph
+                proper = 1.0 / n_ph;
 
-            ph = np.zeros((n_ph, n_col), dtype=np.float64)
-            ph[:, 6] = proper
-            ph[:, 7] = vel_offset
+            ph = zeros( ( n_ph, n_col ), dtype = float64 );
+            ph[ :, 6 ] = proper;
+            ph[ :, 7 ] = vel_offset;
             if n_col >= 9:
-                ph[:, 8] = sigma
-            ph[:, 0] = x_pos
-            ph[:, 1] = np.random.uniform(y_lo, y_hi, n_ph)
-            ph[:, 2] = np.random.uniform(z_lo, z_hi, n_ph)
-            ph[:, 3] = dx_sign
-            ph[:, 4] = 0.0
-            ph[:, 5] = 0.0
-        elif s_type == "point":
+                ph[ :, 8 ] = sigma;
+            ph[ :, 0 ] = x_pos;
+            ph[ :, 1 ] = random.uniform( y_lo, y_hi, n_ph );
+            ph[ :, 2 ] = random.uniform( z_lo, z_hi, n_ph );
+            ph[ :, 3 ] = dx_sign;
+            ph[ :, 4 ] = 0.0;
+            ph[ :, 5 ] = 0.0;
+        elif s_type == 'point':
             if wavelength is not None and luminosity is not None:
-                E_ph = h_cgs * c_cgs / float(wavelength)
-                proper = float(luminosity) / E_ph / n_ph
+                E_ph = h_cgs * c_cgs / float( wavelength );
+                proper = float( luminosity ) / E_ph / n_ph;
             elif luminosity is not None:
-                proper = float(luminosity) / n_ph
+                proper = float( luminosity ) / n_ph;
             else:
-                proper = 1.0 / n_ph
+                proper = 1.0 / n_ph;
 
-            ph = np.zeros((n_ph, n_col), dtype=np.float64)
-            ph[:, 6] = proper
-            ph[:, 7] = vel_offset
+            ph = zeros( ( n_ph, n_col ), dtype = float64 );
+            ph[ :, 6 ] = proper;
+            ph[ :, 7 ] = vel_offset;
             if n_col >= 9:
-                ph[:, 8] = sigma
+                ph[ :, 8 ] = sigma;
 
-            pos = src.get('position', (0.0, 0.0, 0.0))
-            ph[:, 0] = float(pos[0])
-            ph[:, 1] = float(pos[1])
-            ph[:, 2] = float(pos[2])
-            theta = np.arccos(2.0 * np.random.random(n_ph) - 1.0)
-            phi = 2.0 * np.pi * np.random.random(n_ph)
-            ph[:, 3] = np.sin(theta) * np.cos(phi)
-            ph[:, 4] = np.sin(theta) * np.sin(phi)
-            ph[:, 5] = np.cos(theta)
+            pos = src.get( 'position', ( 0.0, 0.0, 0.0 ) );
+            ph[ :, 0 ] = float( pos[ 0 ] );
+            ph[ :, 1 ] = float( pos[ 1 ] );
+            ph[ :, 2 ] = float( pos[ 2 ] );
+            theta = arccos( 2.0 * random.random( n_ph ) - 1.0 );
+            phi = 2.0 * pi * random.random( n_ph );
+            ph[ :, 3 ] = sin( theta ) * cos( phi );
+            ph[ :, 4 ] = sin( theta ) * sin( phi );
+            ph[ :, 5 ] = cos( theta );
         else:
-            raise ValueError(f"Unknown source type: {s_type}")
+            raise ValueError( "Unknown source type: %s" % s_type );
 
-        return ph
+        return ph;
 
-    def _plot_results(self, out):
+    def _plot_results( self, out ):
         from .visualize import default_plot
-        default_plot(out)
+        default_plot( out );

@@ -1,340 +1,450 @@
 # line_rt_pipeline Python Style Guide
 
-This document is the authoritative style reference for all Python code
-under `line_rt_pipeline/`.  Every new file must follow it; existing files
-should be brought into compliance when touched.
+This document is the authoritative style reference for all Python files
+and Jupyter-notebook Python cells under the `line_rt_pipeline` repository
+(`core/`, `molecular/`, `pipeline/`, `ui/`, `web/`, `cli.py`, `setup.py`,
+`docs/examples/`, `docs/reference_mcrt/`, `tests/`).
+
+It is the Python counterpart of `~/apps/kratos_line_rt/docs/STYLE_GUIDE.md`
+(the C++/CUDA typesetting guide for `usr_ext/line_rt/`) and follows the
+same principles, adapted to Python syntax.  The reference implementation
+of this style is `~/apps/kratos_line_rt/visual/*.py` (e.g. `binary_io.py`,
+`hydro_data.py`, `slice_plot.py`).
+
+Every new file must follow this guide; existing files must be brought into
+compliance before any unrelated edit touches them.
 
 ---
 
-## 1. Line length
+## 1. Column limit
 
-**79 characters** per line (PEP 8 default), with a hard ceiling of 99
-for unavoidable cases (long URLs in docstrings, deep-nested data
-access).  If you exceed 99, restructure the expression.
-
----
-
-## 2. Imports
-
-### 2.1 Order
+**79 characters** per line (excluding trailing whitespace).  When a line
+would exceed 79 columns, break it using the rules in § 2–3.  The column
+count includes indentation.
 
 ```python
-import os
-import sys
-from pathlib import Path
+#  OK - 71 columns
+key = key.rstrip( '_' ) if key.endswith( '_' ) else key;
 
-import numpy as np
-
-from pipeline.kratos_io import write_field_data, read_output
-from core.line_rt import LineRt
-from docs.reference_mcrt.mcrt import mcrt_slab
+#  VIOLATION - 88 columns
+result[ 'excitation_flux' ] = _strip_ghosts_3d( bio.as_array( key, 'f' ), n_cell, n_gh, n_int );
 ```
 
-1. Standard library
-2. Third-party (`numpy`, `scipy`)
-3. Project-internal (relative imports)
-
-### 2.2 Style
-
-- Use `from X import Y` for frequently-used names.
-- Use `import X` only when the module itself is the primary namespace
-  (`import numpy as np`).
-- Never use `from X import *`.
+If an expression truly cannot fit, split it into multiple statements or
+extract a local variable.
 
 ---
 
-## 3. Naming
+## 2. Parentheses, brackets — spacing and line-breaking
 
-| Element | Convention | Example |
-|---------|-----------|---------|
-| Modules | `snake.py` | `kratos_io.py`, `lamda_format.py` |
-| Classes | `PascalCase` | `LineRt`, `ConsistencyError` |
-| Functions | `snake_case` | `make_fields()`, `write_field_data()` |
-| Variables | `snake_case` | `mfp_i_sca_0`, `b_sca_code` |
-| Constants | `UPPER_SNAKE` | `UNIT_L0`, `UNIT_T0`, `KRATOS_BIN` |
-| Private | `_snake` | `_build_usampler()`, `_transport_photon()` |
-| Parameters | `snake_case` | `tau0`, `n_photons`, `a_voigt` |
-| Dict keys | `snake_with_suffix` | `'mfp_i_sca_0_'`, `'vel_0_'` |
-| CLI flags | `--kebab-case` | `--tau0`, `--no-kratos`, `--n-cell` |
+### 2.1 Spaces inside parentheses
 
-### 3.1 Suffix conventions
-
-- `_i_` = inverse (reciprocal): `mfp_i_sca_0` is σ₀ × n_lower (cm⁻¹),
-  NOT mean free path.
-- `_0_` = at line centre.
-- `_code` = in code units (after dividing by `UNIT_L0` / `UNIT_T0`).
-- `_cgs` = in CGS units.
-- `_bin` = binary file path.
-
----
-
-## 4. Function signatures
-
-Limit to **4 parameters per line**; break before the closing paren:
-
-```python
-def update_populations(
-    exc_flux, flx, pops, cycle, dx, b_sca, T,
-    colliders, transition_idx,
-):
-    ...
-```
-
-Trailing comma after the last parameter is mandatory when breaking.
-
----
-
-## 5. Spacing
+Always put a **space** after `(` and before `)`:
 
 ```python
 #  ✓
-x = a + b
-y = func( arg1, arg2 )
-d = { 'key': value }
-a_list = [ 1, 2, 3 ]
+f( x )
+if( a > 0 ):
+range( n )
+zip( func, prefix )
+dict(   )
 
 #  ✗
-x=a+b
-y=func(arg1,arg2)
-d={'key':value}
+f(x)
+if (a > 0):
+range(n)
 ```
 
-- Spaces around binary operators (`=`, `+`, `-`, `*`, `/`, `==`, `!=`).
-- Spaces after commas in argument lists.
-- Spaces after `#` in comments.
-- No space between function name and `(` in calls: `func( x )` not
-  `func (x)`.
+### 2.2 Empty parentheses
 
----
-
-## 6. Docstrings
-
-Use NumPy-style docstrings:
+Empty parentheses get **two or three spaces** inside (both occur in the
+reference files; pick one and stay consistent within a file):
 
 ```python
-def compute_opacity(pops, b_sca, transition_idx):
-    """Compute scattering mean free path from population data.
-
-    Parameters
-    ----------
-    pops : dict
-        Population dict with 'n_lower', 'n_upper', etc.
-    b_sca : float
-        Doppler b parameter for scattering (cm/s).
-    transition_idx : int
-        Index of the transition.
-
-    Returns
-    -------
-    mfp_sca : np.ndarray
-        Scattering MFP per cell (cm).
-    """
-    ...
+#  ✓
+dict(   )
+bio.save(  );
 ```
 
----
+### 2.3 Spaces inside brackets
 
-## 7. Comments
-
-- One blank line before a comment block.
-- `# ` followed by a space and a capital letter (for sentence-level).
-- No trailing comments on code lines unless very short.
-- Use `# TODO(name):` or `# FIXME(name):` for actionable markers.
-
----
-
-## 8. Type hints
-
-Use type hints on public function signatures when the type is not
-obvious from the name:
+Always put a **space** after `[` and before `]`, including in slices:
 
 ```python
-def make_fields(
-    pops: dict,
-    step: int,
-    cycle: int,
-    base_fields: dict,
-    unit_l0: float,
-    unit_t0: float,
-    transition_idx: int,
-) -> dict:
-    ...
+#  ✓
+self.hmap[ key ]
+x_int[ : -1 ]
+d_v[ :, :, idx ]
+dat.shape[ : : -1 ]
+
+#  ✗
+self.hmap[key]
+x_int[:-1]
 ```
 
-For internal/private helpers, type hints are optional but encouraged
-when the signature is complex.
+### 2.4 Line continuation — backslash
 
----
-
-## 9. Error handling
+Long lines continue with a **backslash** at the end of the line.  When
+the continuation is part of a call, the opening parenthesis goes on the
+**next** line, indented one level — break BEFORE `(`:
 
 ```python
-#  ✓ — specific exception, informative message
-if n_cell < 2:
-    raise ValueError(
-        f"n_cell_global must be >= 2, got {n_cell}"
-    )
+#  ✓
+pcm = slice_basic \
+    ( xs0, xs1, ds, args, aux_ax, norm );
 
-#  ✗ — bare except, silent
-try:
-    ...
-except:
-    pass
+#  ✓
+sst = int.from_bytes \
+    ( self.stream.read( 1 ), 'little' );
+
+#  ✗  (paren on same line as the call)
+pcm = slice_basic(
+    xs0, xs1, ds, args, aux_ax, norm );
 ```
 
-- Never use bare `except:`.
-- Catch specific exceptions.
-- Include the invalid value in the message when raising `ValueError`.
+When the continuation is an operator expression, break **after** the
+operator (mirroring the C++ guide):
+
+```python
+#  ✓
+sst = int.from_bytes \
+    ( self.stream.read( 1 ), 'little' );
+
+#  ✓
+print( "file: %s; time = %g" \
+       % ( file_name, res.globals[ 'time' ] ) );
+
+#  ✓
+if len( x_int ) > 2 and \
+   ( loc > x_int[ -1 ] or loc < x_int[ 0 ] ):
+```
+
+### 2.5 Multi-line argument lists
+
+Column-align multi-line argument lists; trailing commas are permitted and
+align with the closing paren on its own line:
+
+```python
+def interp_reg_save( file_name, x0, dx, dat, prefix = '', \
+                     int_type   =   'int32' ,\
+                     float_type = 'float32' ):
+```
 
 ---
 
-## 10. File organization
+## 3. Operators and control flow
 
-Each module file should follow this order:
+### 3.1 Binary operators
 
-1. Module docstring
-2. Imports
-3. Constants
-4. Private helpers
-5. Public functions
-6. Classes
-7. `if __name__ == '__main__':` block
+Space on both sides:
+
+```python
+n_total * sizeof( float )
+( lo + hi ) >> 1
+```
+
+### 3.2 if / elif / else
+
+Spaced parens (§ 2.1); the body on the next line at the normal indent.
+Align `if` / `elif` conditions by padding the keyword:
+
+```python
+if   axis == 0:
+    ...
+elif axis == 1:
+    ...
+elif axis == 2:
+```
+
+Use `if not 'xlim' in args:` (the `not ... in` form) as in the reference
+files.
+
+### 3.3 for / while
+
+```python
+for i_hmap in range( self.s_hmap  ):
+    x_int[ i ] = self.get_entry( 'x_int' )[ i ];
+```
 
 ---
 
-## 11. Test files
+## 4. Declarations and alignment
 
-Test files live under `tests/` and follow the pattern `test_*.py`.
+### 4.1 Column-aligned assignments
+
+Group related assignments and align the `=` signs:
+
+```python
+self. file_name =  file_name;
+self.      dmap =  dict(   );
+self.      hmap =  dict(   );
+self. s_hmap    =  0;
+```
+
+### 4.2 Module-level constants
+
+Constants live at the top of the module, one per line, aligned, with a
+trailing unit comment:
+
+```python
+h      = 6.62607e-27;   # CGS Planck constant
+kb     = 1.38065e-16;   # CGS Boltzmann constant
+c_0    = 2.99792e10;    # CGS speed of light
+```
+
+### 4.3 Section separators
+
+Use a full-width comment line (60 `#` characters) plus a `# Label` line
+(one space) directly below; no closing `####` line:
+
+```python
+############################################################
+# Basic binary output reader
+############################################################
+
+class binary_io:
+```
+
+Inside classes, the separator is 56 `#` characters:
+
+```python
+class binary_io:
+    ########################################################
+    # Initialization and finalization
+    def __init__( self,    file_name, cache_used = True ):
+```
+
+### 4.4 Blank lines
+
+One blank line between functions.  No blank lines inside short blocks.
+
+---
+
+## 5. Naming
+
+| Element         | Convention    | Example                     |
+|-----------------|---------------|-----------------------------|
+| Modules         | `snake`       | `kratos_io.py`              |
+| Classes         | `snake`       | `binary_io`, `hydro_data`   |
+| Functions       | `snake`       | `write_field_data`          |
+| Methods         | `snake`       | `as_array`, `get_entry`     |
+| Private helpers | `_snake`      | `_strip_ghosts_3d`          |
+| Local variables | `snake`       | `n_cell`, `pcm`             |
+| Constants       | `snake`       | `n_total`, `s_size_t`       |
+| Keywords / dunders | as Python | `__init__`, `__getitem__`   |
+
+(No `snake_t` suffixes — that is C++ only.)
+
+---
+
+## 6. Imports
+
+### 6.1 Selective imports — no `import numpy as np`
+
+Import only the names actually used, directly from the module:
+
+```python
+#  ✓
+from numpy import array, frombuffer, ndarray
+from numpy import zeros, ones, linspace, meshgrid, transpose
+
+#  ✗
+import numpy as np
+```
+
+For long import lists, align the module names and use a backslash
+continuation:
+
+```python
+from binary_io   import binary_io
+from numpy       import frombuffer, zeros, array, meshgrid,\
+                        sqrt, log2, sum, minimum, maximum, \
+                        copy, log10, arange, cbrt, unique,\
+                        concatenate
+from glob        import glob
+from bisect      import bisect
+from collections import OrderedDict
+```
+
+`import numpy as np` is permitted only in modules that legitimately need
+the namespace (e.g. `matplotlib` rcParams configuration) — see
+`cart_analyses.py` for the sanctioned exception.
+
+### 6.2 Import order
+
+1. Standard library (`sys`, `os`, `math`, ...)
+2. Third party (`numpy`, `matplotlib`, `numba`, ...)
+3. Local modules (`binary_io`, `kratos_io`, ...)
+
+One blank line between groups.  No blank line between the module
+docstring and the first import.
+
+### 6.3 Implicit paths
+
+`core/fields.py`, `core/iterator.py`, `pipeline/kratos_io.py` use a
+`sys.path` hack to reach `~/Seafile/seafile_sync/code/kratos/visual`
+(or `../pipeline`) — keep it, it is load-bearing (AGENTS.md pitfall 21).
+
+---
+
+## 7. String formatting
+
+Use `%`-style formatting — **no f-strings**:
+
+```python
+#  ✓
+'<%s%d' %  ( dtype, u_size )
+'%s|%s'  % ( block, field )
+
+#  ✗
+f'{prefix}data'
+```
+
+Use double quotes for strings that contain single quotes or appear in
+`print`/format context; single quotes otherwise (as in the reference
+files).
+
+---
+
+## 8. Comments
+
+- `#` for single-line comments, with a **space after** `#`.
+- Comment **above** the line it explains, at the same indent level.
+- Use `#  Label` (two spaces) under a section-separator line (§ 4.3).
+- A bare `#` line marks the end of a logical block (after a function, a
+  loop, or an `if` body):
+
+```python
+        #
+        return;
+    #
+```
+
+- **Docstrings are allowed and encouraged** for public functions and
+  classes (NumPy-style, as already used in the pipeline); the pipeline
+  keeps docstrings where the `visual/` reference files do not — this is
+  a deliberate deviation per maintainer decision.
+- Do NOT use `#` on the same line as code unless the comment is short
+  and the code line is well under 79 columns.
+
+---
+
+## 9. Semicolons
+
+Every simple statement ends with a semicolon:
+
+```python
+self.file_name = file_name;
+return;
+```
+
+**Import statements are the single exception** — they carry no semicolon
+(as in the reference files):
+
+```python
+from numpy import array, frombuffer, ndarray
+import types
+```
+
+Compound statements (`if ...:`, `for ...:`, `def ...:`, `class ...:`)
+do NOT get a semicolon after the colon.
+
+---
+
+## 10. Class and function style
+
+```python
+class binary_io:
+    ########################################################
+    # Initialization and finalization
+    def __init__( self,    file_name, cache_used = True ):
+        self. file_name =  file_name;
+        self.      dmap =  dict(   );
+        self.      hmap =  dict(   );
+        self.cache_used = cache_used;
+        #
+        self._write_header(  );
+
+    def as_array( self, key, dtype = 'f' ):
+        return self._entries[ key ].astype( dtype );
+```
+
+- 4-space indent.
+- One blank line between methods.
+- `self` is the first parameter.
+- Default arguments use spaces around `=` (e.g. `dtype = 'f'`).
+- Aligned `self.` attribute assignments pad after the dot
+  (`self. file_name`, `self.      dmap`); column-align the `=` signs.
+- Method calls with a spaced dot are also seen
+  (`self.bin_data . open(  );`) — keep whichever reads better, but be
+  consistent within a file.
+
+---
+
+## 11. Complete example
 
 ```python
 #!/usr/bin/env python3
-"""Short description of what this test validates."""
+"""
+Binary I/O helpers for Kratos line_rt.
+Thin wrappers around the kratos visual/binary_io module.
+"""
 
-import argparse
-import os
-import sys
-from pathlib import Path
-
-import numpy as np
-
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO))
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--tau0', type=float, default=10000)
-    parser.add_argument('--a', dest='a_voigt', type=float, default=0.01)
-    args = parser.parse_args()
-    ...
+import sys, os
+sys.path.insert( 0, os.path.expanduser( \
+    '~/Seafile/seafile_sync/code/kratos/visual' ) );
+from binary_io import binary_io
+from numpy import asarray, int32, float32, pad, array, ravel, float64
 
 
-if __name__ == '__main__':
-    main()
+############################################################
+# Field prefixes
+############################################################
+
+_LINE_FIELD_PREFIXES  = [ 'mfp_i_sca_0_', 'mfp_i_abs_0_', 'temp_' ];
+_FIXED_FIELD_PREFIXES = [ 'b_sca_', 'vel_0_', 'vel_1_', 'vel_2_' ];
+
+
+def write_field_data( filename, fields, mesh, unit_l0 = 1.0, group = 'all' ):
+    """
+    Write Kratos field binary.
+
+    Split into two groups (Task 2): line-dependent fields
+    (mfp_i_sca_0, mfp_i_abs_0) that change per cycle / per line,
+    and line-independent fields (b_sca, vel) that stay fixed
+    across lines.
+
+    Parameters
+    ----------
+    filename : str
+    fields : dict
+        Keys: 'mfp_i_sca_0', 'mfp_i_abs_0', 'b_sca',
+              'vel_0', 'vel_1', 'vel_2'
+        Values: 3D float32 arrays of shape (nz, ny, nx)
+    group : {'all', 'line', 'fixed'}
+        'line'  - write only line-dependent fields
+        'fixed' - write only line-independent fields
+    """
+    bio = binary_io( filename );
+    n_cell = asarray( mesh[ 'n_cell' ], dtype = int32 );
+    #
+    bio.cache( 'par_n_col', n_cell, dtype = 'int32' );
+    bio.save(  );
+    print( 'Wrote fields (%s): %s' % ( group, filename ) );
 ```
 
 ---
 
-## 12. Kratos binary I/O conventions
+## 12. Conformance
 
-### 12.1 Field dict keys
+Compliance is verified by **visual inspection** during review (there is
+no automated linter configured for this style).  When in doubt, consult:
 
-```python
-fields = {
-    'mfp_i_sca_0_': np.ndarray,   # inverse MFP at line centre
-    'mfp_i_abs_0_': np.ndarray,   # inverse absorption MFP
-    'b_sca_':        np.ndarray,   # Doppler b for scattering
-    'vel_0_':        np.ndarray,   # bulk velocity x
-    'vel_1_':        np.ndarray,   # bulk velocity y
-    'vel_2_':        np.ndarray,   # bulk velocity z
-}
-```
-
-### 12.2 Photon binary columns
-
-```
-0: x, 1: y, 2: z,
-3: dir_x, 4: dir_y, 5: dir_z,
-6: proper,
-7: vel (optional, CGS→code before write, code→CGS after read),
-8: sv  (optional, Gaussian σ = b_sca / sqrt(2))
-```
-
-### 12.3 Unit conversion
-
-| Quantity | Python → Kratos | Kratos → Python |
-|----------|----------------|-----------------|
-| Positions | `/ UNIT_L0` | `× UNIT_L0` |
-| Velocities | `× UNIT_T0 / UNIT_L0` | `× UNIT_L0 / UNIT_T0` |
-| Inverse lengths | `× UNIT_L0` | `/ UNIT_L0` |
-
-### 12.4 Par file `[cycle]` section
-
-Canonical pattern:
-
-```ini
-[cycle]
-prefix_output  = test
-n_cycle_lim    = 0
-t_lim          = 600.0
-t_output_next  = 1e32
-dt_output      = 1e32
-final_output   = 1
-```
-
-This guarantees exactly one output file: `{prefix}_00000.bin`.
-
----
-
-## 13. Common patterns
-
-### 13.1 Generating Kratos inputs
-
-```python
-from pipeline.kratos_io import write_field_data, write_photon_data
-
-fields = { ... }    # dict of field arrays
-mesh = {             # mesh metadata
-    'n_cell': np.array([nx, ny, nz], dtype=np.int32),
-    'x_min':  np.array([xmin, ymin, zmin], dtype=np.float32),
-    'dx':     np.array([dx, dy, dz], dtype=np.float32),
-}
-write_field_data('fields.bin', fields, mesh)
-write_photon_data('photons.bin', photon_array, n_col=9)
-```
-
-### 13.2 Running Kratos
-
-```python
-import subprocess
-result = subprocess.run(
-    [KRATOS_BIN, 'par_file.par'],
-    cwd=WORKDIR,
-    capture_output=True,
-    text=True,
-    timeout=600,
-)
-```
-
-### 13.3 Reading Kratos output
-
-```python
-from pipeline.kratos_io import read_output
-out = read_output('test_00000.bin')
-# out = {
-#   'photons': {'pos': ..., 'dir': ..., 'proper': ..., 'vel': ..., 'sv': ...},
-#   'n_cell': (nx, ny, nz),
-#   ...
-# }
-```
-
----
-
-## 14. Physics conventions
-
-- All quantities are in photon-number units (not erg/s).
-- `mfp_i_sca_0` = σ₀ × n_lower (inverse MFP at line centre).
-- `b_sca` = Doppler b for scattering overlap integral (cm/s).
-- Half-slab convention: `mfp_i_sca_0 = 2 × tau0 / L_slab`.
-- `ph_mode=0` = CFR (Gaussian), `ph_mode=1` = R_IIA (USampler).
-- The Neufeld mean-depth τ convention: `tau_fid = sqrt(π) × tau0_LC`.
+- `~/apps/kratos_line_rt/visual/binary_io.py` — spacing, semicolons,
+  sections
+- `~/apps/kratos_line_rt/visual/interp_gen.py` — aligned signatures,
+  backslash continuation
+- `~/apps/kratos_line_rt/visual/cart_analyses.py` — constants block,
+  rcParams exception
+- `~/apps/kratos_line_rt/docs/STYLE_GUIDE.md` — the C++ guide this
+  document mirrors

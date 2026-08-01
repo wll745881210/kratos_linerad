@@ -1,105 +1,103 @@
-import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
+from numpy import asarray, zeros_like, ones_like, ones, array, ceil, \
+                  log10, clip, abs, float64, atleast_2d;
 
 from .fields import slice_plot_2d
 
 
-_PLANE_MAP = {"x": "yz", "y": "xz", "z": "xy"}
+_PLANE_MAP = { 'x' : 'yz', 'y' : 'xz', 'z' : 'xy' };
 
 
-# ── Default multi-panel plot ────────────────────────────────────────
+############################################################
+# Default multi-panel plot
+
+_DEFAULT_FIELDS = [ 'spectrum', 'flx', 'mfp_i_sca_0', 'b_sca', \
+                    'excited_fraction', 'emissivity', ];
+
+_FIELD_LABELS = { 'flx'             : r'flux [photons cm$^{-2}$ s$^{-1}$]', \
+                  'mfp_i_sca_0'     : r'mfp_i_sca_0 [cm$^{-1}$]', \
+                  'b_sca'           : r'b_sca [km s$^{-1}$]', \
+                  'excited_fraction': r'n$_{\rm exc}$ / n$_{\rm tot}$', \
+                  'emissivity'      : \
+                      r'$\epsilon$ [erg s$^{-1}$ cm$^{-3}$ sr$^{-1}$]', };
+
+_FIELD_TITLES = { 'spectrum'        : 'Emergent Spectrum', \
+                  'flx'             : 'Flux Map', \
+                  'mfp_i_sca_0'     : 'mfp_i_sca_0', \
+                  'b_sca'           : 'b_sca', \
+                  'excited_fraction': 'Excited Fraction', \
+                  'emissivity'      : 'Emissivity', };
 
 
-_DEFAULT_FIELDS = [
-    "spectrum", "flx", "mfp_i_sca_0", "b_sca", "excited_fraction", "emissivity",
-]
-
-_FIELD_LABELS = {
-    "flx":              r"flux [photons cm$^{-2}$ s$^{-1}$]",
-    "mfp_i_sca_0":      r"mfp_i_sca_0 [cm$^{-1}$]",
-    "b_sca":            r"b_sca [km s$^{-1}$]",
-    "excited_fraction": r"n$_{\rm exc}$ / n$_{\rm tot}$",
-    "emissivity":       r"$\epsilon$ [erg s$^{-1}$ cm$^{-3}$ sr$^{-1}$]",
-}
-
-_FIELD_TITLES = {
-    "spectrum":         "Emergent Spectrum",
-    "flx":              "Flux Map",
-    "mfp_i_sca_0":      "mfp_i_sca_0",
-    "b_sca":            "b_sca",
-    "excited_fraction": "Excited Fraction",
-    "emissivity":       "Emissivity",
-}
-
-
-def _log_limits(data):
+def _log_limits( data ):
     """Return (vmin, vmax) for a log colormap.
 
     vmax = 10^ceil(log10(max)).
     vmin = 10^(vmax_dex - d)  with  d = clip(log10(vmax/min_positive), 1, 6).
     Returns (None, None) if no positive values.
     """
-    pos = data[data > 0]
+    pos = data[ data > 0 ];
     if pos.size == 0:
-        return None, None
-    dmax = float(pos.max())
-    upper_dex = int(np.ceil(np.log10(dmax)))
-    vmax = 10.0 ** upper_dex
-    dmin = float(pos.min())
-    span = upper_dex - np.log10(dmin)
-    span = int(np.clip(span, 1, 6))
-    vmin = 10.0 ** (upper_dex - span)
-    return vmin, vmax
+        return None, None;
+    dmax = float( pos.max( ) );
+    upper_dex = int( ceil( log10( dmax ) ) );
+    vmax = 10.0 ** upper_dex;
+    dmin = float( pos.min( ) );
+    span = upper_dex - log10( dmin );
+    span = int( clip( span, 1, 6 ) );
+    vmin = 10.0 ** ( upper_dex - span );
+    return vmin, vmax;
 
 
-def _extract_field(results, field, unit_l0=1.0, unit_t0=1.0):
+def _extract_field( results, field, unit_l0 = 1.0, unit_t0 = 1.0 ):
     """Extract a 3D field array or spectrum data from the results dict.
 
     Returns (data_3d_or_none, is_spectrum).
     """
-    last = results.get("results", [{}])[-1] if results.get("results") else {}
+    last = results.get( 'results', [ { } ] )[ -1 ] \
+           if results.get( 'results' ) else { };
 
-    if field == "spectrum":
-        return None, True
+    if field == 'spectrum':
+        return None, True;
 
-    if field == "excited_fraction":
-        pops = results.get("populations", None)
+    if field == 'excited_fraction':
+        pops = results.get( 'populations', None );
         if pops is None:
-            pops = last.get("populations", None)
+            pops = last.get( 'populations', None );
         if pops is None:
-            return None, False
-        n0 = np.asarray(pops.get("n0", pops.get("n_total", np.ones(1))),
-                        dtype=np.float64)
-        n_exc_keys = [k for k in pops if k.startswith("n") and k != "n0"
-                      and k != "n_total"]
-        n_exc = np.zeros_like(n0)
+            return None, False;
+        n0 = asarray( pops.get( 'n0', pops.get( 'n_total', ones( 1 ) ) ), \
+                      dtype = float64 );
+        n_exc_keys = [ k for k in pops if k.startswith( 'n' ) and \
+                       k != 'n0' and k != 'n_total' ];
+        n_exc = zeros_like( n0 );
         for k in n_exc_keys:
-            n_exc = n_exc + np.asarray(pops[k], dtype=np.float64)
-        denom = n0 + n_exc
-        denom[denom == 0] = 1.0
-        return n_exc / denom, False
+            n_exc = n_exc + asarray( pops[ k ], dtype = float64 );
+        denom = n0 + n_exc;
+        denom[ denom == 0 ] = 1.0;
+        return n_exc / denom, False;
 
-    if field == "b_sca":
-        b = results.get("b_sca", None)
+    if field == 'b_sca':
+        b = results.get( 'b_sca', None );
         if b is None:
-            return None, False
-        b = np.asarray(b, dtype=np.float64)
+            return None, False;
+        b = asarray( b, dtype = float64 );
         # convert cm/s -> km/s
-        return b * 1e-5, False
+        return b * 1e-5, False;
 
     # generic: look in results first, then last cycle output
-    val = results.get(field, None)
+    val = results.get( field, None );
     if val is None:
-        val = last.get(field, None)
+        val = last.get( field, None );
     if val is None:
-        return None, False
-    return np.asarray(val, dtype=np.float64), False
+        return None, False;
+    return asarray( val, dtype = float64 ), False;
 
 
-def default_plot(results, fields=None, slice_plane="z", slice_idx=None,
-                 ax=None, figsize=None, output_path=None,
-                 dyn_range=False):
+def default_plot( results, fields = None, slice_plane = 'z', \
+                  slice_idx = None, ax = None, figsize = None, \
+                  output_path = None, dyn_range = False ):
     """Multi-panel default plot for LineRt results.
 
     2-column layout; number of rows = ceil(len(fields)/2).
@@ -120,141 +118,144 @@ def default_plot(results, fields=None, slice_plane="z", slice_idx=None,
         If False (default), use unconstrained log scale.
     """
     if fields is None:
-        fields = list(_DEFAULT_FIELDS)
+        fields = list( _DEFAULT_FIELDS );
 
-    n = len(fields)
-    nrows = (n + 1) // 2
-    ncols = 2
+    n = len( fields );
+    nrows = ( n + 1 ) // 2;
+    ncols = 2;
 
     if ax is None:
-        fig, axes = plt.subplots(nrows, ncols,
-                                 figsize=figsize or (12, 4 * nrows),
-                                 squeeze=False)
+        fig, axes = plt.subplots( nrows, ncols, \
+                                  figsize = figsize or ( 12, 4 * nrows ), \
+                                  squeeze = False );
     else:
-        axes = np.atleast_2d(ax)
-        fig = axes[0, 0].figure
+        axes = atleast_2d( ax );
+        fig = axes[ 0, 0 ].figure;
 
-    mesh = results.get("mesh", {})
-    unit_l0 = results.get("unit_l0", 1.0)
-    unit_t0 = results.get("unit_t0", 1.0)
-    plane = _PLANE_MAP.get(slice_plane, "xy")
+    mesh = results.get( 'mesh', { } );
+    unit_l0 = results.get( 'unit_l0', 1.0 );
+    unit_t0 = results.get( 'unit_t0', 1.0 );
+    plane = _PLANE_MAP.get( slice_plane, 'xy' );
 
-    for i, field in enumerate(fields):
-        row, col = divmod(i, ncols)
-        ax_i = axes[row, col]
-        title = _FIELD_TITLES.get(field, field)
+    for i, field in enumerate( fields ):
+        row, col = divmod( i, ncols );
+        ax_i = axes[ row, col ];
+        title = _FIELD_TITLES.get( field, field );
 
-        data, is_spectrum = _extract_field(results, field, unit_l0, unit_t0)
+        data, is_spectrum = _extract_field( results, field, unit_l0, unit_t0 );
 
         if is_spectrum:
-            _draw_spectrum(ax_i, results)
-            ax_i.set_title(title)
-            continue
+            _draw_spectrum( ax_i, results );
+            ax_i.set_title( title );
+            continue;
 
         if data is None:
-            ax_i.set_title(title)
-            ax_i.text(0.5, 0.5, "(no data)", transform=ax_i.transAxes,
-                      ha="center", va="center", fontsize=10)
-            ax_i.set_xticks([])
-            ax_i.set_yticks([])
-            continue
+            ax_i.set_title( title );
+            ax_i.text( 0.5, 0.5, '(no data)', \
+                       transform = ax_i.transAxes, ha = 'center', \
+                       va = 'center', fontsize = 10 );
+            ax_i.set_xticks( [ ] );
+            ax_i.set_yticks( [ ] );
+            continue;
 
         if dyn_range:
-            vmin, vmax = _log_limits(data)
-            norm = LogNorm(vmin=vmin, vmax=vmax) if vmin else LogNorm()
+            vmin, vmax = _log_limits( data );
+            norm = LogNorm( vmin = vmin, vmax = vmax ) if vmin else LogNorm( );
         else:
-            norm = LogNorm()
+            norm = LogNorm( );
 
-        pc = slice_plot_2d(ax_i, data, mesh, plane=plane,
-                           slice_idx=slice_idx, log=True, cmap="turbo",
-                           norm=norm)
+        pc = slice_plot_2d( ax_i, data, mesh, plane = plane, \
+                            slice_idx = slice_idx, log = True, \
+                            cmap = 'turbo', norm = norm );
         if pc is not None:
-            cbar = plt.colorbar(pc, ax=ax_i)
-            cbar.set_label(_FIELD_LABELS.get(field, field))
-        ax_i.set_title(title)
+            cbar = plt.colorbar( pc, ax = ax_i );
+            cbar.set_label( _FIELD_LABELS.get( field, field ) );
+        ax_i.set_title( title );
 
     # hide unused subplots
-    for i in range(n, nrows * ncols):
-        row, col = divmod(i, ncols)
-        axes[row, col].set_visible(False)
+    for i in range( n, nrows * ncols ):
+        row, col = divmod( i, ncols );
+        axes[ row, col ].set_visible( False );
 
-    fig.tight_layout()
+    fig.tight_layout( );
     if output_path:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    return fig, axes
+        fig.savefig( output_path, dpi = 150, bbox_inches = 'tight' );
+    return fig, axes;
 
 
-def _draw_spectrum(ax, results, bins=80):
+def _draw_spectrum( ax, results, bins = 80 ):
     """Draw emergent spectrum histogram in km/s."""
-    vel = np.array([])
-    weights = np.array([])
-    spec = results.get("spectrum", {})
+    vel = array( [ ] );
+    weights = array( [ ] );
+    spec = results.get( 'spectrum', { } );
     if spec:
-        vel = np.asarray(spec.get("vel", []))
-        weights = np.asarray(spec.get("n", spec.get("weights",
-                           np.ones_like(vel))))
-    if len(vel) == 0:
-        for r in reversed(results.get("results", [])):
-            phot = r.get("photons", {})
-            vel = np.asarray(phot.get("vel", []))
-            if len(vel) > 0:
-                l_arr = np.asarray(phot.get("l", np.ones_like(vel)))
-                weights = l_arr.ravel() if l_arr.size == vel.size \
-                    else np.ones_like(vel)
-                break
+        vel = asarray( spec.get( 'vel', [ ] ) );
+        weights = asarray( spec.get( 'n', spec.get( 'weights', \
+                                                    ones_like( vel ) ) ) );
+    if len( vel ) == 0:
+        for r in reversed( results.get( 'results', [ ] ) ):
+            phot = r.get( 'photons', { } );
+            vel = asarray( phot.get( 'vel', [ ] ) );
+            if len( vel ) > 0:
+                l_arr = asarray( phot.get( 'l', ones_like( vel ) ) );
+                weights = l_arr.ravel( ) if l_arr.size == vel.size \
+                    else ones_like( vel );
+                break;
 
-    if len(vel) == 0:
-        ax.text(0.5, 0.5, "(no escaped photons)", transform=ax.transAxes,
-                ha="center", va="center", fontsize=10)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        return
+    if len( vel ) == 0:
+        ax.text( 0.5, 0.5, '(no escaped photons)', \
+                 transform = ax.transAxes, ha = 'center', \
+                 va = 'center', fontsize = 10 );
+        ax.set_xticks( [ ] );
+        ax.set_yticks( [ ] );
+        return;
 
-    vel_kms = vel.ravel() * 1e-5
-    ax.hist(vel_kms, bins=bins, weights=weights.ravel(),
-            histtype="step", color="black")
-    ax.set_xlabel(r"$\Delta v$ [km s$^{-1}$]")
-    ax.set_ylabel("count")
-
-
-# ── Legacy single-panel helpers (kept for backward compat) ──────────
+    vel_kms = vel.ravel( ) * 1e-5;
+    ax.hist( vel_kms, bins = bins, weights = weights.ravel( ), \
+             histtype = 'step', color = 'black' );
+    ax.set_xlabel( r'$\Delta v$ [km s$^{-1}$]' );
+    ax.set_ylabel( 'count' );
 
 
-def _find_median(data_flat, mesh, axis):
+############################################################
+# Legacy single-panel helpers (kept for backward compat)
+
+def _find_median( data_flat, mesh, axis ):
     """Return median cell centre coordinate in CGS for a given axis."""
-    n = int(mesh["n_cell"]["xyz".index(axis)])
-    dx_val = mesh["dx"]["xyz".index(axis)]
-    x0 = mesh["x_min"]["xyz".index(axis)]
-    return x0 + (n // 2 + 0.5) * dx_val
+    n = int( mesh[ 'n_cell' ][ 'xyz'.index( axis ) ] );
+    dx_val = mesh[ 'dx' ][ 'xyz'.index( axis ) ];
+    x0 = mesh[ 'x_min' ][ 'xyz'.index( axis ) ];
+    return x0 + ( n // 2 + 0.5 ) * dx_val;
 
 
-def _axis_to_slice(data_flat, mesh, axis, coord):
+def _axis_to_slice( data_flat, mesh, axis, coord ):
     """Convert flat data to 2D slice at given axis and coordinate."""
-    n_cell = mesh["n_cell"]
-    nx, ny, nz = int(n_cell[0]), int(n_cell[1]), int(n_cell[2])
+    n_cell = mesh[ 'n_cell' ];
+    nx, ny, nz = int( n_cell[ 0 ] ), int( n_cell[ 1 ] ), \
+                 int( n_cell[ 2 ] );
 
     if data_flat.size > nx * ny * nz:
-        data_3d = data_flat.reshape(nz, ny, nx, -1)[:, :, :, 0]
+        data_3d = data_flat.reshape( nz, ny, nx, -1 )[ :, :, :, 0 ];
     else:
-        data_3d = data_flat.reshape(nz, ny, nx)
+        data_3d = data_flat.reshape( nz, ny, nx );
 
-    dx_val = mesh["dx"]["xyz".index(axis)]
-    x0 = mesh["x_min"]["xyz".index(axis)]
-    nc = int(n_cell["xyz".index(axis)])
+    dx_val = mesh[ 'dx' ][ 'xyz'.index( axis ) ];
+    x0 = mesh[ 'x_min' ][ 'xyz'.index( axis ) ];
+    nc = int( n_cell[ 'xyz'.index( axis ) ] );
 
-    idx = int((coord - x0) / dx_val)
-    idx = max(0, min(idx, nc - 1))
+    idx = int( ( coord - x0 ) / dx_val );
+    idx = max( 0, min( idx, nc - 1 ) );
 
-    if axis == "x":
-        return data_3d[:, :, idx], mesh, "yz", idx
-    elif axis == "y":
-        return data_3d[:, idx, :], mesh, "xz", idx
+    if axis == 'x':
+        return data_3d[ :, :, idx ], mesh, 'yz', idx;
+    elif axis == 'y':
+        return data_3d[ :, idx, : ], mesh, 'xz', idx;
     else:
-        return data_3d[idx, :, :], mesh, "xy", idx
+        return data_3d[ idx, :, : ], mesh, 'xy', idx;
 
 
-def plot_flux(results, axis="x", coord=None, ax=None, output_path=None,
-              log=True, cmap="turbo"):
+def plot_flux( results, axis = 'x', coord = None, ax = None, \
+               output_path = None, log = True, cmap = 'turbo' ):
     """2D slice plot of flux at given axis intersection.
 
     Parameters
@@ -268,42 +269,42 @@ def plot_flux(results, axis="x", coord=None, ax=None, output_path=None,
     cmap : str
     """
     if ax is None:
-        _, ax = plt.subplots()
-    mesh = results.get("mesh", {})
-    flx = results.get("flx", None)
-    if flx is None and results.get("results"):
-        flx = results["results"][-1].get("flx", None)
+        _, ax = plt.subplots( );
+    mesh = results.get( 'mesh', { } );
+    flx = results.get( 'flx', None );
+    if flx is None and results.get( 'results' ):
+        flx = results[ 'results' ][ -1 ].get( 'flx', None );
     if flx is None:
-        ax.text(0.5, 0.5, "No flux data", transform=ax.transAxes,
-                ha="center", va="center")
-        return
+        ax.text( 0.5, 0.5, 'No flux data', transform = ax.transAxes, \
+                 ha = 'center', va = 'center' );
+        return;
 
-    flx = np.asarray(flx, dtype=np.float64).ravel()
+    flx = asarray( flx, dtype = float64 ).ravel( );
     if coord is None:
-        coord = _find_median(flx, mesh, axis)
+        coord = _find_median( flx, mesh, axis );
 
-    slc, _, plane, si = _axis_to_slice(flx, mesh, axis, coord)
+    slc, _, plane, si = _axis_to_slice( flx, mesh, axis, coord );
 
-    pc = slice_plot_2d(ax, slc.ravel(), mesh, plane=plane, slice_idx=si,
-                        log=log, cmap=cmap)
+    pc = slice_plot_2d( ax, slc.ravel( ), mesh, plane = plane, \
+                        slice_idx = si, log = log, cmap = cmap );
 
-    other = _other_axes(axis)
-    ax.set_xlabel(f"{other[0]} [AU]")
-    ax.set_ylabel(f"{other[1]} [AU]")
+    other = _other_axes( axis );
+    ax.set_xlabel( '%s [AU]' % other[ 0 ] );
+    ax.set_ylabel( '%s [AU]' % other[ 1 ] );
 
-    ax.set_box_aspect(_aspect_ratio(mesh, axis))
+    ax.set_box_aspect( _aspect_ratio( mesh, axis ) );
 
-    cbar = plt.colorbar(pc, ax=ax)
-    cbar.set_label("Flux [photons cm$^{-2}$ s$^{-1}$]")
-    ax.set_title(f"Flux slice ({plane}, {axis}={coord:.1f} AU)")
+    cbar = plt.colorbar( pc, ax = ax );
+    cbar.set_label( 'Flux [photons cm$^{-2}$ s$^{-1}$]' );
+    ax.set_title( 'Flux slice (%s, %s=%.1f AU)' % ( plane, axis, coord ) );
 
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.show()
+        plt.savefig( output_path, dpi = 150, bbox_inches = 'tight' );
+    plt.show( );
 
 
-def plot_population(results, axis="x", coord=None, ax=None, output_path=None,
-                    log=True, cmap="plasma"):
+def plot_population( results, axis = 'x', coord = None, ax = None, \
+                     output_path = None, log = True, cmap = 'plasma' ):
     """2D slice plot of excited fraction at given axis intersection.
 
     Parameters
@@ -317,51 +318,53 @@ def plot_population(results, axis="x", coord=None, ax=None, output_path=None,
     cmap : str
     """
     if ax is None:
-        _, ax = plt.subplots()
-    mesh = results.get("mesh", {})
-    pops = results.get("populations", None)
-    if pops is None and results.get("results"):
-        pops = results["results"][-1].get("populations", None)
+        _, ax = plt.subplots( );
+    mesh = results.get( 'mesh', { } );
+    pops = results.get( 'populations', None );
+    if pops is None and results.get( 'results' ):
+        pops = results[ 'results' ][ -1 ].get( 'populations', None );
     if pops is None:
-        ax.text(0.5, 0.5, "No population data", transform=ax.transAxes,
-                ha="center", va="center")
-        return
+        ax.text( 0.5, 0.5, 'No population data', \
+                 transform = ax.transAxes, ha = 'center', va = 'center' );
+        return;
 
-    n0 = np.asarray(pops.get("n0", pops.get("n_total", np.ones(1))),
-                    dtype=np.float64).ravel()
-    n_exc_keys = [k for k in pops.keys() if k.startswith("n") and k != "n0"
-                  and k != "n_total"]
-    n_exc = np.zeros_like(n0)
+    n0 = asarray( pops.get( 'n0', pops.get( 'n_total', ones( 1 ) ) ), \
+                  dtype = float64 ).ravel( );
+    n_exc_keys = [ k for k in pops.keys( ) if k.startswith( 'n' ) and \
+                   k != 'n0' and k != 'n_total' ];
+    n_exc = zeros_like( n0 );
     for k in n_exc_keys:
-        n_exc += np.asarray(pops[k], dtype=np.float64).ravel()
-    denom = n0 + n_exc
-    denom[denom == 0] = 1.0
-    frac = n_exc / denom
+        n_exc += asarray( pops[ k ], dtype = float64 ).ravel( );
+    denom = n0 + n_exc;
+    denom[ denom == 0 ] = 1.0;
+    frac = n_exc / denom;
 
     if coord is None:
-        coord = _find_median(frac, mesh, axis)
+        coord = _find_median( frac, mesh, axis );
 
-    slc, _, plane, si = _axis_to_slice(frac, mesh, axis, coord)
-    pc = slice_plot_2d(ax, slc.ravel(), mesh, plane=plane, slice_idx=si,
-                        log=log, cmap=cmap)
+    slc, _, plane, si = _axis_to_slice( frac, mesh, axis, coord );
+    pc = slice_plot_2d( ax, slc.ravel( ), mesh, plane = plane, \
+                        slice_idx = si, log = log, cmap = cmap );
 
-    other = _other_axes(axis)
-    ax.set_xlabel(f"{other[0]} [AU]")
-    ax.set_ylabel(f"{other[1]} [AU]")
+    other = _other_axes( axis );
+    ax.set_xlabel( '%s [AU]' % other[ 0 ] );
+    ax.set_ylabel( '%s [AU]' % other[ 1 ] );
 
-    ax.set_box_aspect(_aspect_ratio(mesh, axis))
+    ax.set_box_aspect( _aspect_ratio( mesh, axis ) );
 
-    cbar = plt.colorbar(pc, ax=ax)
-    cbar.set_label("n$_{\\rm exc}$ / (n$_0$ + n$_{\\rm exc}$) [dimensionless]")
-    ax.set_title(f"Excited fraction ({plane}, {axis}={coord:.1f} AU)")
+    cbar = plt.colorbar( pc, ax = ax );
+    cbar.set_label( 'n$_{\\rm exc}$ / (n$_0$ + n$_{\\rm exc}$) ' \
+                    '[dimensionless]' );
+    ax.set_title( 'Excited fraction (%s, %s=%.1f AU)' % \
+                  ( plane, axis, coord ) );
 
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.show()
+        plt.savefig( output_path, dpi = 150, bbox_inches = 'tight' );
+    plt.show( );
 
 
-def plot_spectrum(results, ax=None, bins=80, xlim=None, output_path=None,
-                  label=""):
+def plot_spectrum( results, ax = None, bins = 80, xlim = None, \
+                   output_path = None, label = '' ):
     """Histogram of escaped photon velocities.
 
     Parameters
@@ -374,120 +377,123 @@ def plot_spectrum(results, ax=None, bins=80, xlim=None, output_path=None,
     label : str
     """
     if ax is None:
-        _, ax = plt.subplots()
-    spectrum = results.get("spectrum", {})
-    vel = np.asarray(spectrum.get("vel", []))
-    weights = np.asarray(spectrum.get("n",
-                          spectrum.get("weights",
-                          np.ones_like(vel))))
+        _, ax = plt.subplots( );
+    spectrum = results.get( 'spectrum', { } );
+    vel = asarray( spectrum.get( 'vel', [ ] ) );
+    weights = asarray( spectrum.get( 'n', \
+                                     spectrum.get( 'weights', \
+                                                   ones_like( vel ) ) ) );
 
-    if len(vel) == 0:
-        for r in reversed(results.get("results", [])):
-            phot = r.get("photons", {})
-            vel = np.asarray(phot.get("vel", []))
-            if len(vel) > 0:
-                break
+    if len( vel ) == 0:
+        for r in reversed( results.get( 'results', [ ] ) ):
+            phot = r.get( 'photons', { } );
+            vel = asarray( phot.get( 'vel', [ ] ) );
+            if len( vel ) > 0:
+                break;
 
-    if len(vel) == 0:
-        ax.text(0.5, 0.5, "No escaped photons", transform=ax.transAxes,
-                ha="center", va="center")
-        ax.set_xlabel("velocity [cm/s]")
-        ax.set_ylabel("count")
-        return
+    if len( vel ) == 0:
+        ax.text( 0.5, 0.5, 'No escaped photons', \
+                 transform = ax.transAxes, ha = 'center', va = 'center' );
+        ax.set_xlabel( 'velocity [cm/s]' );
+        ax.set_ylabel( 'count' );
+        return;
 
-    ax.hist(vel.ravel(), bins=bins, weights=weights.ravel(),
-            histtype="step", density=False, label=label if label else None)
+    ax.hist( vel.ravel( ), bins = bins, weights = weights.ravel( ), \
+             histtype = 'step', density = False, \
+             label = label if label else None );
 
-    ax.set_xlabel("$\\Delta v$ [cm s$^{-1}$]")
-    ax.set_ylabel("count")
+    ax.set_xlabel( '$\\Delta v$ [cm s$^{-1}$]' );
+    ax.set_ylabel( 'count' );
     if xlim is not None:
-        ax.set_xlim(xlim)
+        ax.set_xlim( xlim );
     if label:
-        ax.legend()
+        ax.legend( );
 
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.show()
+        plt.savefig( output_path, dpi = 150, bbox_inches = 'tight' );
+    plt.show( );
 
 
-def _other_axes(axis):
-    if axis == "x":
-        return ("y", "z")
-    elif axis == "y":
-        return ("x", "z")
+def _other_axes( axis ):
+    if axis == 'x':
+        return ( 'y', 'z' );
+    elif axis == 'y':
+        return ( 'x', 'z' );
     else:
-        return ("x", "y")
+        return ( 'x', 'y' );
 
 
-def _aspect_ratio(mesh, axis):
-    dx = mesh["dx"]
-    n_cell = mesh["n_cell"]
-    if axis == "x":
-        return (n_cell[1] * dx[1]) / (n_cell[2] * dx[2])
-    elif axis == "y":
-        return (n_cell[0] * dx[0]) / (n_cell[2] * dx[2])
+def _aspect_ratio( mesh, axis ):
+    dx = mesh[ 'dx' ];
+    n_cell = mesh[ 'n_cell' ];
+    if axis == 'x':
+        return ( n_cell[ 1 ] * dx[ 1 ] ) / ( n_cell[ 2 ] * dx[ 2 ] );
+    elif axis == 'y':
+        return ( n_cell[ 0 ] * dx[ 0 ] ) / ( n_cell[ 2 ] * dx[ 2 ] );
     else:
-        return (n_cell[0] * dx[0]) / (n_cell[1] * dx[1])
+        return ( n_cell[ 0 ] * dx[ 0 ] ) / ( n_cell[ 1 ] * dx[ 1 ] );
 
 
-# ── Backward-compatible wrappers (low-level API) ────────────────────
+############################################################
+# Backward-compatible wrappers (low-level API)
 
-
-def plot_emergent_spectrum(ax, photons, bins=80, xlim=None, label=""):
-    if isinstance(photons, dict):
-        vel = np.asarray(photons.get("vel", []))
-        l_arr = np.asarray(photons.get("l", []))
+def plot_emergent_spectrum( ax, photons, bins = 80, xlim = None, \
+                            label = '' ):
+    if isinstance( photons, dict ):
+        vel = asarray( photons.get( 'vel', [ ] ) );
+        l_arr = asarray( photons.get( 'l', [ ] ) );
     else:
-        raise TypeError("photons must be a dict with 'vel' and 'l' keys")
+        raise TypeError( "photons must be a dict with 'vel' and 'l' keys" );
 
-    if len(vel) == 0:
-        ax.text(0.5, 0.5, "No escaped photons", transform=ax.transAxes,
-                ha="center", va="center")
-        return
+    if len( vel ) == 0:
+        ax.text( 0.5, 0.5, 'No escaped photons', \
+                 transform = ax.transAxes, ha = 'center', va = 'center' );
+        return;
 
-    weights = l_arr.ravel()
-    vel_flat = vel.ravel()
+    weights = l_arr.ravel( );
+    vel_flat = vel.ravel( );
 
-    ax.hist(vel_flat, bins=bins, weights=weights, histtype="step",
-            density=False, label=label if label else None)
+    ax.hist( vel_flat, bins = bins, weights = weights, \
+             histtype = 'step', density = False, \
+             label = label if label else None );
 
-    ax.set_xlabel("velocity [cm/s]")
-    ax.set_ylabel("l-weighted count")
+    ax.set_xlabel( 'velocity [cm/s]' );
+    ax.set_ylabel( 'l-weighted count' );
     if xlim is not None:
-        ax.set_xlim(xlim)
+        ax.set_xlim( xlim );
     if label:
-        ax.legend()
+        ax.legend( );
 
 
-def plot_flux_slice(ax, flx, mesh, title="", log=True, cmap="turbo",
-                    cbar_label=None, slice_idx = None ):
-    pc = slice_plot_2d(ax, flx, mesh, plane="xy", slice_idx=slice_idx,
-                       log=log, cmap=cmap)
-    label = cbar_label or "flux [photons cm$^{-2}$ s$^{-1}$]"
-    plt.colorbar(pc, ax=ax, label=label)
-    ax.set_title(title or "Flux slice (xy)")
+def plot_flux_slice( ax, flx, mesh, title = '', log = True, \
+                     cmap = 'turbo', cbar_label = None, slice_idx = None ):
+    pc = slice_plot_2d( ax, flx, mesh, plane = 'xy', \
+                        slice_idx = slice_idx, log = log, cmap = cmap );
+    label = cbar_label or 'flux [photons cm$^{-2}$ s$^{-1}$]';
+    plt.colorbar( pc, ax = ax, label = label );
+    ax.set_title( title or 'Flux slice (xy)' );
 
 
-def plot_population_map(ax, n, mesh, level=0, title="", log=True,
-                        cmap="plasma", cbar_label=None):
-    pc = slice_plot_2d(ax, n, mesh, plane="xy", slice_idx=None,
-                       log=log, cmap=cmap)
-    label = cbar_label or f"n{level} [cm$^{{-3}}]$"
-    plt.colorbar(pc, ax=ax, label=label)
-    ax.set_title(title or f"Population level {level} slice (xy)")
+def plot_population_map( ax, n, mesh, level = 0, title = '', log = True, \
+                         cmap = 'plasma', cbar_label = None ):
+    pc = slice_plot_2d( ax, n, mesh, plane = 'xy', slice_idx = None, \
+                        log = log, cmap = cmap );
+    label = cbar_label or 'n%d [cm$^{-3}$]' % level;
+    plt.colorbar( pc, ax = ax, label = label );
+    ax.set_title( title or 'Population level %d slice (xy)' % level );
 
 
-def plot_convergence(ax, pop_history, cycles):
-    deltas = [0.0]
-    keys = sorted(pop_history[0].keys())
-    for k in range(1, len(pop_history)):
-        max_delta = max(
-            np.max(np.abs(pop_history[k][key] - pop_history[k - 1][key]))
-            for key in keys
-        )
-        deltas.append(float(max_delta))
+def plot_convergence( ax, pop_history, cycles ):
+    deltas = [ 0.0 ];
+    keys = sorted( pop_history[ 0 ].keys( ) );
+    for k in range( 1, len( pop_history ) ):
+        max_delta = max( \
+            abs( pop_history[ k ][ key ] - \
+                 pop_history[ k - 1 ][ key ] ).max( ) \
+            for key in keys );
+        deltas.append( float( max_delta ) );
 
-    ax.plot(cycles[:len(deltas)], deltas, "o-", color="black")
-    ax.set_xlabel("Cycle")
-    ax.set_ylabel(r"$\max|\Delta n|$")
-    ax.set_title("Population convergence")
+    ax.plot( cycles[ : len( deltas ) ], deltas, 'o-', color = 'black' );
+    ax.set_xlabel( 'Cycle' );
+    ax.set_ylabel( r'$\max|\Delta n|$' );
+    ax.set_title( 'Population convergence' );
