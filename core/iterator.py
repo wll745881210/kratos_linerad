@@ -54,11 +54,19 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
     n_tot = mesh["n_tot"]
     results = []
 
+    nx, ny, nz = int(mesh["n_cell"][0]), int(mesh["n_cell"][1]), int(mesh["n_cell"][2])
+    shape3d = (nz, ny, nx)
+
     if species is not None and hasattr(species, "initial_populations"):
-        populations = species.initial_populations(n_tot, n_species=n_species)
+        if n_species is None:
+            n_species_arr = np.ones(shape3d, dtype=np.float64)
+        else:
+            n_species_arr = np.broadcast_to(np.asarray(n_species, dtype=np.float64),
+                                            shape3d).copy()
+        populations = species.initial_populations(n_species_arr)
     else:
-        populations = {'n0': np.ones(n_tot, dtype=np.float32),
-                       'n_total': np.ones(n_tot, dtype=np.float32)}
+        populations = {'n0': np.ones(shape3d, dtype=np.float32),
+                       'n_total': np.ones(shape3d, dtype=np.float32)}
 
     fields = dict(fields_init)
     base_fields_cgs = {k: np.asarray(v, dtype=np.float64).copy()
@@ -71,9 +79,9 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
         # user-provided, not species-derived).  Preserve it from
         # base_fields_cgs, converted to code units.
         if 'mfp_i_abs_0' not in fields and 'mfp_i_abs_0' in base_fields_cgs:
-            v_factor = unit_l0  # inverse length: CGS -> code
+            v_factor = unit_l0
             fields['mfp_i_abs_0'] = np.asarray(base_fields_cgs['mfp_i_abs_0'],
-                                                dtype=np.float64).ravel() * v_factor
+                                                dtype=np.float64) * v_factor
 
     # Write line-independent fields (b_sca, vel) ONCE - these
     # depend only on the gas (bulk motion, thermal temperature,
@@ -116,7 +124,7 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
 
         if 'mfp_i_sca_0' in fields:
             output['mfp_i_sca_0'] = np.asarray(fields['mfp_i_sca_0'],
-                                               dtype=np.float64).ravel()
+                                               dtype=np.float64)
 
         if 'photons' in output:
             v_factor = unit_t0 / unit_l0
@@ -139,12 +147,12 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
             area_factor = unit_l0 * unit_l0 * unit_t0
             inv_scale = 1.0 / scale_factor
             if exc_flux is not None:
-                exc_flux = np.asarray(exc_flux, dtype=np.float64).ravel()
+                exc_flux = np.asarray(exc_flux, dtype=np.float64)
                 exc_flux = np.nan_to_num(exc_flux, nan=0.0, posinf=0.0, neginf=0.0)
                 exc_flux = exc_flux * inv_scale / area_factor
                 output['exc_flux_flat'] = exc_flux
             if flx is not None:
-                flx = np.nan_to_num(np.asarray(flx, dtype=np.float64).ravel(),
+                flx = np.nan_to_num(np.asarray(flx, dtype=np.float64),
                                     nan=0.0, posinf=0.0, neginf=0.0) * inv_scale / area_factor
                 output['flx'] = flx
 
@@ -168,7 +176,7 @@ def iterate(source_photons, species, fields_init, mesh, n_cycles=5,
                                            unit_l0=unit_l0, unit_t0=unit_t0)
             if 'mfp_i_abs_0' not in fields and 'mfp_i_abs_0' in base_fields_cgs:
                 fields['mfp_i_abs_0'] = np.asarray(base_fields_cgs['mfp_i_abs_0'],
-                                                    dtype=np.float64).ravel() * unit_l0
+                                                    dtype=np.float64) * unit_l0
 
         if species is not None and hasattr(species, "generate_emission_photons") and cycle < n_cycles - 1:
             temp_field = fields.get('temp', np.zeros(mesh['n_tot'],

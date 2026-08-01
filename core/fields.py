@@ -94,10 +94,14 @@ def slice_plot_2d(ax, data, mesh, plane="xy", slice_idx=None, log=True, cmap="tu
     coords = mesh.get("coords", "cartesian")
     nx, ny, nz = int(n_cell[0]), int(n_cell[1]), int(n_cell[2])
 
-    if data.size > nx * ny * nz:
-        data_3d = data.reshape(nz, ny, nx, -1)[:, :, :, 0]
+    data = np.asarray(data)
+    if data.ndim == 1:
+        if data.size > nx * ny * nz:
+            data_3d = data.reshape(nz, ny, nx, -1)[:, :, :, 0]
+        else:
+            data_3d = data.reshape(nz, ny, nx)
     else:
-        data_3d = data.reshape(nz, ny, nx)
+        data_3d = data
     norm = LogNorm() if log else None
 
     if coords == "cartesian":

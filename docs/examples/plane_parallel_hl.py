@@ -44,19 +44,16 @@ L_slab_cm = 10.0 * AU   # x_min=-5, x_max=5 -> L=10 AU
 n_species = (tau0_slab / L_slab_cm) / sigma_co   # cm^-3
 n_cycle   = 1
 
-def n_total_callable(coords):
-    x, y, z = coords;
-    res = np.full( x.shape, n_species, dtype=np.float64);
-    # res *= 1 + ( x - x.min(  ) ) / x.max(  ) * 1e1;
-    # res[ x > 0 * AU ] *= 1e1;
+def n_total_callable(X, Y, Z):
+    res = np.full(X.shape, n_species, dtype=np.float64);
+    res[X > 0.10 * AU] *= 1e1;
     return res;
-#
 
-def temperature_callable(coords):
-    return np.full(coords[ 0 ].shape, temperature, dtype=np.float64)
+def temperature_callable(X, Y, Z):
+    return np.full(X.shape, temperature, dtype=np.float64)
 
-def vx_callable(coords):
-    return np.zeros( coords[ 0 ].shape, dtype=np.float64)
+def vx_callable(X, Y, Z):
+    return np.zeros(X.shape, dtype=np.float64)
 
 rt = LineRt(
     n_cell=(64, 4, 2),
@@ -71,7 +68,7 @@ rt = LineRt(
     vel=(vx_callable, 0.0, 0.0),
 
     ph_mode=2,           # R_IIA const-mem (production)
-    n_step=20000, n_scat=1000, n_cycles=n_cycle,
+    n_step=20000, n_scat=10000, n_cycles=n_cycle,
     mol_mass=mol_mass,
     visualize=False,
 )

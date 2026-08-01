@@ -7,7 +7,6 @@ c_cgs = 2.99792458e10
 k_B   = 1.380649e-16
 sqrt_pi = 1.77245385091
 
-import pdb
 
 
 class Transition(NamedTuple):
@@ -131,34 +130,28 @@ class SpeciesData:
         sigma *= (g_u / g_l) * A_ul
         return sigma
 
-    def initial_populations(self, n_tot, n_species=None):
-        if n_species is None:
-            n_species = np.ones(n_tot, dtype=np.float64)
-        else:
-            n_species = np.broadcast_to(np.asarray(n_species, dtype=np.float64),
-                                        (n_tot,)).copy()
+    def initial_populations(self, n_species):
+        n_species = np.asarray(n_species, dtype=np.float64)
+        shape = n_species.shape
         pops = {}
         for i in range(self.n_levels):
             pops[f'n{i}'] = (n_species.copy() if i == 0
-                             else np.zeros(n_tot, dtype=np.float64))
+                             else np.zeros(shape, dtype=np.float64))
         pops['n_total'] = n_species.copy()
         return pops
 
     def compute_opacity(self, populations, b_sca=1e5,
                           transition_idx=None):
-        pdb.set_trace(  )
         mfp_sca = np.zeros_like(populations.get('n0',
                    populations.get('n_total', np.ones(1))),
                    dtype=np.float64)
         t_range = [transition_idx] if transition_idx is not None \
                   else range(self.n_transitions)
         for t_idx in t_range:
-            upper = int(self.transitions[t_idx, 0])
             lower = int(self.transitions[t_idx, 1])
             n_l = np.asarray(populations.get(f'n{lower}',
                                np.zeros_like(mfp_sca)), dtype=np.float64)
             sigma_s = self.cross_section(t_idx, b_sca)
-            print( n_l.shape, sigma_s.shape, mfp_sca.shape )
             mfp_sca += n_l * sigma_s
         return mfp_sca
 
@@ -168,7 +161,7 @@ class SpeciesData:
 
         Parameters
         ----------
-        exc_flux : ndarray (n_cells,)
+        exc_flux : ndarray (nz, ny, nx)
             Overlap-integrated excitation fluence F_ext for the target
             transition (CGS, [n][l]^-2[t]^-1).
         flx : ndarray or None
@@ -194,23 +187,23 @@ class SpeciesData:
             Index into self.transitions for the pumped transition.
         """
         from .equilibrium import solve_populations
-        pop_vals = list(populations.values())
-        n_cells = len(pop_vals[0]) if pop_vals else 1
         n_total = populations.get('n_total',
-                   sum(populations.get(f'n{i}', np.zeros(n_cells))
+                   sum(populations.get(f'n{i}',
+                       np.zeros(1, dtype=np.float64))
                        for i in range(self.n_levels)))
-        exc_flux_arr = np.asarray(exc_flux, dtype=np.float64).ravel() if exc_flux is not None else \
-                       np.zeros(n_cells, dtype=np.float64)
-        if exc_flux_arr.shape[0] != n_cells:
-            exc_flux_arr = np.zeros(n_cells, dtype=np.float64)
+        n_total = np.asarray(n_total, dtype=np.float64)
+        shape = n_total.shape
+        exc_flux_arr = np.asarray(exc_flux, dtype=np.float64) if exc_flux is not None else \
+                       np.zeros(shape, dtype=np.float64)
+        if exc_flux_arr.shape != shape:
+            exc_flux_arr = np.zeros(shape, dtype=np.float64)
         result = solve_populations(self, exc_flux_arr, n_total, T=T, colliders=colliders,
                                     b_param=b_sca, transition_idx=transition_idx)
-        if isinstance(result, np.ndarray) and result.ndim == 2:
+        if isinstance(result, np.ndarray) and result.ndim == n_total.ndim + 1:
             pops = {}
             for i in range(self.n_levels):
-                pops[f'n{i}'] = result[i, :].copy()
-            pops['n_total'] = (n_total.copy() if hasattr(n_total, 'copy')
-                               else np.asarray(n_total).copy())
+                pops[f'n{i}'] = result[i].copy()
+            pops['n_total'] = n_total.copy()
             return pops
         return result
 
@@ -220,7 +213,7 @@ class SpeciesData:
         A_ul = float(t[2])
         nu = float(t[3]) * 1e9
         n_u = np.asarray(populations.get(f'n{upper}',
-                          np.ones(1)), dtype=np.float64).ravel()
+                          np.ones(1)), dtype=np.float64)
         emissivity = n_u * A_ul * h_cgs * nu / (4.0 * np.pi)
         return np.maximum(emissivity, 0.0)
 
@@ -229,7 +222,6 @@ class SpeciesData:
                                    b_sca=1e5, rng=None):
         if rng is None:
             rng = np.random.default_rng()
-        n_cells = int(np.prod(mesh['n_cell']))
         n_cell = mesh['n_cell']
         x_min = mesh['x_min']
         dx = mesh['dx']
@@ -241,42 +233,42 @@ class SpeciesData:
         upper = int(t[0])
 
         photons = []
-        for ic in range(n_cells):
-            em = emissivity[ic]
-            if em <= 0.0:
-                continue
-            lum_cell = em * volume
-            n_ph = max(1, int(np.ceil(lum_cell / max(lum_cell, 1e-40)
-                                      * n_per_cell_max)))
-            n_ph = min(n_ph, n_per_cell_max)
-            n_ph = max(n_ph, 1) if em > 0 else 0
+        nz, ny, nx = int(n_cell[2]), int(n_cell[1]), int(n_cell[0])
+        for iz in range(nz):
+            for iy in range(ny):
+                for ix in range(nx):
+                    em = emissivity[iz, iy, ix]
+                    if em <= 0.0:
+                        continue
+                    lum_cell = em * volume
+                    n_ph = max(1, int(np.ceil(lum_cell / max(lum_cell, 1e-40)
+                                              * n_per_cell_max)))
+                    n_ph = min(n_ph, n_per_cell_max)
+                    n_ph = max(n_ph, 1) if em > 0 else 0
 
-            ix = ic % n_cell[0]
-            iy = (ic // n_cell[0]) % n_cell[1]
-            iz = ic // (n_cell[0] * n_cell[1])
-            x = x_min[0] + (ix + rng.random(n_ph)) * dx[0]
-            y = x_min[1] + (iy + rng.random(n_ph)) * dx[1]
-            z = x_min[2] + (iz + rng.random(n_ph)) * dx[2]
+                    x = x_min[0] + (ix + rng.random(n_ph)) * dx[0]
+                    y = x_min[1] + (iy + rng.random(n_ph)) * dx[1]
+                    z = x_min[2] + (iz + rng.random(n_ph)) * dx[2]
 
-            cos_theta = 2.0 * rng.random(n_ph) - 1.0
-            theta = np.arccos(cos_theta)
-            phi = 2.0 * np.pi * rng.random(n_ph)
-            dir_x = np.sin(theta) * np.cos(phi)
-            dir_y = np.sin(theta) * np.sin(phi)
-            dir_z = cos_theta
+                    cos_theta = 2.0 * rng.random(n_ph) - 1.0
+                    theta = np.arccos(cos_theta)
+                    phi = 2.0 * np.pi * rng.random(n_ph)
+                    dir_x = np.sin(theta) * np.cos(phi)
+                    dir_y = np.sin(theta) * np.sin(phi)
+                    dir_z = cos_theta
 
-            b_thermal = np.sqrt(1.66289e8 * temperature[ic]
-                                / 28.0 + 1e-35)
-            sigma_ph = b_thermal / np.sqrt(2.0)
-            vel_draw = rng.normal(0.0, sigma_ph, n_ph)
+                    temp_c = float(temperature[iz, iy, ix])
+                    b_thermal = np.sqrt(1.66289e8 * temp_c / 28.0 + 1e-35)
+                    sigma_ph = b_thermal / np.sqrt(2.0)
+                    vel_draw = rng.normal(0.0, sigma_ph, n_ph)
 
-            weight_per_ph = lum_cell / n_ph if n_ph > 0 else 0.0
+                    weight_per_ph = lum_cell / n_ph if n_ph > 0 else 0.0
 
-            for j in range(n_ph):
-                photons.append([x[j], y[j], z[j],
-                                dir_x[j], dir_y[j], dir_z[j],
-                                weight_per_ph, vel_draw[j],
-                                sigma_ph])
+                    for j in range(n_ph):
+                        photons.append([x[j], y[j], z[j],
+                                        dir_x[j], dir_y[j], dir_z[j],
+                                        weight_per_ph, vel_draw[j],
+                                        sigma_ph])
         if not photons:
             return np.zeros((0, 9), dtype=np.float64)
         return np.array(photons, dtype=np.float64)
@@ -286,9 +278,10 @@ class SpeciesData:
         n_total = populations.get('n_total',
                    sum(populations.get(f'n{i}', np.ones(1))
                        for i in range(self.n_levels)))
+        n_total = np.asarray(n_total, dtype=np.float64)
+        shape = n_total.shape
         mfp_i_sca = self.compute_opacity(populations,
                                           transition_idx=transition_idx)
-        n_cells = len(n_total) if hasattr(n_total, '__len__') else 1
         v_factor = unit_t0 / unit_l0
         fields = {}
         if base_fields:
@@ -302,17 +295,16 @@ class SpeciesData:
                     pass
                 fields[k] = arr
         if 'mfp_i_sca_0' not in fields:
-            fields['mfp_i_sca_0'] = (np.asarray(mfp_i_sca, dtype=np.float64).ravel()
-                                     * unit_l0)
+            fields['mfp_i_sca_0'] = np.asarray(mfp_i_sca, dtype=np.float64) * unit_l0
         if 'b_sca' not in fields:
-            fields['b_sca'] = np.full(n_cells, 1e5 * v_factor, dtype=np.float64)
+            fields['b_sca'] = np.full(shape, 1e5 * v_factor, dtype=np.float64)
         for a in range(3):
             key = f'vel_{a}'
             if key not in fields:
-                fields[key] = np.zeros(n_cells, dtype=np.float64)
+                fields[key] = np.zeros(shape, dtype=np.float64)
         for i in range(self.n_levels):
             fields[f'n{i}'] = np.asarray(
-                populations.get(f'n{i}', np.zeros(n_cells)), dtype=np.float64)
+                populations.get(f'n{i}', np.zeros(shape)), dtype=np.float64)
         return fields
 
 

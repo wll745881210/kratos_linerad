@@ -31,7 +31,7 @@ def write_field_data(filename, fields, mesh, unit_l0=1.0, group='all'):
     fields : dict
         Keys: 'mfp_i_sca_0', 'mfp_i_abs_0', 'b_sca',
               'vel_0', 'vel_1', 'vel_2', ['temp_']
-        Values: flat float32 arrays of length n_tot
+        Values: 3D float32 arrays of shape (nz, ny, nx)
     mesh : dict
         'n_cell' : ndarray[int32], 'x_min' : ndarray[float32],
         'dx' : ndarray[float32]
@@ -45,6 +45,10 @@ def write_field_data(filename, fields, mesh, unit_l0=1.0, group='all'):
         'fixed' - write only line-independent fields (b_sca,
                   vel_0..2)             -> field_fixed_file
         'all'   - write both (backward compat, single file)
+
+    Data layout: ijkl=0 is written so interp_t indexes as
+    iz*ny*nx + iy*nx + ix (z slowest, x fastest), matching the
+    (nz, ny, nx) C-order of the 3D arrays directly.
     """
     bio = binary_io(filename)
     n_cell = np.asarray(mesh['n_cell'], dtype=np.int32)
@@ -52,7 +56,7 @@ def write_field_data(filename, fields, mesh, unit_l0=1.0, group='all'):
     dx     = np.asarray(mesh['dx'],     dtype=np.float32)
 
     n_pts = (n_cell + 1).astype(np.int32)
-    nc = n_cell.astype(np.int32)
+    ijkl_flag = np.array(0, dtype=np.int32)
 
     if group == 'all':
         prefixes = _LINE_FIELD_PREFIXES + _FIXED_FIELD_PREFIXES
@@ -64,23 +68,18 @@ def write_field_data(filename, fields, mesh, unit_l0=1.0, group='all'):
         raise ValueError(f"group must be 'all', 'line', or 'fixed', got {group!r}")
 
     for prefix in prefixes:
-        # Accept keys with or without trailing underscore
         key = prefix.rstrip('_') if prefix.endswith('_') else prefix
         if key not in fields and prefix not in fields:
             continue
-        raw = np.asarray(fields.get(key, fields.get(prefix)),
+        arr = np.asarray(fields.get(key, fields.get(prefix)),
                          dtype=np.float32)
-        # interp_t (ijkl=true) expects data in (x, y, z) order:
-        # dim-0 (x) slowest, dim-2 (z) fastest.  The pipeline
-        # generates flat arrays in (z, y, x) C-order (ix fastest),
-        # so reshape to (nz, ny, nx) then transpose to (nx, ny, nz).
-        arr = raw; # .reshape(nc[2], nc[1], nc[0])
         padded = np.pad(arr, ((0, 1), (0, 1), (0, 1)), mode='edge')
 
-        bio.cache(f'{prefix}n_pts', n_pts,  dtype='int32')
-        bio.cache(f'{prefix}x0',    x_min,  dtype='float32')
-        bio.cache(f'{prefix}dx',    dx,     dtype='float32')
-        bio.cache(f'{prefix}data', padded.ravel().astype(np.float32),
+        bio.cache(f'{prefix}ijkl',   ijkl_flag, dtype='int32')
+        bio.cache(f'{prefix}n_pts',  n_pts,     dtype='int32')
+        bio.cache(f'{prefix}x0',     x_min,     dtype='float32')
+        bio.cache(f'{prefix}dx',     dx,        dtype='float32')
+        bio.cache(f'{prefix}data',   padded.ravel().astype(np.float32),
                   dtype='float32')
     bio.save()
     print(f'Wrote fields ({group}): {filename}')
@@ -166,44 +165,32 @@ def read_output(filename):
 
     if n_cell is not None:
         result['n_cell'] = n_cell
-        n_tot = int(np.prod(n_cell))
+        nx, ny, nz = int(n_cell[0]), int(n_cell[1]), int(n_cell[2])
 
-        def _strip_ghosts(full_arr, n_cell, n_gh, n_int):
-            """Extract effective cells from Kratos field including ghosts.
+        def _strip_ghosts_3d(full_arr, n_cell, n_gh, n_int):
+            """Extract effective cells as 3D (nz, ny, nx[, n_int]).
 
             Kratos stores fields in C++ row-major order: cells[nz][ny][nx],
-            so nx varies fastest in memory.  Reshape accordingly to match
-            hydro_data.get_field() convention.
+            so nx varies fastest in memory.
             """
-            if n_gh is None or np.all(n_gh == 0):
-                return full_arr[:n_tot * n_int]
-
             nz_w = int(n_cell[2]) + 2 * int(n_gh[2])
             ny_w = int(n_cell[1]) + 2 * int(n_gh[1])
             nx_w = int(n_cell[0]) + 2 * int(n_gh[0])
-            rsh = full_arr.reshape(nz_w, ny_w, nx_w, n_int)
             gh2, gh1, gh0 = int(n_gh[2]), int(n_gh[1]), int(n_gh[0])
-            eff = rsh[gh2:gh2+int(n_cell[2]),
-                       gh1:gh1+int(n_cell[1]),
-                       gh0:gh0+int(n_cell[0]), :]
-            return eff.reshape(-1).copy()
+            if n_int == 1:
+                rsh = full_arr.reshape(nz_w, ny_w, nx_w)
+                return rsh[gh2:gh2+nz, gh1:gh1+ny, gh0:gh0+nx].copy()
+            else:
+                rsh = full_arr.reshape(nz_w, ny_w, nx_w, n_int)
+                return rsh[gh2:gh2+nz, gh1:gh1+ny, gh0:gh0+nx, :].copy()
 
         for key in bio.hmap:
             if key.startswith('block_') and key.endswith('|rad_flx_field'):
-                full = bio.as_array(key, 'f')
-                result['flx'] = _strip_ghosts(full, n_cell, n_gh, n_int)
+                result['flx'] = _strip_ghosts_3d(bio.as_array(key, 'f'), n_cell, n_gh, n_int)
             elif key.startswith('block_') and key.endswith('|rad_excitation_flux_field'):
-                full = bio.as_array(key, 'f')
-                result['excitation_flux'] = _strip_ghosts(full, n_cell, n_gh, n_int)
+                result['excitation_flux'] = _strip_ghosts_3d(bio.as_array(key, 'f'), n_cell, n_gh, n_int)
             elif key.startswith('block_') and key.endswith('|rad_exc_rate_field'):
-                full = bio.as_array(key, 'f')
-                result['exc_rate'] = _strip_ghosts(full, n_cell, n_gh, n_int)
-            elif key.startswith('block_') and key.endswith('|rad_ray_flx_field'):
-                full = bio.as_array(key, 'f')
-                result['ray_flx'] = _strip_ghosts(full, n_cell, n_gh, n_int)
-            elif key.startswith('block_') and key.endswith('|rad_ray_exc_flux_field'):
-                full = bio.as_array(key, 'f')
-                result['ray_exc_flux'] = _strip_ghosts(full, n_cell, n_gh, n_int)
+                result['exc_rate'] = _strip_ghosts_3d(bio.as_array(key, 'f'), n_cell, n_gh, n_int)
 
     # Escaped photons
     phot = {}

@@ -224,20 +224,20 @@ class LineRt:
         mesh = self._build_mesh()
         species = self._species_obj
         n_tot = mesh['n_tot']
-        coords = self._cell_centers_cgs(mesh)
+        XYZ = self._cell_centers_cgs(mesh)
 
         if species is not None and self._n_species is not None:
-            n_species_val = self._resolve_field(self._n_species, coords)
+            n_species_val = self._resolve_field(self._n_species, XYZ)
         else:
             n_species_val = None
 
-        b_sca_val = self._resolve_b_sca(coords)
-        mfp_abs_val = self._resolve_field(self._mfp_i_abs_0, coords)
-        vel_vals = self._resolve_vel(coords)
+        b_sca_val = self._resolve_b_sca(XYZ)
+        mfp_abs_val = self._resolve_field(self._mfp_i_abs_0, XYZ)
+        vel_vals = self._resolve_vel(XYZ)
 
         fields = {
             'b_sca':       b_sca_val,
-            'temp':        self._resolve_field(self._temperature, coords),
+            'temp':        self._resolve_field(self._temperature, XYZ),
             'vel_0':       vel_vals[0],
             'vel_1':       vel_vals[1],
             'vel_2':       vel_vals[2],
@@ -252,7 +252,7 @@ class LineRt:
                 fields['mfp_i_abs_0'] = mfp_abs_0_in
             fields['mfp_i_sca_0'] = mfp_sca_0
         elif self._mfp_i_sca_0 is not None:
-            fields['mfp_i_sca_0'] = self._resolve_field(self._mfp_i_sca_0, coords)
+            fields['mfp_i_sca_0'] = self._resolve_field(self._mfp_i_sca_0, XYZ)
 
         v_factor = self._unit_t0 / self._unit_l0
         if species is None:
@@ -322,16 +322,13 @@ class LineRt:
         x_min = np.asarray(mesh['x_min'], dtype=np.float64)
         dx = np.asarray(mesh['dx'], dtype=np.float64)
         nx, ny, nz = int(n_cell[0]), int(n_cell[1]), int(n_cell[2])
-        # Cell centres in code units
-        ix = np.arange(nx)
-        iy = np.arange(ny)
-        iz = np.arange(nz)
-        cx = x_min[0] + (ix + 0.5) * dx[0] * self._unit_l0;
-        cy = x_min[1] + (iy + 0.5) * dx[1] * self._unit_l0;
-        cz = x_min[2] + (iz + 0.5) * dx[2] * self._unit_l0;
-        # indexing='ij' with (z, y, x) -> shape (nz, ny, nx)
-        Z, Y, X = np.meshgrid(cx, cy, cz, indexing='ij')
-        return [ X, Y, Z ];
+        # Cell centres in CGS [cm]
+        cx = (x_min[0] + (np.arange(nx) + 0.5) * dx[0]) * self._unit_l0
+        cy = (x_min[1] + (np.arange(ny) + 0.5) * dx[1]) * self._unit_l0
+        cz = (x_min[2] + (np.arange(nz) + 0.5) * dx[2]) * self._unit_l0
+        # (nz, ny, nx) C-order: z slowest, x fastest
+        Z, Y, X = np.meshgrid(cz, cy, cx, indexing='ij')
+        return X, Y, Z
     #
 
     def _resolve_species(self):
@@ -362,24 +359,24 @@ class LineRt:
             x_max=self._x_max,
         )
 
-    def _resolve_field(self, value, coords):
+    def _resolve_field(self, value, XYZ):
         if value is None:
-            return np.zeros( coords[ 0 ].shape, dtype=np.float64)
+            return np.zeros( XYZ[0].shape, dtype=np.float64)
         if isinstance(value, np.ndarray):
             return np.asarray(value, dtype=np.float64)
         if callable(value) and not isinstance(value, (int, float)):
-            return np.asarray(value(coords), dtype=np.float64).ravel()
-        return np.full( coords[ 0 ].shape, float(value), dtype=np.float64)
+            return np.asarray(value(*XYZ), dtype=np.float64)
+        return np.full( XYZ[0].shape, float(value), dtype=np.float64)
 
-    def _resolve_b_sca(self, coords):
+    def _resolve_b_sca(self, XYZ):
         if self._b_sca is not None:
-            return self._resolve_field(self._b_sca, coords)
+            return self._resolve_field(self._b_sca, XYZ)
         if self._species_obj is not None:
-            temp_vals = self._resolve_field(self._temperature, coords)
+            temp_vals = self._resolve_field(self._temperature, XYZ)
             b_vals = np.sqrt(2.0 * 1.380649e-16 * np.maximum(temp_vals, 0.1)
                              / (self._mol_mass * 1.67262192e-24))
             return b_vals
-        return np.full(coords[ 0 ].shape, 1e5, dtype=np.float64)
+        return np.full(XYZ[0].shape, 1e5, dtype=np.float64)
 
     def _resolve_a_voigt(self, b_sca_val):
         """Resolve Voigt damping parameter a = A_ul * lambda / (4 * pi * b)."""
@@ -396,26 +393,25 @@ class LineRt:
                     return A_ul * wavelength_cm / (4.0 * np.pi * b_mean)
         return 0.0
 
-    def _resolve_vel(self, coords):
-        n_tot = coords[ 0 ].shape
+    def _resolve_vel(self, XYZ):
+        shape = XYZ[0].shape
         if self._vel is None:
-            return (np.zeros(n_tot, dtype=np.float64),
-                    np.zeros(n_tot, dtype=np.float64),
-                    np.zeros(n_tot, dtype=np.float64))
+            return (np.zeros(shape, dtype=np.float64),
+                    np.zeros(shape, dtype=np.float64),
+                    np.zeros(shape, dtype=np.float64))
         out = []
         for i, v in enumerate(self._vel):
             if callable(v) and not isinstance(v, (int, float, np.ndarray)):
-                out.append(np.asarray(v(coords), dtype=np.float64).ravel())
+                out.append(np.asarray(v(*XYZ), dtype=np.float64))
             else:
-                out.append(np.full(n_tot, float(v), dtype=np.float64))
+                out.append(np.full(shape, float(v), dtype=np.float64))
         return tuple(out)
 
     def _resolve_mfp_species(self, species, n_tot, b_sca_val, n_species_val):
-        pops = species.initial_populations(n_tot,
-                                           n_species=n_species_val)
+        pops = species.initial_populations(n_species_val)
         mfp_sca = species.compute_opacity(pops, b_sca=b_sca_val,
                                            transition_idx=self._transition_idx)
-        mfp_sca_0 = np.asarray(mfp_sca, dtype=np.float64).ravel()
+        mfp_sca_0 = np.asarray(mfp_sca, dtype=np.float64)
         return mfp_sca_0, None
 
     def _resolve_path(self):

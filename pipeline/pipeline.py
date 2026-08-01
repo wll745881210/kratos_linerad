@@ -41,7 +41,7 @@ class PopulationModel:
       - generate_photons(populations, mesh, cycle) -> ndarray
     """
 
-    def initial_populations(self, n_tot):
+    def initial_populations(self, n_species):
         raise NotImplementedError
 
     def make_fields(self, populations, step, cycle):
@@ -219,7 +219,7 @@ def run_pipeline(model, mesh, work_dir=None, n_cycles=3,
         if 'excitation_flux' in output:
             area_factor = unit_l0 * unit_l0 * unit_t0
             inv_scale = 1.0 / scale
-            exc = np.asarray(output['excitation_flux'], dtype=np.float64).ravel()
+            exc = np.asarray(output['excitation_flux'], dtype=np.float64)
             exc = np.nan_to_num(exc, nan=0.0, posinf=0.0, neginf=0.0)
             exc = exc * inv_scale / area_factor
             output['exc_flux_flat'] = exc
@@ -229,7 +229,7 @@ def run_pipeline(model, mesh, work_dir=None, n_cycles=3,
         if 'flx' in output:
             area_factor = unit_l0 * unit_l0 * unit_t0
             inv_scale = 1.0 / scale
-            flx = np.asarray(output['flx'], dtype=np.float64).ravel()
+            flx = np.asarray(output['flx'], dtype=np.float64)
             flx = np.nan_to_num(flx, nan=0.0, posinf=0.0, neginf=0.0)
             flx = flx * inv_scale / area_factor
             output['flx_flat'] = flx

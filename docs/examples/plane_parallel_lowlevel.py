@@ -53,13 +53,14 @@ temperature = 2
 x_cross_cm  = [ ( x_max[ a ] - x_min[ a ] ) * l0 for a in range( 3 ) ];
 
 # ── 3. Fields (line-independent only; line-dependent computed by species) ──
+shape3d = (n_cell[2], n_cell[1], n_cell[0])  # (nz, ny, nx)
 fields = {
-    "b_sca":       uniform_field(b_sca, n_tot),
-    "temp":        uniform_field(temperature, n_tot),
-    "vel_0":       np.zeros(n_tot, dtype=np.float64),
-    "vel_1":       np.zeros(n_tot, dtype=np.float64),
-    "vel_2":       np.zeros(n_tot, dtype=np.float64),
-    "mfp_i_abs_0": np.zeros(n_tot, dtype=np.float64),  # no dust absorption
+    "b_sca":       np.full(shape3d, b_sca, dtype=np.float64),
+    "temp":        np.full(shape3d, temperature, dtype=np.float64),
+    "vel_0":       np.zeros(shape3d, dtype=np.float64),
+    "vel_1":       np.zeros(shape3d, dtype=np.float64),
+    "vel_2":       np.zeros(shape3d, dtype=np.float64),
+    "mfp_i_abs_0": np.zeros(shape3d, dtype=np.float64),  # no dust absorption
 }
 
 # ── 4. Photons (9-column: x,y,z, dx,dy,dz, proper, vel, sv) ────────
