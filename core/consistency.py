@@ -203,10 +203,24 @@ def check_consistency( *, species = None, transition_idx = 0, \
             wl = src.get( 'wavelength', None );
             if units == 'energy' and wl is not None:
                 v_str += " (λ=%s cm)" % wl;
-            print( "    [%d] %s, %s photons, %s" % ( i, t, n_ph, v_str ) );
+            vel_str = "vel_offset=%.3e cm/s" % \
+                      src.get( 'vel_offset', 0.0 );
+            vr = src.get( 'vel_range', None );
+            if vr is not None:
+                pdf = src.get( 'vel_pdf', 'uniform' );
+                vs = src.get( 'vel_sigma', None );
+                vel_str += ", vel_range=(%.3e, %.3e) cm/s, vel_pdf=%s%s" \
+                           % ( vr[ 0 ], vr[ 1 ], pdf, \
+                               ( ", vel_sigma=%.3e" % vs ) \
+                               if pdf == 'gaussian' else "" );
+            print( "    [%d] %s, %s photons, %s, %s" % \
+                   ( i, t, n_ph, v_str, vel_str ) );
     else:
-        print( "  sources  : (none)" );
-        problems.append( "No sources added. Use add_source() before run()." );
+        print( "  sources  : (none) — internal emission only" );
+        if species is None:
+            problems.append( "No sources and no species: nothing can emit. "
+                             "Either add_source() or provide "
+                             "transition_info (internal emission)." );
 
     ############################################################
     # Report

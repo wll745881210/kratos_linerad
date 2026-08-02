@@ -97,6 +97,30 @@ rt.plot_input()                     # verify input fields before running
 results = rt.run()
 ```
 
+**Continuum-style sources** — randomize each packet's initial velocity
+shift (injected at a random frequency offset, emulating a broad
+continuum) with `vel_range`:
+
+```python
+# uniform over [-1e5, +1e5] cm/s, added on top of vel_offset
+rt.add_source( type = 'slab', flux = 1e-3,
+               vel_offset = 0.0, vel_range = ( -1e5, 1e5 ) )
+
+# Gaussian (truncated to the interval), width vel_sigma
+rt.add_source( type = 'point', luminosity = 1e30,
+               vel_range = ( -3e5, 3e5 ),
+               vel_pdf = 'gaussian', vel_sigma = 1e5 )
+
+# arbitrary (possibly unnormalized) PDF: integrated to a normalized CDF,
+# sampled by inverse transform
+rt.add_source( type = 'slab', flux = 1e-3,
+               vel_range = ( -2e5, 2e5 ),
+               vel_pdf = lambda v: np.exp( -( v / 1e5 ) ** 2 ) )
+```
+
+`vel_range = None` (default) keeps the current behaviour: every photon
+gets exactly `vel_offset`.
+
 **Group 1 - species-based** (LAMDA data + density + temperature):
 
 ```python
@@ -143,6 +167,14 @@ for erg-based quantities (the wavelength is taken from
 only valid for `type='slab'`, `luminosity` only for `type='point'` —
 passing the wrong pair raises `ValueError`.  `rt.show_sources()`
 prints a summary of all registered sources.
+
+**Emission-only runs** — a species (Group 1) works without any
+`add_source()`: cycle 0 is seeded with internal emission photons
+generated from the initial LTE populations, and later cycles regenerate
+emission from the updated populations.  Initial populations are ALWAYS
+thermalised to LTE at the gas temperature (`SpeciesData.initial_populations(n_species, T=...)`),
+even when external sources are present, so cycle-0 opacity and
+emissivity are physically consistent.
 
 `rt.plot_input()` (interface mirrors `default_plot`) plots slices of
 the configured input fields — `n_species`, `temperature` (Group 1),
@@ -216,6 +248,11 @@ Example scripts use `matplotlib`.  For headless execution, add
 ## References
 
 - Schöier et al. (2005, A&A 432, 369) - LAMDA database
+- Li et al. (2015, ApJS 216, 15) - ExoMol `Li2015` hot line list for CO
+  (ro-vibrational X¹Σ⁺ lines with per-line Einstein A). Download:
+  `https://exomol.com/db/CO/12C-16O/Li2015/`
+  (`12C-16O__Li2015.trans.bz2` = `i f A[s⁻¹] ν[cm⁻¹]`;
+  `12C-16O__Li2015.states.bz2` = `idx E[cm⁻¹] g J v e`).
 - Neufeld (1990, ApJ 350, 216) - analytic CFR solution used for
   validation
 - Lucy (1999) - Monte Carlo radiative transfer methods

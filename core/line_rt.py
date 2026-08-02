@@ -15,8 +15,9 @@ Usage:
 
 import os
 from numpy import asarray, zeros, full, arange, meshgrid, sqrt, maximum, \
-                  mean, abs, arccos, sin, cos, pi, vstack, array, \
-                  ones_like, random, ndarray, float64;
+                  mean, abs, arccos, sin, cos, pi, exp, vstack, array, \
+                  ones_like, random, ndarray, float64, linspace, \
+                  concatenate, cumsum, interp;
 
 from .source import make_cartesian_mesh
 from .consistency import check_consistency
@@ -89,9 +90,25 @@ class LineRt:
         If True, automatically plot results after run().
     n_emission_max : int
         Max internal emission photons per cell per cycle.
+    colliders : dict or None
+        Collider densities for collisional excitation, keyed by partner
+        name (e.g. ``{'H2': {'density': 1e4}}``). Each density may be a
+        float or a callable receiving ``(n_tot, 3)`` CGS coords. Used to
+        thermalise the initial (LTE) populations and in the per-cycle
+        statistical-equilibrium update. Requires a species with
+        collision-partner data.
     snapshot : callable or None
         Called after each cycle: fn(results=output, cycle=cycle,
                                     populations=pops).
+    proper_scale : float
+        Rescaling factor applied to every photon's ``proper`` weight
+        before writing the photon binary (default 1.0 = no rescale).
+        Kratos MCRT is linear in photon weights, so a constant factor
+        scales all output fields (flx, excitation_flux) by the same
+        amount.  Use a small value (< 1) when the physical flux is so
+        large that the FP32 output fields would overflow (>= 3.4e38),
+        e.g. proper_scale=1e-30 for YSO-scale fluxes.  The read-back
+        flux is automatically divided by this factor.
     kratos_root : str or None
         Path to the Kratos build tree root (containing ``bin/kratos``).
         If None, falls back to the ``KRATOS_ROOT`` env var.  One of the
@@ -108,7 +125,8 @@ class LineRt:
                   a_voigt = None, ph_mode = 0, n_step = 10000, \
                   n_scat = 10000, n_fld = 1, n_cycles = 1, \
                   path = None, visualize = True, n_emission_max = 10, \
-                  snapshot = None, kratos_root = None ):
+                  colliders = None, snapshot = None, \
+                  proper_scale = 1.0, kratos_root = None ):
         self._n_cell         = tuple( n_cell );
         self._x_min          = tuple( x_min );
         self._x_max          = tuple( x_max );
@@ -124,6 +142,7 @@ class LineRt:
         self._mfp_i_abs_0    = mfp_i_abs_0;
         self._vel            = vel;
         self._mol_mass       = None;
+        self._colliders      = colliders;
         self._a_voigt        = a_voigt;
         self._ph_mode        = ph_mode;
         self._n_step         = n_step;
@@ -134,6 +153,7 @@ class LineRt:
         self._visualize      = visualize;
         self._n_emission_max = n_emission_max;
         self._snapshot       = snapshot;
+        self._proper_scale   = proper_scale;
         self._kratos_root    = kratos_root;
         self._sources        = [ ];
         self._boundary_kinds = 'fre fre fre fre fre fre';
@@ -173,7 +193,9 @@ class LineRt:
                     units = None, x = None, \
                     direction = '+x', y_range = None, \
                     z_range = None, position = None, \
-                    vel_offset = 0.0, sigma = 0.0 ):
+                    vel_offset = 0.0, sigma = 0.0, \
+                    vel_range = None, vel_pdf = 'uniform', \
+                    vel_sigma = None ):
         """Add an external photon source.
 
         Parameters
@@ -213,6 +235,22 @@ class LineRt:
         sigma : float
             Initial photon intrinsic Doppler width [cm/s] (sv).
             0 → monochromatic at line centre.
+        vel_range : tuple or None
+            (v_lo, v_hi) [cm/s] — per-photon initial velocity shifts
+            drawn from ``vel_pdf`` over this interval and ADDED to
+            ``vel_offset``. None (default) → no randomization, all
+            photons get exactly ``vel_offset``.
+        vel_pdf : str or callable
+            Distribution of the per-photon velocity shift:
+              "uniform" (default) — uniform over [v_lo, v_hi].
+              "gaussian" — Gaussian centred on the interval midpoint
+                  (v_lo+v_hi)/2, width ``vel_sigma``, truncated to
+                  [v_lo, v_hi].
+              callable f(v) — arbitrary (possibly unnormalized)
+                  probability density; integrated numerically to a CDF,
+                  normalized, and sampled by inverse transform.
+        vel_sigma : float or None
+            Gaussian width [cm/s]; required when ``vel_pdf='gaussian'``.
 
         Raises
         ------
@@ -257,6 +295,23 @@ class LineRt:
             wavelength = c_cgs / \
                          ( self._transition_info.transition.freq_GHz * 1e9 );
 
+        if vel_range is not None:
+            v_lo, v_hi = float( vel_range[ 0 ] ), float( vel_range[ 1 ] );
+            if v_hi < v_lo:
+                raise ValueError( \
+                    "vel_range must satisfy v_lo <= v_hi, "
+                    "got (%s, %s)" % ( v_lo, v_hi ) );
+            if not ( vel_pdf == 'uniform' or vel_pdf == 'gaussian' \
+                     or callable( vel_pdf ) ):
+                raise ValueError( \
+                    "vel_pdf must be 'uniform', 'gaussian', or a "
+                    "callable, got %r" % ( vel_pdf, ) );
+            if vel_pdf == 'gaussian':
+                if vel_sigma is None or float( vel_sigma ) <= 0:
+                    raise ValueError( \
+                        "vel_pdf='gaussian' requires vel_sigma > 0 "
+                        "[cm/s]" );
+
         src = { 'type'      : type, \
                 'n_photon'  : n_photon, \
                 'luminosity': luminosity, \
@@ -269,7 +324,10 @@ class LineRt:
                 'z_range'   : z_range, \
                 'position'  : position, \
                 'vel_offset': vel_offset, \
-                'sigma'     : sigma, };
+                'sigma'     : sigma, \
+                'vel_range' : vel_range, \
+                'vel_pdf'   : vel_pdf, \
+                'vel_sigma' : vel_sigma, };
         self._sources.append( src );
         return self;
 
@@ -313,9 +371,18 @@ class LineRt:
                 wl_str = "";
             print( "  [%d] %s, %s packets, %s%s" % \
                    ( i, s_type, n_ph, qty, wl_str ) );
-            print( "      %s, vel_offset=%.3e cm/s, sigma=%.3e cm/s" % \
-                   ( geo, src.get( 'vel_offset', 0.0 ), \
-                     src.get( 'sigma', 0.0 ) ) );
+            vel_info = "vel_offset=%.3e cm/s, sigma=%.3e cm/s" % \
+                       ( src.get( 'vel_offset', 0.0 ), \
+                         src.get( 'sigma', 0.0 ) );
+            vr = src.get( 'vel_range', None );
+            if vr is not None:
+                pdf = src.get( 'vel_pdf', 'uniform' );
+                vs = src.get( 'vel_sigma', None );
+                vel_info += ", vel_range=(%.3e, %.3e) cm/s, vel_pdf=%s%s" % \
+                            ( vr[ 0 ], vr[ 1 ], pdf, \
+                              ( ", vel_sigma=%.3e" % vs ) \
+                              if pdf == 'gaussian' else "" );
+            print( "      %s, %s" % ( geo, vel_info ) );
         return self;
 
     def plot_input( self, fields = None, slice_plane = 'z', \
@@ -531,6 +598,15 @@ class LineRt:
 
         photons = self._generate_photons( n_tot, mesh, b_sca_val );
 
+        # Resolve collider densities (float or callable) to per-cell
+        # arrays before handing them to the iterator.
+        colliders_val = None;
+        if self._colliders:
+            colliders_val = { };
+            for pname, pcfg in self._colliders.items( ):
+                colliders_val[ pname ] = { 'density' : \
+                    self._resolve_field( pcfg[ 'density' ], XYZ ) };
+
         work_dir = self._resolve_path( );
 
         from .iterator import iterate
@@ -547,6 +623,8 @@ class LineRt:
             mol_mass = self._mol_mass or 28.0, \
             unit_l0 = self._unit_l0, unit_t0 = self._unit_t0, \
             n_emission_max = self._n_emission_max, \
+            colliders = colliders_val, \
+            proper_scale = self._proper_scale, \
             callback = self._snapshot, par_overrides = par_overrides, \
             kratos_root = self._kratos_root );
 
@@ -697,6 +775,45 @@ class LineRt:
         print( '[LineRt] Run directory: %s' % run_dir );
         return run_dir;
 
+    def _sample_vel( self, n, v_lo, v_hi, pdf, sigma = None ):
+        """Draw n velocity shifts in [v_lo, v_hi] from a distribution.
+
+        pdf may be 'uniform', 'gaussian' (centred on the interval
+        midpoint, width ``sigma``), or a callable probability density
+        (which need not be normalized). Callables are sampled by
+        numerical inverse transform: integrate on a fine grid to a CDF,
+        normalize, then invert with linear interpolation.
+        """
+        if pdf == 'uniform':
+            return random.uniform( v_lo, v_hi, int( n ) );
+        if pdf == 'gaussian':
+            if sigma is None or float( sigma ) <= 0.0:
+                raise ValueError( \
+                    "vel_pdf='gaussian' requires vel_sigma > 0 [cm/s]" );
+            mu = 0.5 * ( v_lo + v_hi );
+            s = float( sigma );
+            # Inverse-transform a truncated Gaussian via its CDF.
+            from scipy.stats import norm
+            cdf = lambda x: norm.cdf( ( x - mu ) / s );
+            p_lo = cdf( v_lo );
+            p_hi = cdf( v_hi );
+            u = p_lo + ( p_hi - p_lo ) * random.random( int( n ) );
+            return ( norm.ppf( u ) * s + mu );
+        # callable PDF: numerical inverse transform
+        grid = linspace( v_lo, v_hi, 4097 );
+        dens = asarray( [ float( pdf( x ) ) for x in grid ], \
+                        dtype = float64 );
+        dens = maximum( dens, 0.0 );
+        cdf = concatenate( [ [ 0.0 ], \
+                             cumsum( 0.5 * ( dens[ 1 : ] + dens[ : -1 ] ) * \
+                                     ( grid[ 1 : ] - grid[ : -1 ] ) ) ] );
+        if cdf[ -1 ] <= 0.0:
+            raise ValueError( "vel_pdf callable integrates to zero "
+                              "over vel_range" );
+        cdf = cdf / cdf[ -1 ];
+        u = random.random( int( n ) );
+        return interp( u, cdf, grid );
+
     def _generate_photons( self, n_tot, mesh, b_sca_val ):
         parts = [ ];
         for src in self._sources:
@@ -714,8 +831,18 @@ class LineRt:
         units = src.get( 'units', 'photon' );
         vel_offset = float( src.get( 'vel_offset', 0.0 ) );
         sigma = float( src.get( 'sigma', 0.0 ) );
+        vel_range = src.get( 'vel_range', None );
+        vel_pdf = src.get( 'vel_pdf', 'uniform' );
+        vel_sigma = src.get( 'vel_sigma', None );
 
         n_col = 9 if sigma != 0.0 else 8;
+
+        if vel_range is not None:
+            vel_draw = self._sample_vel( \
+                n_ph, float( vel_range[ 0 ] ), float( vel_range[ 1 ] ), \
+                vel_pdf, vel_sigma );
+        else:
+            vel_draw = None;
 
         if units == 'energy':
             E_ph = h_cgs * c_cgs / float( wavelength );
@@ -752,7 +879,8 @@ class LineRt:
 
             ph = zeros( ( n_ph, n_col ), dtype = float64 );
             ph[ :, 6 ] = proper;
-            ph[ :, 7 ] = vel_offset;
+            ph[ :, 7 ] = vel_offset + ( vel_draw if vel_draw is not None \
+                                        else 0.0 );
             if n_col >= 9:
                 ph[ :, 8 ] = sigma;
             ph[ :, 0 ] = x_pos;
@@ -769,7 +897,8 @@ class LineRt:
 
             ph = zeros( ( n_ph, n_col ), dtype = float64 );
             ph[ :, 6 ] = proper;
-            ph[ :, 7 ] = vel_offset;
+            ph[ :, 7 ] = vel_offset + ( vel_draw if vel_draw is not None \
+                                        else 0.0 );
             if n_col >= 9:
                 ph[ :, 8 ] = sigma;
 

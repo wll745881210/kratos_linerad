@@ -99,7 +99,7 @@ got %r" % ( group ) );
     return;
 
 
-def write_photon_data( filename, photons, n_col = None ):
+def write_photon_data( filename, photons, n_col = None, proper_scale = 1.0 ):
     """
     Write Kratos photon binary.
 
@@ -110,16 +110,35 @@ def write_photon_data( filename, photons, n_col = None ):
         Columns: x, y, z, dir_x, dir_y, dir_z, proper, [vel], [sv]
     n_col : int, optional
         Default: photons.shape[1]. Must be 7, 8, or 9.
+    proper_scale : float, optional
+        Extra rescaling factor applied to the ``proper`` weights
+        (column 6) before writing.  Since Kratos MCRT is linear in
+        the photon weights, a constant factor scales all outputs
+        (flx, excitation_flux) by the same amount.  Use a small
+        value (< 1) when the physical flux is so large that the
+        FP32 output fields would overflow (>= 3.4e38).  The caller
+        must divide the read-back flux by the returned scale.
+
+    Returns
+    -------
+    float
+        Total scale applied to ``proper`` (user ``proper_scale``
+        combined with any internal FP32 safety rescale).
     """
-    ph = asarray( photons, dtype = float64 );
-    proper_max = abs( ph[ :, 6 ].max( ) ) \
-        if ph.shape[ 1 ] >= 7 else 0.0;
-    scale = 1.0;
-    if  proper_max > 1e38:
-        scale = 1.0 / proper_max;
+    if proper_scale <= 0.0:
+        raise ValueError( 'proper_scale must be > 0, got %.3g'
+                          % ( proper_scale ) );
+    ph = array( photons, dtype = float64 );
+    scale = float( proper_scale );
+    if  ph.shape[ 1 ] >= 7:
         ph[ :, 6 ] *= scale;
-        print( "Warning: proper weight scaled by %.2e to fit \
-float32" % ( scale ) );
+        proper_max = abs( ph[ :, 6 ].max( ) );
+        if  proper_max > 1e38:
+            s2 = 1.0 / proper_max;
+            ph[ :, 6 ] *= s2;
+            scale *= s2;
+            print( "Warning: proper weight scaled by %.2e to fit \
+float32 (after user proper_scale %.2e)" % ( s2, proper_scale ) );
     #
     ph = ph.astype( float32 );
     if  n_col is None:

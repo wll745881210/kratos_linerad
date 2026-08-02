@@ -19,6 +19,7 @@ def iterate( source_photons, species, fields_init, mesh, \
              n_scat = 10000, ph_mode = 1, par_overrides = None, \
              mol_mass = 28.0, work_dir = None, callback = None, \
              n_species = None, transition_idx = 0, n_emission_max = 10, \
+             colliders = None, proper_scale = 1.0, \
              unit_l0 = 1.49598e13, unit_t0 = 1.0, kratos_root = None ):
     if work_dir is None:
         work_dir = os.path.join( DEFAULT_RUN_ROOT, 'iterate_output' );
@@ -62,13 +63,24 @@ def iterate( source_photons, species, fields_init, mesh, \
                  int( mesh[ 'n_cell' ][ 1 ] ), int( mesh[ 'n_cell' ][ 2 ] );
     shape3d = ( nz, ny, nx );
 
+    fields = dict( fields_init );
+    base_fields_cgs = { k: asarray( v, dtype = float64 ).copy( ) \
+                        for k, v in fields.items( ) };
+
+    # Initial populations are ALWAYS thermalised to LTE at the gas
+    # temperature (with colliders when available) — even when external
+    # sources are present — so that cycle-0 opacity and emissivity are
+    # physically consistent.  Without a temperature, they fall back to
+    # all-in-ground-state.
     if species is not None and hasattr( species, 'initial_populations' ):
         if n_species is None:
             n_species_arr = ones( shape3d, dtype = float64 );
         else:
             n_species_arr = broadcast_to( \
                 asarray( n_species, dtype = float64 ), shape3d ).copy( );
-        populations = species.initial_populations( n_species_arr );
+        populations = species.initial_populations( n_species_arr, \
+                          T = base_fields_cgs.get( 'temp', None ), \
+                          colliders = colliders );
     else:
         populations = { 'n0'      : ones( shape3d, dtype = float32 ), \
                         'n_total' : ones( shape3d, dtype = float32 ) };
@@ -79,9 +91,23 @@ def iterate( source_photons, species, fields_init, mesh, \
     ext_source = asarray( source_photons, dtype = float64 ).copy( );
     emission_ph = None;
 
-    fields = dict( fields_init );
-    base_fields_cgs = { k: asarray( v, dtype = float64 ).copy( ) \
-                        for k, v in fields.items( ) };
+    # Emission-only mode: if there are no external photons, seed cycle 0
+    # with internal emission generated from the (LTE) populations so
+    # Kratos still has photons to propagate.  The per-cycle block below
+    # regenerates emission from the updated populations for cycles 1+.
+    if ext_source.shape[ 0 ] == 0 and species is not None and \
+       hasattr( species, 'generate_emission_photons' ):
+        temp_field_0 = base_fields_cgs.get( 'temp', \
+                         zeros( mesh[ 'n_tot' ], dtype = float64 ) );
+        emission_ph = species.generate_emission_photons( \
+            populations, transition_idx, temp_field_0, mesh, \
+            n_per_cell_max = n_emission_max );
+        if len( emission_ph ) == 0:
+            emission_ph = None;
+        else:
+            print( "[iterate] No external sources: seeding cycle 0 from "
+                   "internal emission (%d photons)" % \
+                   len( emission_ph ) );
 
     if species is not None and hasattr( species, 'make_fields' ):
         fields = species.make_fields( populations, 'pre', -1, \
@@ -115,7 +141,19 @@ def iterate( source_photons, species, fields_init, mesh, \
                           unit_l0 = unit_l0, group = 'line' );
 
         photon_file = os.path.join( work_dir, 'photons_cycle%d.bin' % cycle );
-        if emission_ph is None:
+        n_ext = ext_source.shape[ 0 ];
+        if n_ext == 0:
+            # Emission-only mode: use internal emission photons directly
+            # (no external sources).  vstack([ (0,10), (n,9) ]) would
+            # fail on column count, so branch here.
+            if emission_ph is not None:
+                ph_arr = emission_ph;
+            else:
+                raise ValueError( "No photons to propagate: no external "
+                                  "sources and no internal emission. "
+                                  "Add a source or ensure non-zero "
+                                  "emissivity." );
+        elif emission_ph is None:
             ph_arr = ext_source;
         else:
             ph_arr = vstack( [ ext_source, emission_ph ] );
@@ -125,7 +163,13 @@ def iterate( source_photons, species, fields_init, mesh, \
             ph_arr[ :, 7 ] *= v_factor;
             if ph_arr.shape[ 1 ] >= 9:
                 ph_arr[ :, 8 ] *= v_factor;
-        scale_factor = write_photon_data( photon_file, ph_arr );
+        scale_factor = write_photon_data( photon_file, ph_arr, \
+                                          proper_scale = proper_scale );
+        if proper_scale != 1.0:
+            print( "[iterate] proper_scale = %.3e, max proper after \
+scale = %.3e" % ( proper_scale, \
+                  abs( ph_arr[ :, 6 ].max( ) ) \
+                  if ph_arr.shape[ 1 ] >= 7 else 0.0 ) );
 
         prefix = 'cycle%d' % cycle;
         output, log_text, elapsed = run_kratos_cycle( \
@@ -187,7 +231,8 @@ def iterate( source_photons, species, fields_init, mesh, \
             populations = species.update_populations( \
                 exc_flux, flx, populations, cycle, \
                 transition_idx = transition_idx, \
-                T = T_field, b_sca = b_sca_scalar );
+                T = T_field, b_sca = b_sca_scalar, \
+                colliders = colliders );
             output[ 'populations' ] = { k: asarray( v, \
                                                    dtype = float64 ).copy( ) \
                                         for k, v in populations.items( ) };

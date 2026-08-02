@@ -200,8 +200,9 @@ def run_kratos_cycle( work_dir, cycle, field_file, photon_file, \
 def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
                   n_photon = 10000, n_step = 1000, n_scat = 100, \
                   n_fld = 2, ph_mode = 0, par_overrides = None, \
-                  keep_intermediate = True, \
-                  unit_l0 = 1.0, unit_t0 = 1.0, kratos_root = None ):
+                   keep_intermediate = True, \
+                   proper_scale = 1.0, \
+                   unit_l0 = 1.0, unit_t0 = 1.0, kratos_root = None ):
     """
     Run the full population-updating pipeline.
 
@@ -292,7 +293,8 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
         photons = model.generate_photons( populations, mesh, cycle );
         photon_file = os.path.join( work_dir, \
                                     'photons_cycle%d.bin' % cycle );
-        scale = write_photon_data( photon_file, photons );
+        scale = write_photon_data( photon_file, photons, \
+                                   proper_scale = proper_scale );
 
         # Run Kratos
         prefix = 'cycle%d' % cycle;

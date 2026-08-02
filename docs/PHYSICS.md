@@ -338,7 +338,7 @@ Linear system for N levels:
 │  Cycle 1+:                                                    │
 │    Read F_ext from Kratos output (code units)                 │
 │    Undo proper scaling: F_ext_cgs = F_ext_code               │
-│         × proper_max / (unit_l0² × unit_t0)                   │
+│         × scale_factor / (unit_l0² × unit_t0)                 │
 │    Compute Γ = F_ext_cgs × σ₀ (CGS, [t]⁻¹)                   │
 │    Solve populations per transition-pair (not per-level)      │
 │    Filter NaN → 0 in boundary cells                           │
@@ -382,9 +382,9 @@ Optional additional fields (for diagnostics):
 
 | Conversion | Code → CGS factor |
 |-----------|-------------------|
-| `flx`, `excitation_flux` | × `proper_max` ÷ (`unit_l0²` × `unit_t0`) |
+| `flx`, `excitation_flux` | × `scale_factor` ÷ (`unit_l0²` × `unit_t0`) |
 
-where `proper_max` is the scaling factor returned by `write_photon_data()`.
+where `scale_factor` is the scaling factor returned by `write_photon_data()` (user `proper_scale`, possibly combined with the automatic FP32 fallback).
 
 | Field Name | Symbol | Code-unit Dimension | Content |
 |-----------|--------|---------------------|---------|
@@ -452,13 +452,18 @@ Defined in the `[unit]` section of the Kratos parameter file. The Python pipelin
 
 ### 11.2 Photon Proper-Weight Scaling for FP32
 
-Photon `proper` values can be very large (e.g., ~10⁴⁴ for astronomical luminosities). When `proper_max > 1e38`, the Python writer (`write_photon_data()`) scales all photon proper weights by `1/proper_max` to fit in FP32, and **returns the scale factor**.
+Photon `proper` values can be very large (e.g., ~10⁴⁴ for astronomical luminosities). The Python writer (`write_photon_data()`) applies two rescale stages and **returns the combined scale factor**:
+
+1. **User rescale** — every photon weight is multiplied by `proper_scale` (default 1.0 = no-op). Passed as `proper_scale=` to `iterate()`/`run_pipeline()`, `LineRt(proper_scale=...)`, or `--proper-scale` on the CLI. Because Kratos MCRT is linear in photon weights, a constant rescale leaves all fields unchanged after the read-back division — use `proper_scale < 1` when the physical flux would overflow the FP32 output fields (≥ 3.4e38) even though no single photon does.
+2. **FP32 fallback** — if the scaled `proper_max` still exceeds `1e38`, all weights are further scaled by `1/proper_max`.
+
+`write_photon_data()` copies its input (never mutates the caller's array).
 
 On readback, the pipeline MUST undo this scaling on Kratos outputs that carry the proper weight:
 
 ```
-flx_cgs    = flx_code    × proper_max / (unit_l0² × unit_t0)
-F_ext_cgs  = F_ext_code  × proper_max / (unit_l0² × unit_t0)
+flx_cgs    = flx_code    × scale_factor / (unit_l0² × unit_t0)
+F_ext_cgs  = F_ext_code  × scale_factor / (unit_l0² × unit_t0)
 ```
 
 Both `iterate()` (low-level) and `run_pipeline()` (high-level) handle this automatically. The `results` dict returned to the user always contains CGS-scaled flux quantities.
@@ -479,7 +484,7 @@ Python-side cell volumes used for internal source luminosity must match Kratos c
 6. **Wrong excitation rate formula**: Γ = F_ext × σ₀ (NOT F_ext / n_l or F_ext / n_total)
 7. **Missing fields**: b_sca and velocity vectors must be provided to Kratos via the field binary file; mfp_i_abs_0 is user-provided, not auto-derived from cross_section
 8. **Applying F_ext to all levels**: excitation flux maps to ONE transition — only update the (lower↔upper) pair's population, not all levels
-9. **Forgetting to undo FP32 proper scaling**: Kratos fluxes inherit the proper weight scaling factor; reader MUST multiply flx and excitation_flux by `proper_max` after readback (handled by `iterate()` and `run_pipeline()`)
+9. **Forgetting to undo FP32 proper scaling**: Kratos fluxes inherit the proper weight scaling factor; reader MUST multiply flx and excitation_flux by the `scale_factor` returned by `write_photon_data()` after readback (handled by `iterate()` and `run_pipeline()`)
 10. **Photon velocity code→CGS conversion**: escaped photon velocities are in code units and must be converted to CGS (× `unit_l0/unit_t0`) for plots and diagnostics
 11. **Boundary kinds with 3 faces**: Kratos expects 6 boundary kinds (−x,+x,−y,+y,−z,+z). Specifying only 3 leaves the remaining faces undefined, defaulting to periodic and causing photon wrap-around artifacts
 12. **Periodic boundary corner bug**: the framework's `geo_loc_t::fix` can produce zero-width cells when photons cross periodic boundaries in two dimensions simultaneously; fixed by adding a convergence loop and cell-index updates in `particle_base.h`

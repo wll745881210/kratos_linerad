@@ -134,8 +134,15 @@ def main( ):
     rt.add_argument( '--n-cycles', type = int, default = 3, \
                      help = 'MC->population->MC cycles (default: 3)' );
     rt.add_argument( '--n-emission-max', type = int, default = 10, \
-                     help = 'Max internal emission photons per cell ' \
-                            'per cycle' );
+                      help = 'Max internal emission photons per cell ' \
+                             'per cycle' );
+    rt.add_argument( '--proper-scale', type = float, default = 1.0, \
+                     help = 'Rescale every photon proper weight by this ' \
+                            'factor before writing (default: 1.0 = no ' \
+                            'rescale). Use < 1 for very high-flux runs ' \
+                            'whose FP32 flux maps would overflow ' \
+                            '(>= 3.4e38); the read-back flux is divided ' \
+                            'back automatically.' );
 
     ############################################################
     # Output
@@ -192,6 +199,7 @@ def main( ):
         path            = args.work_dir,
         visualize       = not args.no_plot,
         n_emission_max  = args.n_emission_max,
+        proper_scale    = args.proper_scale,
         kratos_root     = args.kratos_root,
     );
     rt_obj.set_boundary( args.boundary );

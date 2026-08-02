@@ -160,9 +160,31 @@ class SpeciesData:
         sigma *= ( g_u / g_l ) * A_ul;
         return sigma;
 
-    def initial_populations( self, n_species ):
+    def initial_populations( self, n_species, T = None, \
+                             colliders = None ):
+        """Build the cycle-0 level populations.
+
+        By default (no temperature) everything sits in the ground state,
+        which gives zero emissivity.  When a temperature is provided,
+        the populations are thermalised to LTE via ``solve_populations``
+        at zero external flux (with colliders when given), so that
+        cycle-0 opacity and emissivity are physically consistent even
+        without external sources.
+        """
         n_species = asarray( n_species, dtype = float64 );
         shape = n_species.shape;
+        if T is not None:
+            from .equilibrium import solve_populations
+            exc0 = zeros( shape, dtype = float64 );
+            result = solve_populations( self, exc0, n_species, \
+                                        T = T, colliders = colliders, \
+                                        transition_idx = 0 );
+            pops = { };
+            for i in range( self.n_levels ):
+                pops[ 'n%d' % i ] = asarray( result[ i ], \
+                                             dtype = float64 ).copy( );
+            pops[ 'n_total' ] = n_species.copy( );
+            return pops;
         pops = { };
         for i in range( self.n_levels ):
             pops[ 'n%d' % i ] = ( n_species.copy( ) if i == 0 \
