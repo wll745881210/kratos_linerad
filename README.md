@@ -14,43 +14,37 @@ cd /path/to/line_rt_pipeline
 pip install -e . --break-system-packages   # editable; live edits
 ```
 
-This registers the `line-rt` console script and makes `import core`,
-`import molecular` work from any directory.  Re-run only when
-`pyproject.toml` changes (new deps, new entry points).
+This registers the `line-rt` console script and makes `from line_rt import ...`
+work from any directory.  Re-run only when `pyproject.toml` changes (new deps,
+new entry points).
 
 **Kratos binary.**  The pipeline shells out to the Kratos binary
-(`bin/kratos`).  Its location is resolved at runtime by
-`core/pipeline.py:resolve_kratos_bin()` in this order:
+(`bin/kratos`).  Its location is NOT hardcoded - set it via one of:
 
 1. `kratos_root` kwarg: `LineRt(kratos_root=...)` / `--kratos-root`
 2. `KRATOS_ROOT` environment variable
-3. Default: `~/apps/kratos_line_rt`
 
-If the binary is missing, a `FileNotFoundError` is raised with
-instructions for all three methods.
+If neither is set, a `FileNotFoundError` is raised with instructions.
 
-**Running without install** also works.  Two options:
+**Running without install.**  Use `line_rt.py` (a public facade at the
+repo root) via `importlib` - works with symlinks too:
 
-1. **CLI**: `python3 cli.py ...` from the repo root.
-2. **Scripts / notebooks**: use `line_rt_bootstrap.py` - it adds the
-   pipeline directory to `sys.path` and re-exports the public API:
+```python
+import importlib.util, os
+_PIPELINE = os.path.expanduser(
+    '/path/to/line_rt_pipeline/line_rt.py' )
+_spec = importlib.util.spec_from_file_location( 'line_rt', _PIPELINE )
+line_rt = importlib.util.module_from_spec( _spec )
+_spec.loader.exec_module( line_rt )
 
-   ```python
-   import importlib.util, os
-   _BOOT = os.path.expanduser(
-       '/path/to/line_rt_pipeline/line_rt_bootstrap.py' )
-   _spec = importlib.util.spec_from_file_location(
-       'line_rt_bootstrap', _BOOT )
-   lr = importlib.util.module_from_spec( _spec )
-   _spec.loader.exec_module( lr )
+rt = line_rt.LineRt( kratos_root = '/path/to/kratos_line_rt', ... )
+ti = line_rt.TransitionInfo( 'CO', 0 )
+res = rt.run()
+```
 
-   rt = lr.LineRt( ... )            # high-level orchestrator
-   ti = lr.TransitionInfo( 'CO', 0 ) # species selection
-   res = rt.run()
-   ```
-
-   Set the path in one place (the `_BOOT` line); no other
-   `sys.path` manipulation needed.
+Set the path in one place (the `_PIPELINE` line); no `sys.path`
+manipulation needed.  When installed, the same API is available as
+`from line_rt import LineRt, TransitionInfo`.
 
 ## Three ways to use
 
@@ -73,19 +67,19 @@ available molecules.
 
 ### 2. Python module (scripting / automation)
 
-If installed (`pip install -e .`), import directly:
+If installed (`pip install -e .`), import from `line_rt`:
 
 ```python
-from core.line_rt import LineRt
+from line_rt import LineRt
 ```
 
-If NOT installed, use the bootstrap (see "Running without install"
-above), then use `lr.LineRt` instead of `LineRt`.
+If NOT installed, use `importlib` (see "Running without install"
+above), then use `line_rt.LineRt` instead of `LineRt`.
 
 **Group 2 - explicit opacity** (no species data needed):
 
 ```python
-from core.line_rt import LineRt
+from line_rt import LineRt
 
 rt = LineRt(
     n_cell          = ( 64, 2, 2 ),
@@ -94,6 +88,7 @@ rt = LineRt(
     mfp_i_sca_0     = 1e-13,         # cm^-1
     ph_mode         = 0,
     n_cycles        = 3,
+    kratos_root     = '/path/to/kratos_line_rt',
 )
 rt.set_boundary( 'fre fre per per per per' )
 rt.add_source( n_photon = 50000, flux = 1e-3 )
@@ -103,8 +98,7 @@ results = rt.run()
 **Group 1 - species-based** (LAMDA data + density + temperature):
 
 ```python
-from core.line_rt           import LineRt
-from molecular.transition_info import TransitionInfo
+from line_rt import LineRt, TransitionInfo
 
 ti  = TransitionInfo( 'CO', 0 )            # CO J=1-0
 rt  = LineRt(
@@ -113,6 +107,7 @@ rt  = LineRt(
     temperature     = 100.0,                # K
     ph_mode         = 2,
     n_cycles        = 3,
+    kratos_root     = '/path/to/kratos_line_rt',
 )
 rt.add_source( n_photon = 50000, luminosity = 0.8 * 3.828e33 )
 results = rt.run()

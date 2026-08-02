@@ -22,11 +22,10 @@ from .kratos_io import \
 
 from numpy import asarray, int32, float32, float64, nan_to_num
 
-#  Default Kratos binary location.  Override at runtime via:
+#  Kratos binary location is NOT hardcoded.  Set it via:
 #    - environment variable  KRATOS_ROOT=/path/to/build/tree
 #    - LineRt(kratos_root=...) / iterate(kratos_root=...) kwarg
 #  The build tree must contain bin/kratos.
-_DEFAULT_KRATOS_ROOT = os.path.expanduser( '~/apps/kratos_line_rt' );
 _PAR_TEMPLATE = os.path.join( os.path.dirname( __file__ ), \
                               'line_rt_pipeline.par' );
 
@@ -37,14 +36,16 @@ def resolve_kratos_bin( kratos_root = None ):
     Resolution order:
       1. ``kratos_root`` argument (a directory or full bin path)
       2. ``KRATOS_ROOT`` environment variable
-      3. ``~/apps/kratos_line_rt`` default
+
+    There is NO default - you must set one of the above.  The build
+    tree must contain ``bin/kratos``.
 
     Parameters
     ----------
     kratos_root : str or None
         Path to the Kratos build tree root (containing ``bin/kratos``)
         or directly to the ``kratos`` binary.  If None, falls back to
-        the ``KRATOS_ROOT`` env var, then the default.
+        the ``KRATOS_ROOT`` env var.
 
     Returns
     -------
@@ -54,11 +55,18 @@ def resolve_kratos_bin( kratos_root = None ):
     Raises
     ------
     FileNotFoundError
-        If the binary cannot be found, with instructions on how to
-        set KRATOS_ROOT in Python, notebooks, or the shell.
+        If the binary cannot be found, or if neither ``kratos_root``
+        nor ``KRATOS_ROOT`` is set.
     """
     if kratos_root is None:
-        kratos_root = os.environ.get( 'KRATOS_ROOT', _DEFAULT_KRATOS_ROOT );
+        kratos_root = os.environ.get( 'KRATOS_ROOT' );
+    if kratos_root is None:
+        raise FileNotFoundError(
+            "Kratos root not set.  Set it via one of:\n"
+            "  Python:    rt = LineRt( kratos_root='/path/to/kratos_line_rt' )\n"
+            "  Notebook:  %env KRATOS_ROOT /path/to/kratos_line_rt\n"
+            "  Shell:     export KRATOS_ROOT=/path/to/kratos_line_rt\n"
+            "The path must contain bin/kratos (the compiled binary)." );
     kratos_root = os.path.expanduser( kratos_root );
 
     #  Accept either the build-tree root or the binary path itself.

@@ -24,7 +24,7 @@ line-rt = 'cli:main'
 
 [tool.setuptools]
 #  Src-less layout: packages live at repo root.
-py-modules = [ 'cli' ]
+py-modules = [ 'cli', 'line_rt' ]
 
 [tool.setuptools.packages.find]
 include = [ 'core*', 'molecular*', 'ui*', 'web*' ]

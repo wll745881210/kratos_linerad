@@ -18,14 +18,14 @@ from numpy import array, zeros, linspace, logspace, log10, \
                  argmax, polyfit, trapz, median, mean, nan, \
                  int32, float64, random;
 
-#  Bootstrap the pipeline without installation.
-_BOOT = os.path.join( os.path.dirname( os.path.dirname( \
-    os.path.dirname( os.path.realpath( __file__ ) ) ) ), \
-    'line_rt_bootstrap.py' );
-_spec = importlib.util.spec_from_file_location( 'line_rt_bootstrap', \
-                                                _BOOT );
-lr = importlib.util.module_from_spec( _spec );
-_spec.loader.exec_module( lr );
+#  Load the pipeline without installation (works with symlinks too).
+#  If installed (``pip install -e .``), delete the 3 lines below and
+#  add the repo root to sys.path or use:  from line_rt import ...
+_PIPELINE = os.path.join( os.path.dirname( os.path.dirname( \
+    os.path.dirname( os.path.realpath( __file__ ) ) ) ), 'line_rt.py' );
+_spec = importlib.util.spec_from_file_location( 'line_rt', _PIPELINE );
+line_rt = importlib.util.module_from_spec( _spec );
+_spec.loader.exec_module( line_rt );
 
 #  The reference MCRT lives in this directory (sibling module).
 sys.path.insert( 0, os.path.dirname( os.path.realpath( __file__ ) ) );

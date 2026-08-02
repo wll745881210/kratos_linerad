@@ -11,17 +11,17 @@ Run from ``/tmp/line_rt``:
 ############################################################
 #  Header: Imports
 
-import importlib.util, os, sys;
+import importlib.util, os;
 
-#  Bootstrap the pipeline without installation (adds pipeline dir
-#  to sys.path, re-exports the public API as module ``lr``).
-_BOOT = os.path.join( os.path.dirname( os.path.dirname( \
-    os.path.dirname( os.path.realpath( __file__ ) ) ) ), \
-    'line_rt_bootstrap.py' );
-_spec = importlib.util.spec_from_file_location( 'line_rt_bootstrap', \
-                                                _BOOT );
-lr = importlib.util.module_from_spec( _spec );
-_spec.loader.exec_module( lr );
+#  Load the pipeline without installation (works with symlinks too).
+#  If installed (``pip install -e .``), replace the 3 lines below
+#  with:  from line_rt import iterate, make_cartesian_mesh, \
+#                 default_plot, load_species_transition, AU
+_PIPELINE = os.path.join( os.path.dirname( os.path.dirname( \
+    os.path.dirname( os.path.realpath( __file__ ) ) ) ), 'line_rt.py' );
+_spec = importlib.util.spec_from_file_location( 'line_rt', _PIPELINE );
+line_rt = importlib.util.module_from_spec( _spec );
+_spec.loader.exec_module( line_rt );
 
 import matplotlib;
 matplotlib.use( 'Agg' );
@@ -29,10 +29,15 @@ from numpy    import full, zeros, ones, array, sqrt, max as np_max, \
                      float64;
 from numpy    import random;
 
-make_cartesian_mesh   = lr.make_cartesian_mesh;
-iterate               = lr.iterate;
-default_plot          = lr.default_plot;
-load_species_transition = lr.load_species_transition;
+make_cartesian_mesh     = line_rt.make_cartesian_mesh;
+iterate                 = line_rt.iterate;
+default_plot            = line_rt.default_plot;
+load_species_transition = line_rt.load_species_transition;
+
+#  Kratos binary location - MUST be set explicitly (no default).
+#  Either pass kratos_root=... to iterate(), or set the env var:
+#    export KRATOS_ROOT=/path/to/kratos_build_tree
+KRATOS_ROOT = os.path.expanduser( '~/apps/kratos_line_rt' );
 
 ############################################################
 #  CGS constants
@@ -100,8 +105,8 @@ ph[ :, 8 ] = sigma;
 ############################################################
 #  5. Species
 
-lamda_path = os.path.join( lr._PIPELINE_DIR, 'molecular', 'embedded', \
-                           'co.dat' );
+lamda_path = os.path.join( line_rt._PIPELINE_DIR, 'molecular', \
+                           'embedded', 'co.dat' );
 co, tr     = load_species_transition( lamda_path, freq_GHz = 115.271202 );
 tr_idx     = co.find_transition_idx( tr );
 sigma_co   = co.cross_section( 0, b_sca );
@@ -124,6 +129,7 @@ results, final_pops = iterate(
     mol_mass = mol_mass,
     unit_l0 = l0, unit_t0 = t0,
     par_overrides = { 'kinds' : 'fre fre per per per per' },
+    kratos_root = KRATOS_ROOT,
 );
 
 ############################################################

@@ -24,25 +24,27 @@ cd ~/Seafile/seafile_sync/code/line_rt_pipeline
 pip install -e . --break-system-packages   # editable; live edits, no reinstall needed
 ```
 
-This registers the `line-rt` console script and makes `import core` / `import molecular` work from any CWD. Re-run only when `pyproject.toml` changes (new deps, new entry points).
+This registers the `line-rt` console script and makes `from line_rt import ...` work from any CWD. Re-run only when `pyproject.toml` changes (new deps, new entry points).
 
 **Kratos binary location** is resolved at runtime by `core/pipeline.py:resolve_kratos_bin()` in this order:
 1. `kratos_root` kwarg: `LineRt(kratos_root=...)` / `iterate(kratos_root=...)` / `--kratos-root` CLI flag
 2. `KRATOS_ROOT` environment variable
-3. Default: `~/apps/kratos_line_rt`
 
-If the binary is missing, a `FileNotFoundError` is raised with instructions for all three methods (Python, notebook `%env`, shell `export`).
+There is NO default - you must set one of the above. If neither is set, a `FileNotFoundError` is raised with instructions (Python, notebook `%env`, shell `export`).
 
-**Running without install** also works: `python3 cli.py ...` from the repo root (the `cli.py` sys.path bootstrap was removed; Python's default CWD-on-path handles it). For scripts and notebooks, use `line_rt_bootstrap.py` (at the repo root) - it adds the pipeline directory to `sys.path` and re-exports the public API as module attributes. Load it via `importlib.util.spec_from_file_location()` so the path is set in one place:
+**Running without install** also works: `python3 cli.py ...` from the repo root (the `cli.py` sys.path bootstrap was removed; Python's default CWD-on-path handles it). For scripts and notebooks, use `line_rt.py` (public facade at the repo root) via `importlib.util.spec_from_file_location()` - works with symlinks too:
 
 ```python
 import importlib.util, os;
-_BOOT = '/path/to/line_rt_pipeline/line_rt_bootstrap.py';
-_spec = importlib.util.spec_from_file_location( 'line_rt_bootstrap', _BOOT );
+_PIPELINE = '/path/to/line_rt_pipeline/line_rt.py';
+_spec = importlib.util.spec_from_file_location( 'line_rt', _PIPELINE );
 lr = importlib.util.module_from_spec( _spec );
 _spec.loader.exec_module( lr );
-rt = lr.LineRt( ... );
+
+rt = lr.LineRt( kratos_root = '/path/to/kratos_line_rt', ... );
 ```
+
+When installed, the same API is available as `from line_rt import LineRt, TransitionInfo`.
 
 ---
 
@@ -55,7 +57,7 @@ rt = lr.LineRt( ... );
 | `ui/` | Jupyter ipywidgets interface |
 | `web/` | Panel dashboard (`panel serve web/app.py`) |
 | `cli.py` | CLI entrypoint (`line-rt` console script, registered in `pyproject.toml`) |
-| `line_rt_bootstrap.py` | Bootstrap loader for running without install; adds pipeline dir to `sys.path`, re-exports public API |
+| `line_rt.py` | Public facade: re-exports `LineRt`, `TransitionInfo`, etc. Single import point for both installed and importlib loading. |
 | `docs/archived_tests/` | Archived standalone test scripts (moved from `tests/`) |
 | `docs/reference_mcrt/mcrt.py` | Reference Python MCRT (numba). ph_mode=1 uses USampler table-lookup R_IIA. `plot_neufeld.py` validates vs Neufeld (1990). |
 | `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py` | **Standalone Kratos regression test** (self-contained, no pipeline imports). Wide `aτ₀` sweep vs Neufeld eq (2.24) for ph_modes 1/2/3, golden med\|x\| table, PASS/FAIL exit code. Run: `python3 test_scaling_wide.py --kratos-root ~/apps/kratos_line_rt` |

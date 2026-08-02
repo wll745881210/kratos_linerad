@@ -24,8 +24,7 @@ import sys; \
 from numpy import max as np_max; \
 
 
-from core.line_rt import LineRt;
-from molecular.transition_info import TransitionInfo, \
+from line_rt import LineRt, TransitionInfo, \
     show_available_species, show_available_transitions;
 
 

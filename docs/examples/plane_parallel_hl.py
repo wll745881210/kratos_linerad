@@ -12,32 +12,34 @@ Run from ``/tmp/line_rt``:
 ############################################################
 #  Header: Imports
 
-import importlib.util, os, sys;
+import importlib.util, os;
 
-#  Bootstrap the pipeline without installation (adds pipeline dir
-#  to sys.path, re-exports the public API as module ``lr``).
-_BOOT = os.path.join( os.path.dirname( os.path.dirname( \
-    os.path.dirname( os.path.realpath( __file__ ) ) ) ), \
-    'line_rt_bootstrap.py' );
-_spec = importlib.util.spec_from_file_location( 'line_rt_bootstrap', \
-                                                _BOOT );
-lr = importlib.util.module_from_spec( _spec );
-_spec.loader.exec_module( lr );
+#  Load the pipeline without installation (works with symlinks too).
+#  If installed (``pip install -e .``), replace the 3 lines below
+#  with:  from line_rt import LineRt, TransitionInfo, default_plot, AU, Lsun
+_PIPELINE = os.path.join( os.path.dirname( os.path.dirname( \
+    os.path.dirname( os.path.realpath( __file__ ) ) ) ), 'line_rt.py' );
+_spec = importlib.util.spec_from_file_location( 'line_rt', _PIPELINE );
+line_rt = importlib.util.module_from_spec( _spec );
+_spec.loader.exec_module( line_rt );
 
 import matplotlib;
 matplotlib.use( 'Agg' );
 from numpy import full, zeros, sqrt, max as np_max, float64;
 
-LineRt          = lr.LineRt;
-TransitionInfo  = lr.TransitionInfo;
-default_plot    = lr.default_plot;
-AU              = lr.AU;
-Lsun            = lr.Lsun;
+LineRt         = line_rt.LineRt;
+TransitionInfo = line_rt.TransitionInfo;
+default_plot   = line_rt.default_plot;
+AU             = line_rt.AU;
+Lsun           = line_rt.Lsun;
+
+#  Kratos binary location - MUST be set explicitly (no default).
+#  Either pass kratos_root=... to LineRt, or set the env var:
+#    export KRATOS_ROOT=/path/to/kratos_build_tree
+KRATOS_ROOT = os.path.expanduser( '~/apps/kratos_line_rt' );
 
 ############################################################
 #  CGS constants
-
-AU = 1.49598e13;   # AU in cm
 
 ############################################################
 #  1. Physical parameters (identical to plane_parallel_lowlevel.py)
@@ -86,6 +88,7 @@ rt = LineRt(
     ph_mode       = 2,           # R_IIA const-mem (production)
     n_step        = 20000, n_scat = 10000, n_cycles = n_cycle,
     visualize     = False,
+    kratos_root   = KRATOS_ROOT,
 );
 rt.set_boundary( 'fre fre per per per per' );
 
