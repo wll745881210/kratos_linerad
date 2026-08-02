@@ -419,11 +419,18 @@ proper_per_packet = total_rate / N_packets       [n][t]⁻¹
 
 All photons have the same initial direction d̂ (uniform across the face). Sum of packet proper weights per unit area perpendicular to d̂ equals F_phot.
 
-If an energetic flux F_erg [erg cm⁻² s⁻¹] is specified with a wavelength λ:
+**Units selection (`LineRt.add_source`)**: quantities default to photon
+number.  Passing `units='energy'` treats the input as erg-based and
+converts via the transition wavelength λ:
 
 ```
-F_phot = F_erg / (h c / λ)
+F_phot = F_erg / (h c / λ)          [slab; flux in erg cm⁻² s⁻¹]
+L_phot = L_erg / (h c / λ)          [point; luminosity in erg/s]
 ```
+
+The wavelength is always taken from `transition_info` (no user-supplied
+`wavelength` argument exists).  `units='energy'` therefore requires a
+transition to be configured.
 
 ### 10.2 Internal Sources (cell emission)
 

@@ -11,7 +11,7 @@ line-rt --species CO --n-species 1e4 --temperature 100 --ph-mode 2
 
 # Slab source with energetic flux:
 line-rt --species CO --n-species 1e4 --temperature 100 \
-    --source-type slab --source-x -5.0 --flux 1e-3 --wavelength 2.6e-2
+    --source-type slab --source-x -5.0 --flux 1e-3 --source-units energy
 """
 
 ############################################################
@@ -102,14 +102,18 @@ def main( ):
     src.add_argument( '--n-photon', type = int, default = 20000, \
                       help = 'Number of photon packets' );
     src.add_argument( '--luminosity', type = float, default = None, \
-                      help = 'Photon-number luminosity [ph/s] ' \
-                             '(or erg/s with --wavelength)' );
+                      help = 'Point-source luminosity: photon-number ' \
+                             '[ph/s] (or erg/s with --source-units energy)' );
     src.add_argument( '--flux', type = float, default = None, \
-                      help = 'Photon-number flux [ph cm^-2 s^-1] ' \
-                             '(slab; or erg with --wavelength)' );
-    src.add_argument( '--wavelength', type = float, default = None, \
-                      help = 'Line-centre wavelength [cm] ' \
-                             '(for energetic->photon conversion)' );
+                      help = 'Slab-source flux: photon-number ' \
+                             '[ph cm^-2 s^-1] (or erg cm^-2 s^-1 with ' \
+                             '--source-units energy)' );
+    src.add_argument( '--source-units', default = 'photon', \
+                      choices = [ 'photon', 'energy' ], \
+                      help = 'Units of --flux/--luminosity: ' \
+                             'photon (default) or energy (erg-based; ' \
+                             'requires a species transition for the ' \
+                             'wavelength)' );
 
     ############################################################
     # RT parameters
@@ -196,7 +200,7 @@ def main( ):
     # Add source
     src_kwargs = dict( type = args.source_type, n_photon = args.n_photon, \
                        luminosity = args.luminosity, flux = args.flux, \
-                       wavelength = args.wavelength );
+                       units = args.source_units );
     if args.source_type == 'slab':
         src_kwargs[ 'x' ]         = args.source_x;
         src_kwargs[ 'direction' ] = args.source_dir;

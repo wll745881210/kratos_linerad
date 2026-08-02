@@ -59,7 +59,7 @@ line-rt --species CO --n-species 1e4 --temperature 100 --ph-mode 2
 
 # Slab source with energetic flux:
 line-rt --species CO --n-species 1e4 --temperature 100 \
-    --source-type slab --source-x -5.0 --flux 1e-3 --wavelength 2.6e-2
+    --source-type slab --source-x -5.0 --flux 1e-3 --source-units energy
 ```
 
 Run `line-rt --help` for all flags, or `line-rt --list-species` to see
@@ -92,6 +92,7 @@ rt = LineRt(
 )
 rt.set_boundary( 'fre fre per per per per' )
 rt.add_source( n_photon = 50000, flux = 1e-3 )
+rt.show_sources()
 results = rt.run()
 ```
 
@@ -111,7 +112,17 @@ rt  = LineRt(
 )
 rt.add_source( n_photon = 50000, luminosity = 0.8 * 3.828e33 )
 results = rt.run()
+
+# Energetic (erg-based) slab flux - wavelength taken from the transition:
+rt.add_source( n_photon = 50000, flux = 1e-3, units = 'energy' )
 ```
+
+Flux/luminosity default to **photon number**; pass `units='energy'`
+for erg-based quantities (the wavelength is taken from
+`transition_info`, so no `wavelength` argument is needed).  `flux` is
+only valid for `type='slab'`, `luminosity` only for `type='point'` —
+passing the wrong pair raises `ValueError`.  `rt.show_sources()`
+prints a summary of all registered sources.
 
 `LineRt` handles all I/O automatically: field binaries, par-file
 templating, and subprocess calls to Kratos.  See

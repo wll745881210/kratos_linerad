@@ -188,22 +188,21 @@ def check_consistency( *, species = None, transition_idx = 0, \
         for i, src in enumerate( sources ):
             t = src.get( 'type', '?' );
             n_ph = src.get( 'n_photon', '?' );
-            wl = src.get( 'wavelength', None );
             flux = src.get( 'flux', None );
             lum = src.get( 'luminosity', None );
+            units = src.get( 'units', 'photon' );
             if flux is not None:
-                unit_str = 'erg cm⁻² s⁻¹' if wl else \
+                unit_str = 'erg cm⁻² s⁻¹' if units == 'energy' else \
                            'photons cm⁻² s⁻¹';
                 v_str = "%s %s" % ( flux, unit_str );
-                if wl:
-                    v_str += " (λ=%s cm)" % wl;
             elif lum is not None:
-                unit_str = 'erg/s' if wl else 'photons/s';
+                unit_str = 'erg/s' if units == 'energy' else 'photons/s';
                 v_str = "%s %s" % ( lum, unit_str );
-                if wl:
-                    v_str += " (λ=%s cm)" % wl;
             else:
                 v_str = "(no luminosity/flux)";
+            wl = src.get( 'wavelength', None );
+            if units == 'energy' and wl is not None:
+                v_str += " (λ=%s cm)" % wl;
             print( "    [%d] %s, %s photons, %s" % ( i, t, n_ph, v_str ) );
     else:
         print( "  sources  : (none)" );

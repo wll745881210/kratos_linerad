@@ -115,27 +115,24 @@ rt.set_boundary( 'fre fre per per per per' );
 print( '==============================' );
 
 ############################################################
-#  3. Source (energetic flux, matching lowlevel)
+#  3. Source (photon-number flux, default units)
 #
 #  Lowlevel: F0 = 1e6 photon/cm^2/s, sv = b_sca/sqrt(2),
-#  x=-4.999 With transition_info set, a bare flux is
-#  interpreted as energetic flux at the auto-λ line centre,
-#  so convert the photon-number flux to erg/cm^2/s via E_ph
-#  = h*c/lambda.
-
-h_cgs = 6.62607015e-27;   # Planck constant [erg s]
-c_cgs = 2.99792458e10;    # speed of light [cm/s]
+#  x=-4.999. With default units='photon', flux is photon
+#  number [photons cm^-2 s^-1] — no energy conversion needed.
+#  Pass units='energy' for erg cm^-2 s^-1 (uses the transition
+#  wavelength automatically).
 
 F0_cgs = 1e6;   # photon number flux [photons cm^-2 s^-1]
-E_ph   = h_cgs * c_cgs \
-       / ( ti.transition.wavelength_um * 1e-4 );
+
 rt.add_source\
 ( type     = 'slab', x = -5, direction = '+x',
   n_photon = 20000,
-  flux     = F0_cgs * E_ph, # energetic flux [erg cm^-2 s^-1]
+  flux     = F0_cgs, # photon-number flux [cm^-2 s^-1]
   sigma    = ti.doppler_b( temperature ) / sqrt( 2 ) );
 
-print( 'CO n_species=%.2e cm^-3' % n_species );
+print( 'CO, n_species = %.2e cm^-3, T = %.2e K' %
+       ( n_species, temperature ) );
 print( 'Mesh: %s, external photon sources: %d' %
        ( rt._n_cell, len( rt._sources ) ) );
 print( '========================================' );
@@ -144,7 +141,7 @@ print( '========================================' );
 #  4. Run the iterations!
 ##############################
 
-n_cycle   = 3;
+n_cycle   = 10;
 print( 'Running %d MC cycles ...' % n_cycle );
 results = rt.run( n_cycle );
 print( '========================================' );
