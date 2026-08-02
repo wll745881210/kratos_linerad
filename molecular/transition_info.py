@@ -161,6 +161,10 @@ class TransitionInfo:
             self.mol_mass = float( mol_mass );
             self._mol_mass_source = 'explicit';
 
+        #  Propagate the resolved mass onto the species data so emission
+        #  photon generation uses the correct thermal Doppler width.
+        self._species_data.mol_mass = self.mol_mass;
+
     @property
     def transition_idx( self ):
         """0-based index into species_data.transitions."""
@@ -303,6 +307,9 @@ class TransitionInfo:
                                    dtype = float64 ),
             transitions   = array( [ [ 1, 0, float( A_ul ), freq ] ], \
                                    dtype = float64 ),
+            mol_mass      = float( mol_mass ) if mol_mass is not None \
+                            else _MOL_MASS.get( \
+                                str( species_name ).upper( ), 28.0 ),
         );
 
         return cls( species, transition_idx = 0, mol_mass = mol_mass );

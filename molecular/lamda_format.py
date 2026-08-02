@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 from typing   import List, Dict, Optional, NamedTuple
 from numpy    import array, asarray, zeros, zeros_like, ones, full, \
-                     where, interp, exp, pi, maximum, ceil, prod, \
+                     where, interp, exp, pi, maximum, minimum, ceil, \
+                     prod, repeat, arange, column_stack, \
                      random, sqrt, arccos, sin, cos, ndarray, float64, \
                      int64, mean;
 
@@ -54,6 +55,7 @@ class SpeciesData:
     n_transitions: int
     transitions: ndarray
     collision_partners: List[ Dict ] = field( default_factory = list );
+    mol_mass: float = 28.0;      # [amu], used for the emission Doppler b
 
     @property
     def transitions_list( self ):
@@ -298,48 +300,55 @@ class SpeciesData:
         t = self.transitions[ transition_idx ];
         upper = int( t[ 0 ] );
 
-        photons = [ ];
         nz, ny, nx = int( n_cell[ 2 ] ), int( n_cell[ 1 ] ), \
                      int( n_cell[ 0 ] );
-        for iz in range( nz ):
-            for iy in range( ny ):
-                for ix in range( nx ):
-                    em = emissivity[ iz, iy, ix ];
-                    if em <= 0.0:
-                        continue;
-                    lum_cell = em * volume;
-                    n_ph = max( 1, int( ceil( \
-                        lum_cell / max( lum_cell, 1e-40 ) * \
-                        n_per_cell_max ) ) );
-                    n_ph = min( n_ph, n_per_cell_max );
-                    n_ph = max( n_ph, 1 ) if em > 0 else 0;
-
-                    x = x_min[ 0 ] + ( ix + rng.random( n_ph ) ) * dx[ 0 ];
-                    y = x_min[ 1 ] + ( iy + rng.random( n_ph ) ) * dx[ 1 ];
-                    z = x_min[ 2 ] + ( iz + rng.random( n_ph ) ) * dx[ 2 ];
-
-                    cos_theta = 2.0 * rng.random( n_ph ) - 1.0;
-                    theta = arccos( cos_theta );
-                    phi = 2.0 * pi * rng.random( n_ph );
-                    dir_x = sin( theta ) * cos( phi );
-                    dir_y = sin( theta ) * sin( phi );
-                    dir_z = cos_theta;
-
-                    temp_c = float( temperature[ iz, iy, ix ] );
-                    b_thermal = sqrt( 1.66289e8 * temp_c / 28.0 + 1e-35 );
-                    sigma_ph = b_thermal / sqrt( 2.0 );
-                    vel_draw = rng.normal( 0.0, sigma_ph, n_ph );
-
-                    weight_per_ph = lum_cell / n_ph if n_ph > 0 else 0.0;
-
-                    for j in range( n_ph ):
-                        photons.append( [ x[ j ], y[ j ], z[ j ], \
-                                          dir_x[ j ], dir_y[ j ], \
-                                          dir_z[ j ], weight_per_ph, \
-                                          vel_draw[ j ], sigma_ph ] );
-        if not photons:
+        em = asarray( emissivity, dtype = float64 );
+        n_active = int( ( em > 0.0 ).sum( ) );
+        if n_active == 0:
             return zeros( ( 0, 9 ), dtype = float64 );
-        return array( photons, dtype = float64 );
+
+        #  Brightness-proportional photon budget: the brightest cell gets
+        #  up to n_per_cell_max photons, dimmer cells scale down (min 1).
+        #  Weighting by the per-cell luminosity keeps energy conserved:
+        #  weight = lum_cell / n_ph  per photon.
+        active = ( em > 0.0 ).ravel( );
+        em_act = em.ravel( )[ active ];
+        lum_act = em_act * volume;
+        lum_max = lum_act.max( );
+        n_ph_cell = maximum( 1, ceil( n_per_cell_max * \
+                                      lum_act / lum_max ) ).astype( int );
+        n_ph_cell = minimum( n_ph_cell, n_per_cell_max );
+        n_total = int( n_ph_cell.sum( ) );
+
+        #  Map each active cell's 1D flat index back to (iz, iy, ix).
+        flat_idx = where( active )[ 0 ];
+        cell_of = repeat( arange( n_active ), n_ph_cell );
+        flat_ph = flat_idx[ cell_of ];
+        iz = ( flat_ph // ( ny * nx ) );
+        iy = ( ( flat_ph // nx ) % ny );
+        ix = ( flat_ph % nx );
+
+        x = x_min[ 0 ] + ( ix + rng.random( n_total ) ) * dx[ 0 ];
+        y = x_min[ 1 ] + ( iy + rng.random( n_total ) ) * dx[ 1 ];
+        z = x_min[ 2 ] + ( iz + rng.random( n_total ) ) * dx[ 2 ];
+
+        cos_theta = 2.0 * rng.random( n_total ) - 1.0;
+        theta = arccos( cos_theta );
+        phi = 2.0 * pi * rng.random( n_total );
+        dir_x = sin( theta ) * cos( phi );
+        dir_y = sin( theta ) * sin( phi );
+        dir_z = cos_theta;
+
+        temp_ph = asarray( temperature, dtype = float64 ) \
+                  .ravel( )[ flat_ph ];
+        b_thermal = sqrt( 1.66289e8 * temp_ph / self.mol_mass + 1e-35 );
+        sigma_ph = b_thermal / sqrt( 2.0 );
+        vel_draw = rng.normal( 0.0, sigma_ph, n_total );
+
+        weight_per_ph = lum_act[ cell_of ] / n_ph_cell[ cell_of ];
+
+        return column_stack( ( x, y, z, dir_x, dir_y, dir_z, \
+                               weight_per_ph, vel_draw, sigma_ph ) );
 
     ############################################################
     # Field construction

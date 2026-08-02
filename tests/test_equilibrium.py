@@ -18,10 +18,31 @@ sys.path.insert( 0, os.path.dirname( os.path.dirname( \
 
 from molecular.transition_info import TransitionInfo;  # noqa: E402
 from molecular.equilibrium   import solve_populations;  # noqa: E402
+from molecular.lamda_format  import SpeciesData;  # noqa: E402
 
 
 def make_co( ):
     return TransitionInfo( 'CO', 0 ).species_data;
+
+
+def make_3level_collisional( ):
+    """3-level species (0<->1 radiative) + an H2 collision partner."""
+    sd = SpeciesData(
+        name            = 'TestCO',
+        n_levels        = 3,
+        levels        = np.array( [ [ 0.0, 1.0 ], [ 5.0, 3.0 ], \
+                                     [ 20.0, 5.0 ] ] ),
+        n_transitions = 1,
+        transitions   = np.array( [ [ 1, 0, 1e-5, 115.271 ] ] ),
+        collision_partners = [
+            dict( species = 'H2',
+                  temps   = np.array( [ 10.0, 100.0, 1000.0 ] ),
+                  rates   = np.array( [ [ 1e-12, 1e-11, 1e-10 ], \
+                                        [ 1e-13, 1e-12, 1e-11 ] ] ),
+                  trans_indices = np.array( [ [ 1, 0 ], [ 2, 1 ] ] ) ),
+        ],
+    );
+    return sd;
 
 
 def excited_fraction( n ):
@@ -118,6 +139,74 @@ def test_zero_flux_cold_ground_state( ):
     n = sol[ :, 0 ];
     assert np.all( np.isfinite( n ) );
     assert excited_fraction( n ) < 0.5;
+
+
+############################################################
+# Collisional excitation (batched rate-matrix path)
+
+def test_collisional_ground_state_no_drive( ):
+    """With colliders but zero flux + very cold T: ground state preserved."""
+    sd = make_3level_collisional( );
+    sol = solve_populations( sd, np.array( [ 0.0 ] ), \
+                             np.array( [ 1.0 ] ), \
+                             T = np.array( [ 1e-3 ] ), \
+                             colliders = { 'H2': { 'density': 1e6 } }, \
+                             b_param = 1e5, transition_idx = 0 );
+    n = sol[ :, 0 ];
+    assert np.all( np.isfinite( n ) );
+    assert excited_fraction( n ) < 0.5, "cold collisional gas excited";
+
+
+def test_collisional_thermalises_at_high_T( ):
+    """High T + colliders: pair approaches g_u/(g_l+g_u) = 3/4."""
+    sd = make_3level_collisional( );
+    sol = solve_populations( sd, np.array( [ 0.0 ] ), \
+                             np.array( [ 1.0 ] ), \
+                             T = np.array( [ 1000.0 ] ), \
+                             colliders = { 'H2': { 'density': 1e12 } }, \
+                             b_param = 1e5, transition_idx = 0 );
+    n = sol[ :, 0 ];
+    assert np.all( np.isfinite( n ) );
+    frac = ( n[ 1 ] + n[ 2 ] ) / n.sum( );
+    assert frac > 0.6, "high-T collisional gas frac_exc=%.4f" % frac;
+
+
+def test_collisional_flux_drives_pair( ):
+    """External flux on top of collisions: upper level saturates."""
+    sd = make_3level_collisional( );
+    sol = solve_populations( sd, np.array( [ 1e13 ] ), \
+                             np.array( [ 1.0 ] ), \
+                             T = np.array( [ 100.0 ] ), \
+                             colliders = { 'H2': { 'density': 1e8 } }, \
+                             b_param = 1e5, transition_idx = 0 );
+    n = sol[ :, 0 ];
+    assert np.all( np.isfinite( n ) );
+    assert n[ 1 ] > n[ 0 ], "flux should excite level 1 above ground";
+    assert excited_fraction( n ) > 0.9, \
+        "strong flux should saturate, got %.4f" % excited_fraction( n );
+
+
+def test_collisional_batch_matches_scalar( ):
+    """Batched multi-cell solve equals the scalar single-cell solve."""
+    sd = make_3level_collisional( );
+    T = np.array( [ 50.0, 200.0, 800.0 ] );
+    exc = np.array( [ 0.0, 1e10, 1e12 ] );
+    n_tot = np.array( [ 1.0, 2.0, 3.0 ] );
+    sol = solve_populations( sd, exc, n_tot, T = T, \
+                             colliders = { 'H2': { 'density': 1e10 } }, \
+                             b_param = 1e5, transition_idx = 0 );
+    assert sol.shape == ( 3, 3 );
+    for c in range( 3 ):
+        sc = solve_populations( sd, np.array( [ exc[ c ] ] ), \
+                                np.array( [ n_tot[ c ] ] ), \
+                                T = np.array( [ T[ c ] ] ), \
+                                colliders = { 'H2': { 'density': 1e10 } }, \
+                                b_param = 1e5, transition_idx = 0 );
+        assert np.allclose( sol[ :, c ] / sol[ :, c ].sum( ), \
+                            sc[ :, 0 ] / sc[ :, 0 ].sum( ), \
+                            atol = 1e-8 ), \
+            "cell %d batch != scalar: %s vs %s" % \
+            ( c, sol[ :, c ], sc[ :, 0 ] );
 
 
 if __name__ == '__main__':
