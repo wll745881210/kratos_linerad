@@ -496,7 +496,7 @@ After all fixes: single-scatter gap -0.12%, unlimited-scatter gap
 | ---------------------------- | ---------------------- | ------------------------------------------------------------------------------ |
 | `test_scaling_wide.py`       | `usr_ext/line_rt/tests/` | Standalone Kratos regression: wide aτ₀ sweep, ph_modes 1/2/3, golden med\|x\|, PASS/FAIL (default WORKDIR `/tmp/line_rt_regress`) |
 | `test_absorption.py`         | `tests/`               | Pure-absorption plane-parallel: f_esc vs E₂(τ/2)                               |
-| `test_absorption_scattering.py` | `tests/`            | Absorption+scattering: Kratos vs Python MC vs Neufeld cosh (4.33)              |
+| `test_absorption_scattering.py` | `usr_ext/line_rt/tests/` | Absorption+scattering: Kratos vs Python MC vs Neufeld cosh (4.33)              |
 | `compare_escaped.py`         | `tests/archive/`       | (archived) Self-generating K-vs-P comparison                                   |
 | `test_neufeld.py`            | `tests/archive/`       | (archived) Three-way: Kratos vs Python vs fiducial                             |
 | `test_scaling.py`            | `tests/archive/`       | (archived) τ₀ scaling sweep (a=0.01, latent factor-2)                          |
