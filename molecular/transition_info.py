@@ -22,12 +22,13 @@ from .lamda_fetcher import CACHE_DIR, get_cached_species;
 class MolecularMassError( ValueError ):
     """Species not in the built-in mass table and no mol_mass given."""
 
-_MOL_MASS = { 'CO'   : 28.0, 'OH'   : 17.0, 'H2O'  : 18.0, \
-              'NH3'  : 17.0, 'CH3OH': 32.0, 'CS'   : 44.0, \
-              'SiO'  : 44.0, 'HCN'  : 27.0, 'HCO+' : 29.0, \
-              'N2H+' : 29.0, 'SO'   : 48.0, 'SO2'  : 64.0, \
-              'H2CO' : 30.0, 'H2S'  : 34.0, 'CN'   : 26.0, \
-              'NO'   : 30.0, 'C2H'  : 25.0, 'HNC'  : 27.0 };  # amu
+_MOL_MASS = { 'CO'    : 28.0, 'OH'    : 17.0, 'H2O'   : 18.0, \
+              'NH3'   : 17.0, 'CH3OH' : 32.0, 'CS'    : 44.0, \
+              'SIO'   : 44.0, 'HCN'   : 27.0, 'HCO+'  : 29.0, \
+              'N2H+'  : 29.0, 'SO'    : 48.0, 'SO2'   : 64.0, \
+              'H2CO'  : 30.0, 'H2S'   : 34.0, 'CN'    : 26.0, \
+              'NO'    : 30.0, 'C2H'   : 25.0, 'HNC'   : 27.0, \
+              'C3H2'  : 38.0 };  # amu (keys uppercased for case-insensitive lookup)
 
 
 ############################################################
@@ -136,12 +137,20 @@ class TransitionInfo:
             self._transition_idx ];
 
         #  Molecular mass: explicit arg wins, else built-in table.
+        #  Look up by the user-provided species name first (e.g. "H2O"),
+        #  then by the LAMDA file's molecule name.  Case-insensitive.
         if mol_mass is None:
-            name = self._species_data.name.upper( );
-            if name not in _MOL_MASS:
+            mass = None;
+            for cand in ( self.species if isinstance( self.species, str ) \
+                          else '', self._species_data.name ):
+                if cand.upper( ) in _MOL_MASS:
+                    mass = _MOL_MASS[ cand.upper( ) ];
+                    break;
+            if mass is None:
                 raise MolecularMassError( \
-                    "No molecular mass for '%s'. Pass mol_mass (amu)." % name );
-            self.mol_mass = _MOL_MASS[ name ];
+                    "No molecular mass for '%s'. Pass mol_mass (amu)." \
+                    % self._species_data.name );
+            self.mol_mass = mass;
             self._mol_mass_source = 'built-in table';
         else:
             self.mol_mass = float( mol_mass );

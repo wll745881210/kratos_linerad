@@ -390,9 +390,10 @@ def load_lamda( content ):
                   for ln in content ];
 
     lines = [ ln.strip( ) for ln in lines ];
+    lines_upper = [ ln.upper( ) for ln in lines ];
     mol_idx = -1;
-    for i, ln in enumerate( lines ):
-        if ln.startswith( '!MOLECULE' ) or ln.startswith( '! MOLECULE' ):
+    for i, ln in enumerate( lines_upper ):
+        if ln.startswith( '!MOLECULE' ):
             mol_idx = i + 1;
             break;
     name = lines[ mol_idx ] if mol_idx >= 0 and mol_idx < len( lines ) \
@@ -400,14 +401,14 @@ def load_lamda( content ):
 
     nlev_idx = -1;
     for i in range( mol_idx, len( lines ) ):
-        if 'NUMBER OF ENERGY LEVELS' in lines[ i ]:
+        if 'NUMBER OF ENERGY LEVELS' in lines_upper[ i ]:
             nlev_idx = i;
             break;
     n_levels = int( lines[ nlev_idx + 1 ] ) if nlev_idx >= 0 else 0;
 
     ntrans_idx = -1;
     for i in range( nlev_idx + 1, len( lines ) ):
-        if 'NUMBER OF RADIATIVE TRANSITIONS' in lines[ i ]:
+        if 'NUMBER OF RADIATIVE TRANSITIONS' in lines_upper[ i ]:
             ntrans_idx = i;
             break;
     n_transitions = int( lines[ ntrans_idx + 1 ] ) \
@@ -434,9 +435,9 @@ def load_lamda( content ):
     coll_partners = [ ];
     cp_idx = trans_start + n_transitions;
     while cp_idx < len( lines ):
-        line = lines[ cp_idx ].strip( );
-        if 'NUMBER OF COLL PARTNERS' in line or \
-           'NUMBER OF COLLISION PARTNERS' in line:
+        line_u = lines_upper[ cp_idx ];
+        if 'NUMBER OF COLL PARTNERS' in line_u or \
+           'NUMBER OF COLLISION PARTNERS' in line_u:
             break;
         cp_idx += 1;
 
@@ -452,21 +453,37 @@ def load_lamda( content ):
                 break;
             partner_name = lines[ ci ].strip( );
             ci += 1;
-            while ci < len( lines ) and \
-                  ( 'NUMBER OF COLL TRANSITIONS' not in lines[ ci ] ):
+            while ci < len( lines ) and not \
+                  ( ( 'COLL' in lines_upper[ ci ] or \
+                      'COLLISION' in lines_upper[ ci ] ) and \
+                    'TRANS' in lines_upper[ ci ] and \
+                    'NUMBER' in lines_upper[ ci ] ):
                 ci += 1;
             n_coll_trans = int( lines[ ci + 1 ] );
             ci += 2;
-            while ci < len( lines ) and \
-                  ( 'NUMBER OF COLL TEMPS' not in lines[ ci ] ):
+            while ci < len( lines ) and not \
+                  ( ( 'COLL' in lines_upper[ ci ] or \
+                      'COLLISION' in lines_upper[ ci ] or \
+                      'NUMBER' in lines_upper[ ci ] ) and \
+                    'TEMP' in lines_upper[ ci ] and \
+                    'NUMBER' in lines_upper[ ci ] ):
                 ci += 1;
             n_coll_temps = int( lines[ ci + 1 ] );
             ci += 2;
+            #  Skip any comment lines before the temperature values.
+            while ci < len( lines ) and \
+                  lines[ ci ].strip( ).startswith( '!' ):
+                ci += 1;
             coll_temps = array( \
                 [ float( x ) for x in lines[ ci ].split( ) ] );
             ci += 1;
 
             rates = [ ];
+            #  Skip comment lines (e.g. "! TRANS + UP + LOW + ...")
+            #  before the first rate line.
+            while ci < len( lines ) and \
+                  lines[ ci ].strip( ).startswith( '!' ):
+                ci += 1;
             for _ in range( n_coll_trans ):
                 vals = [ float( x ) for x in lines[ ci ].split( ) ];
                 rates.append( vals );
@@ -475,9 +492,11 @@ def load_lamda( content ):
 
             trans_indices = [ ];
             for n in range( n_coll_trans ):
+                #  Collision rate lines: trans#, upper, lower, rate...
+                #  upper/lower are 1-based level indices.
                 trans_indices.append( \
-                    [ int( transitions[ n, 0 ] ), \
-                      int( transitions[ n, 1 ] ) ] );
+                    [ int( rates[ n, 1 ] ) - 1, \
+                      int( rates[ n, 2 ] ) - 1 ] );
             trans_indices = array( trans_indices, dtype = int64 );
 
             coll_partners.append( { \

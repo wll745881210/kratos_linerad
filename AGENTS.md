@@ -4,7 +4,16 @@ Instructions for agentic sessions working on the `line_rt_pipeline` codebase.
 
 ## Network
 
-HTTP proxy for external downloads: `http://127.0.0.1:7892`. Use `export http_proxy=http://127.0.0.1:7892 https_proxy=http://127.0.0.1:7892` before any network-dependent operations.
+The pipeline downloads LAMDA species data on demand from
+`https://home.strw.leidenuniv.nl/~moldata/`.  No proxy is hardcoded;
+`requests` honours the standard `HTTP_PROXY` / `HTTPS_PROXY` environment
+variables automatically.  If you are behind a proxy, set them before
+running the pipeline:
+
+```bash
+export http_proxy=http://your-proxy:port
+export https_proxy=http://your-proxy:port
+```
 
 ---
 

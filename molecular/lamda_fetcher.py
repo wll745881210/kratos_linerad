@@ -35,10 +35,9 @@ def fetch_species(species, force_download=False):
 
     url = f'{LAMDA_URL}{species.lower()}.dat'
     try:
-        resp = requests.get(url, timeout=15, proxies={
-            'http': 'http://127.0.0.1:7892',
-            'https': 'http://127.0.0.1:7892',
-        })
+        #  requests honours HTTP_PROXY / HTTPS_PROXY env vars
+        #  automatically; no hardcoded proxy here.
+        resp = requests.get(url, timeout=30)
         resp.raise_for_status()
         content = resp.text
     except Exception:
