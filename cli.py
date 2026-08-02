@@ -137,12 +137,24 @@ def main( ):
                       help = 'Max internal emission photons per cell ' \
                              'per cycle' );
     rt.add_argument( '--proper-scale', type = float, default = 1.0, \
-                     help = 'Rescale every photon proper weight by this ' \
-                            'factor before writing (default: 1.0 = no ' \
-                            'rescale). Use < 1 for very high-flux runs ' \
-                            'whose FP32 flux maps would overflow ' \
-                            '(>= 3.4e38); the read-back flux is divided ' \
-                            'back automatically.' );
+                      help = 'Rescale every photon proper weight by this ' \
+                             'factor before writing (default: 1.0 = no ' \
+                             'rescale). Use < 1 for very high-flux runs ' \
+                             'whose FP32 flux maps would overflow ' \
+                             '(>= 3.4e38); the read-back flux is divided ' \
+                             'back automatically.' );
+    rt.add_argument( '--keep-intermediate', action = 'store_true', \
+                     default = True, \
+                     help = 'Keep all per-cycle binary files in the run ' \
+                            'directory (default).' );
+    rt.add_argument( '--no-keep-intermediate', dest = 'keep_intermediate', \
+                     action = 'store_false', \
+                     help = 'Delete per-cycle files as they are read back ' \
+                            'and remove the auto-created run directory ' \
+                            'afterwards, to free /dev/shm (tmpfs) and RAM.' );
+    rt.add_argument( '--retain-cycles', type = int, default = None, \
+                     help = 'Keep only the last N cycle results in memory ' \
+                            '(drop older ones). Default: keep all cycles.' );
 
     ############################################################
     # Output
@@ -200,6 +212,8 @@ def main( ):
         visualize       = not args.no_plot,
         n_emission_max  = args.n_emission_max,
         proper_scale    = args.proper_scale,
+        keep_intermediate = args.keep_intermediate,
+        retain_cycles   = args.retain_cycles,
         kratos_root     = args.kratos_root,
     );
     rt_obj.set_boundary( args.boundary );

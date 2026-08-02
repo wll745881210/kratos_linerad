@@ -197,10 +197,29 @@ def run_kratos_cycle( work_dir, cycle, field_file, photon_file, \
     return output, log_text, elapsed;
 
 
+def _remove_intermediate( work_dir, cycle, field_file, photon_file ):
+    """Delete one cycle's binary/par/log files from the run dir.
+
+    Called after the cycle's data has been read back into RAM, so the
+    on-disk copies are no longer needed.  Frees /dev/shm (tmpfs = RAM)
+    space while the simulation is still running.
+    """
+    for f in ( field_file, photon_file, \
+               os.path.join( work_dir, 'cycle%d.par' % cycle ), \
+               os.path.join( work_dir, 'cycle%d.txt' % cycle ), \
+               os.path.join( work_dir, 'cycle%d_00000.bin' % cycle ) ):
+        try:
+            if f and os.path.exists( f ):
+                os.remove( f );
+        except OSError as e:
+            print( "[run_pipeline] could not remove %s: %s" % ( f, e ) );
+
+
 def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
                   n_photon = 10000, n_step = 1000, n_scat = 100, \
                   n_fld = 2, ph_mode = 0, par_overrides = None, \
                    keep_intermediate = True, \
+                   retain_cycles = None, \
                    proper_scale = 1.0, \
                    unit_l0 = 1.0, unit_t0 = 1.0, kratos_root = None ):
     """
@@ -219,6 +238,15 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
     n_fld : int  Number of flux/field components
     ph_mode : int  0=CFR, 1=R_IIA (USampler)
     par_overrides : dict  Additional par file overrides
+    keep_intermediate : bool
+        If True (default), all per-cycle binary files are kept in the
+        run directory.  If False, each cycle's files are deleted as soon
+        as its data has been read back into RAM (frees /dev/shm tmpfs),
+        keeping only the fixed fields file and the final cycle's output.
+    retain_cycles : int or None
+        If set, only the last ``retain_cycles`` cycle dicts are kept in
+        the returned ``results`` list (older ones are dropped) to bound
+        RAM usage.  None (default) keeps every cycle.
     unit_l0 : float  code length unit in CGS (cm per code-length)
     unit_t0 : float  code time unit in CGS (s per code-time)
     kratos_root : str or None
@@ -319,8 +347,8 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
             exc = nan_to_num( exc, nan = 0.0, posinf = 0.0, \
                               neginf = 0.0 );
             exc = exc * inv_scale / area_factor;
-            output[ 'exc_flux_flat' ] = exc;
-            output[ 'excitation_flux' ] = exc;
+            output[ 'exc_flux_flat' ] = exc.astype( float32 );
+            output[ 'excitation_flux' ] = output[ 'exc_flux_flat' ];
         elif 'fab' in output:
             output[ 'exc_flux_flat' ] = output[ 'fab' ];
         #
@@ -331,8 +359,8 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
             flx = nan_to_num( flx, nan = 0.0, posinf = 0.0, \
                               neginf = 0.0 );
             flx = flx * inv_scale / area_factor;
-            output[ 'flx_flat' ] = flx;
-            output[ 'flx' ] = flx;
+            output[ 'flx_flat' ] = flx.astype( float32 );
+            output[ 'flx' ] = output[ 'flx_flat' ];
         #
 
         output[ 'cycle' ] = cycle;
@@ -340,12 +368,19 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
                                     for k, v in populations.items( ) };
         results.append( output );
 
+        if retain_cycles is not None and len( results ) > retain_cycles:
+            del results[ : len( results ) - retain_cycles ];
+
         # Update populations
         new_pops = model.update_populations \
             ( output.get( 'exc_flux_flat', None ), \
               output.get( 'flx_flat', None ), \
               populations, cycle );
         populations = new_pops;
+
+        if not keep_intermediate and cycle < n_cycles - 1:
+            _remove_intermediate( work_dir, cycle, field_file, \
+                                  photon_file );
     #
 
     # Save final populations to output

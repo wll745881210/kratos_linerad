@@ -14,12 +14,31 @@ _PAR_TEMPLATE = os.path.join( os.path.dirname( __file__ ), \
                               'line_rt_pipeline.par' );
 
 
+def _remove_intermediate( work_dir, cycle, field_file, photon_file ):
+    """Delete one cycle's binary/par/log files from the run dir.
+
+    Called after the cycle's data has been read back into RAM, so the
+    on-disk copies are no longer needed.  Frees /dev/shm (tmpfs = RAM)
+    space while the simulation is still running.
+    """
+    for f in ( field_file, photon_file, \
+               os.path.join( work_dir, 'cycle%d.par' % cycle ), \
+               os.path.join( work_dir, 'cycle%d.txt' % cycle ), \
+               os.path.join( work_dir, 'cycle%d_00000.bin' % cycle ) ):
+        try:
+            if f and os.path.exists( f ):
+                os.remove( f );
+        except OSError as e:
+            print( "[iterate] could not remove %s: %s" % ( f, e ) );
+
+
 def iterate( source_photons, species, fields_init, mesh, \
              n_cycles = 5, n_photon = None, n_step = 10000, \
              n_scat = 10000, ph_mode = 1, par_overrides = None, \
              mol_mass = 28.0, work_dir = None, callback = None, \
              n_species = None, transition_idx = 0, n_emission_max = 10, \
              colliders = None, proper_scale = 1.0, \
+             keep_intermediate = True, retain_cycles = None, \
              unit_l0 = 1.49598e13, unit_t0 = 1.0, kratos_root = None ):
     if work_dir is None:
         work_dir = os.path.join( DEFAULT_RUN_ROOT, 'iterate_output' );
@@ -170,6 +189,7 @@ def iterate( source_photons, species, fields_init, mesh, \
 scale = %.3e" % ( proper_scale, \
                   abs( ph_arr[ :, 6 ].max( ) ) \
                   if ph_arr.shape[ 1 ] >= 7 else 0.0 ) );
+        del ph_arr;
 
         prefix = 'cycle%d' % cycle;
         output, log_text, elapsed = run_kratos_cycle( \
@@ -200,6 +220,11 @@ scale = %.3e" % ( proper_scale, \
 
         results.append( output );
 
+        if retain_cycles is not None and len( results ) > retain_cycles:
+            # Bound RAM: drop oldest cycles' full dicts (kept as a bare
+            # record of the cycle number so the trim is visible).
+            del results[ : len( results ) - retain_cycles ];
+
         always_process_flux = True;
         if always_process_flux:
             exc_flux = output.get( 'excitation_flux', \
@@ -214,12 +239,12 @@ scale = %.3e" % ( proper_scale, \
                 exc_flux = nan_to_num( exc_flux, nan = 0.0, posinf = 0.0, \
                                        neginf = 0.0 );
                 exc_flux = exc_flux * inv_scale / area_factor;
-                output[ 'exc_flux_flat' ] = exc_flux;
+                output[ 'exc_flux_flat' ] = exc_flux.astype( float32 );
             if flx is not None:
                 flx = nan_to_num( asarray( flx, dtype = float64 ), \
                                   nan = 0.0, posinf = 0.0, \
                                   neginf = 0.0 ) * inv_scale / area_factor;
-                output[ 'flx' ] = flx;
+                output[ 'flx' ] = flx.astype( float32 );
 
         if species is not None and hasattr( species, 'update_populations' ):
             T_field = base_fields_cgs.get( 'temp', None );
@@ -293,5 +318,11 @@ scale = %.3e" % ( proper_scale, \
                   output.get( 'exc_flux_flat', \
                     output.get( 'fab_flat', output.get( 'fab', None ) ) ) ), \
                 populations );
+
+        if not keep_intermediate and cycle < n_cycles - 1:
+            # Free /dev/shm (tmpfs = RAM) as we go.  Keep the fixed
+            # fields file and the final cycle's outputs for inspection.
+            _remove_intermediate( work_dir, cycle, field_file, \
+                                  photon_file );
 
     return results, populations;

@@ -190,6 +190,31 @@ works if you want to plot a specific results dict).
 templating, and subprocess calls to Kratos.  See
 [docs/examples/](docs/examples/) for runnable example scripts.
 
+### Memory management
+
+Per-cycle binaries live in the run directory under `/dev/shm/line_rt/`
+(a tmpfs mount — so on-disk files consume **RAM**), and every cycle's
+full float64 flux/population arrays are held in the returned `results`
+list.  For long multi-cycle runs this can exhaust memory.  Two knobs
+bound both:
+
+- **`keep_intermediate=False`** (constructor / `iterate()` /
+  `run_pipeline()` / `--no-keep-intermediate`): each cycle's
+  `fields_cycleN.bin`, `photons_cycleN.bin`, `cycleN.par`,
+  `cycleN.txt`, and `cycleN_00000.bin` are deleted as soon as their data
+  has been read back into RAM.  The fixed fields file and the final
+  cycle's output are always kept.  When using `LineRt` with an
+  auto-created run directory, `run()` additionally removes the whole
+  directory afterwards (an explicit `path=` is never touched).
+- **`retain_cycles=N`** (constructor / `iterate()` / `run_pipeline()` /
+  `--retain-cycles`): only the last `N` cycle dicts are kept in
+  `out['results']`; older cycles are dropped to bound Python-side RAM.
+  Default `None` keeps every cycle.
+
+Stored output fields (`flx`, `exc_flux_flat`) are always `float32` —
+Kratos produces float32 field binaries, so nothing is lost while halving
+storage relative to float64.
+
 ### 3. Jupyter notebook (interactive)
 
 ```bash

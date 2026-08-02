@@ -113,6 +113,16 @@ class LineRt:
         Path to the Kratos build tree root (containing ``bin/kratos``).
         If None, falls back to the ``KRATOS_ROOT`` env var.  One of the
         two MUST be set (no default).
+    keep_intermediate : bool
+        If True (default), all per-cycle binary files and the run
+        directory are kept on disk.  If False, each cycle's files are
+        deleted as soon as its data is read back into RAM, and the whole
+        auto-created run directory is removed at the end of run() (only
+        when ``path`` was not set explicitly), freeing /dev/shm tmpfs.
+    retain_cycles : int or None
+        If set, only the last ``retain_cycles`` cycle dicts are kept in
+        ``out['results']`` (older ones are dropped) to bound RAM usage.
+        None (default) keeps every cycle.
     """
 
     def __init__( self, *, n_cell = ( 64, 2, 2 ), \
@@ -126,7 +136,8 @@ class LineRt:
                   n_scat = 10000, n_fld = 1, n_cycles = 1, \
                   path = None, visualize = True, n_emission_max = 10, \
                   colliders = None, snapshot = None, \
-                  proper_scale = 1.0, kratos_root = None ):
+                  proper_scale = 1.0, keep_intermediate = True, \
+                  retain_cycles = None, kratos_root = None ):
         self._n_cell         = tuple( n_cell );
         self._x_min          = tuple( x_min );
         self._x_max          = tuple( x_max );
@@ -154,6 +165,8 @@ class LineRt:
         self._n_emission_max = n_emission_max;
         self._snapshot       = snapshot;
         self._proper_scale   = proper_scale;
+        self._keep_intermediate = keep_intermediate;
+        self._retain_cycles  = retain_cycles;
         self._kratos_root    = kratos_root;
         self._sources        = [ ];
         self._boundary_kinds = 'fre fre fre fre fre fre';
@@ -625,6 +638,8 @@ class LineRt:
             n_emission_max = self._n_emission_max, \
             colliders = colliders_val, \
             proper_scale = self._proper_scale, \
+            keep_intermediate = self._keep_intermediate, \
+            retain_cycles = self._retain_cycles, \
             callback = self._snapshot, par_overrides = par_overrides, \
             kratos_root = self._kratos_root );
 
@@ -652,6 +667,17 @@ class LineRt:
         if self._visualize:
             self._plot_results( out );
         self._results = out;
+
+        if not self._keep_intermediate and self._path is None:
+            # Memory-saving mode: remove the auto-created run directory
+            # (per-cycle files were already deleted as we went; the final
+            # cycle's outputs have been read into RAM).  Only auto-created
+            # dirs are removed - an explicit `path` is left untouched.
+            import shutil
+            if os.path.isdir( work_dir ):
+                shutil.rmtree( work_dir, ignore_errors = True );
+                print( '[LineRt] Removed run directory: %s' % work_dir );
+
         return out;
 
     ########################################################
