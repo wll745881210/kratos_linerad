@@ -16,7 +16,7 @@ import importlib.util, os;
 #  Load the pipeline without installation (works with symlinks too).
 #  If installed (``pip install -e .``), replace the 3 lines below
 #  with:  from line_rt import iterate, make_cartesian_mesh, \
-#                 default_plot, load_species_transition, AU
+#                 default_plot, TransitionInfo, AU
 _PIPELINE = os.path.join( os.path.dirname( os.path.dirname( \
     os.path.dirname( os.path.realpath( __file__ ) ) ) ), 'line_rt.py' );
 _spec = importlib.util.spec_from_file_location( 'line_rt', _PIPELINE );
@@ -32,7 +32,7 @@ from numpy    import random;
 make_cartesian_mesh     = line_rt.make_cartesian_mesh;
 iterate                 = line_rt.iterate;
 default_plot            = line_rt.default_plot;
-load_species_transition = line_rt.load_species_transition;
+TransitionInfo          = line_rt.TransitionInfo;
 
 #  Kratos binary location - MUST be set explicitly (no default).
 #  Either pass kratos_root=... to iterate(), or set the env var:
@@ -67,13 +67,27 @@ n_tot  = mesh[ 'n_tot' ];
 #  2. Physical parameters
 
 tau0_slab   = 10.0;
-b_sca       = 1.0e5;
-mol_mass    = 28.0;
-temperature = 2;
+temperature = 2;   # Kelvin
 x_cross_cm  = [ ( x_max[ a ] - x_min[ a ] ) * l0 for a in range( 3 ) ];
 
 ############################################################
-#  3. Fields (line-independent only; line-dependent computed by species)
+#  3. Species (TransitionInfo resolves species data, the
+#     transition index, and the molecular mass automatically)
+
+ti          = TransitionInfo( 'CO', 0 );
+co          = ti.species_data;      # SpeciesData for iterate()
+tr_idx      = ti.transition_idx;
+mol_mass    = ti.mol_mass;          # from built-in table (28.0)
+
+b_sca       = ti.doppler_b( temperature );
+sigma_co    = ti.cross_section( temperature );
+n_species   = ( tau0_slab / x_cross_cm[ 0 ] ) / sigma_co;   # cm^-3
+
+ti.show_transition(  );
+print( 'n_species = %.2e cm^-3' % n_species );
+
+############################################################
+#  4. Fields (line-independent only; line-dependent computed by species)
 
 shape3d = ( n_cell[ 2 ], n_cell[ 1 ], n_cell[ 0 ] );   # (nz, ny, nx)
 fields  = {
@@ -86,10 +100,10 @@ fields  = {
 };
 
 ############################################################
-#  4. Photons (9-column: x,y,z, dx,dy,dz, proper, vel, sv)
+#  5. Photons (9-column: x,y,z, dx,dy,dz, proper, vel, sv)
 
 n_photon = 20000;
-lam      = 2.6e-1;   # CO J=1->0 ~ 2.6 mm [cm]
+lam      = ti.transition.wavelength_um * 1e-4;   # CO J=1->0 [cm]
 sigma    = b_sca / sqrt( 2 );
 F0_cgs   = 1e6;   # Photon number fluxes in photon/cm^2/s
 L0       = F0_cgs * ( ( x_max[ 1 ] - x_min[ 1 ] ) *
@@ -101,19 +115,6 @@ ph[ :, 2 ] = random.uniform( x_min[ 2 ], x_max[ 2 ], n_photon );
 ph[ :, 3 ] = 1.0;
 ph[ :, 6 ] = L0 / n_photon;
 ph[ :, 8 ] = sigma;
-
-############################################################
-#  5. Species
-
-lamda_path = os.path.join( line_rt._PIPELINE_DIR, 'molecular', \
-                           'embedded', 'co.dat' );
-co, tr     = load_species_transition( lamda_path, freq_GHz = 115.271202 );
-tr_idx     = co.find_transition_idx( tr );
-sigma_co   = co.cross_section( 0, b_sca );
-n_species  = ( tau0_slab / x_cross_cm[ 0 ] ) / sigma_co;   # cm^-3
-
-print( 'CO J=%s->%s, n_species=%.2e cm^-3' % ( tr.upper, tr.lower, \
-                                                n_species ) );
 
 ############################################################
 #  6. Run
@@ -152,7 +153,8 @@ hl_results = {
 
 outpath = os.path.join( os.path.dirname( __file__ ), \
                         'plane_parallel_lowlevel_results.png' );
-default_plot( hl_results, output_path = outpath );
+default_plot( hl_results, transition_info = ti, \
+              output_path = outpath );
 print( '\nResults saved to %s' % outpath );
 
 for k, res in enumerate( results ):
