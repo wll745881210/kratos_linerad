@@ -14,6 +14,9 @@ line-rt --species CO --n-species 1e4 --temperature 100 \
     --source-type slab --source-x -5.0 --flux 1e-3 --wavelength 2.6e-2
 """
 
+############################################################
+#  Header: Imports
+
 import argparse; \
 import os; \
 import sys; \
@@ -25,6 +28,8 @@ if _PROJECT not in sys.path:
     sys.path.insert( 0, _PROJECT );
 
 from core.line_rt import LineRt;
+from molecular.transition_info import TransitionInfo, \
+    show_available_species, show_available_transitions;
 
 
 ############################################################
@@ -59,12 +64,20 @@ def main( ):
                     help = 'Species name (e.g. CO) or LAMDA .dat path' );
     s.add_argument( '--transition-idx', type = int, default = 0, \
                     help = 'Transition index (default: 0)' );
+    s.add_argument( '--freq-ghz', type = float, default = None, \
+                    help = 'Select transition by frequency [GHz] ' \
+                           '(overrides --transition-idx)' );
     s.add_argument( '--n-species', type = float, default = None, \
                     help = 'Number density [cm^-3]' );
     s.add_argument( '--temperature', type = float, default = None, \
                     help = 'Gas temperature [K]' );
-    s.add_argument( '--mol-mass', type = float, default = 28.0, \
-                    help = 'Molecular mass [amu] (default: 28)' );
+    s.add_argument( '--mol-mass', type = float, default = None, \
+                    help = 'Molecular mass [amu] ' \
+                           '(default: built-in species table)' );
+    s.add_argument( '--list-species', action = 'store_true', \
+                    help = 'List available species and exit' );
+    s.add_argument( '--list-transitions', default = None, \
+                    help = 'List transitions of a species and exit' );
 
     ############################################################
     # Explicit opacity (Group 2)
@@ -142,15 +155,32 @@ def main( ):
     vel    = tuple( float( v ) for v in args.vel.split( ) );
 
     ############################################################
+    # Species helpers (Group 1)
+    if args.list_species:
+        show_available_species( );
+        return;
+    if args.list_transitions:
+        show_available_transitions( args.list_transitions );
+        return;
+
+    ti = None;
+    if args.species is not None:
+        ti = TransitionInfo(
+            args.species,
+            transition_idx = args.transition_idx,
+            freq_GHz       = args.freq_ghz,
+            mol_mass       = args.mol_mass, );
+
+    ############################################################
     # Build LineRt
     rt_obj = LineRt(
         n_cell          = n_cell, x_min = x_min, x_max = x_max,
         unit_l0         = args.unit_l0, unit_t0 = args.unit_t0,
-        species         = args.species, transition_idx = args.transition_idx,
+        transition_info = ti,
         n_species       = args.n_species, temperature = args.temperature,
         b_sca           = args.b_sca, mfp_i_sca_0 = args.mfp_i_sca_0,
         mfp_i_abs_0     = args.mfp_i_abs_0,
-        vel             = vel, mol_mass = args.mol_mass,
+        vel             = vel,
         a_voigt         = args.a_voigt,
         ph_mode         = args.ph_mode,
         n_step          = args.n_step, n_scat = args.n_scat,

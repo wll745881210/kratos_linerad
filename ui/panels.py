@@ -111,7 +111,6 @@ def fields_panel( mesh = None ):
         w[ 'mfp_i_abs_0' ],
         w[ 'b_sca' ],
         w[ 'temperature' ],
-        w[ 'mol_mass' ],
         widgets.HBox( [ preview_button ] ),
         slice_output,
     ] );

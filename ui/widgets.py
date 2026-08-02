@@ -92,8 +92,6 @@ def fields_widgets( mesh = None ):
                                             description = 'Temp (K):' ),
         'n_fld'        : widgets.IntText( value = 1, \
                                           description = 'N Fld:' ),
-        'mol_mass'     : widgets.FloatText( value = 28.0, \
-                                            description = 'Mol Mass:' ),
     };
     if mesh is not None:
         w[ 'mesh' ] = mesh;

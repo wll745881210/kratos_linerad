@@ -8,6 +8,8 @@ Run from ``/tmp/line_rt``:
 
     python3 docs/examples/plane_parallel_lowlevel.py
 """
+############################################################
+#  Header: Imports
 
 import os, sys;
 _PROJECT = os.path.dirname( os.path.dirname( os.path.dirname( \

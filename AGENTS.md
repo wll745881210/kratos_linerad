@@ -28,7 +28,9 @@ HTTP proxy for external downloads: `http://127.0.0.1:7892`. Use `export http_pro
 
 ## Architecture: two-level API
 
-**High level — `LineRt` class** (`core/line_rt.py:25`): single-entry-point orchestrator. Configure geometry, species/source via constructor + `add_source()`, then call `run()`. Handles mesh creation, field resolution, photon generation, consistency checks, and the full MC → population → MC cycle loop. This is what README examples and the CLI use.
+**High level — `LineRt` class** (`core/line_rt.py:25`): single-entry-point orchestrator. Configure geometry, sources via constructor + `add_source()`, then call `run()`. Handles mesh creation, field resolution, photon generation, consistency checks, and the full MC → population → MC cycle loop. This is what README examples and the CLI use.
+
+**Species selection — `TransitionInfo`** (`molecular/transition_info.py`): pass `transition_info = ti` to the `LineRt` constructor to use the species-based (Group 1) configuration. `TransitionInfo` resolves the species data, transition index, molecular mass (built-in table), and auto-wavelength (`add_source()` defaults `wavelength` to the transition wavelength when given). Constructor: `TransitionInfo( species, transition_idx = 0, *, value = None, unit = None, freq_GHz = None, mol_mass = None )` — the transition can be picked by index, by `freq_GHz`, or by `value`+`unit` (`GHz`/`THz` for frequency, `cm`/`mm`/`um`/`nm`/`angstrom` for wavelength, `eV`/`erg` for photon energy; all converted to frequency and matched via `specify_transition()`). No `species`/`transition_idx`/`mol_mass` arguments on `LineRt` — mol_mass comes only from `TransitionInfo` (explicit arg or table; `MolecularMassError` if unknown).
 
 **Low level — `iterate()`** (`core/iterator.py:16`): bare loop over writes→run→read→update. Takes raw arrays; no species resolution or source generation. `LineRt.run()` delegates to this.
 
@@ -252,7 +254,7 @@ Full research record: `~/scratch/line_rt/fiducial/neufeld_test.md`
 
 ## Common pitfalls
 
-1. **Two-group validation rule.** `LineRt.run()` calls `check_consistency()` (`core/consistency.py:43`). You MUST provide either **Group 1** (species + n_species + temperature) or **Group 2** (b_sca + mfp_i_sca_0). Group 1 takes precedence. If both incomplete, `ConsistencyError` is raised. **Adding a new mode or parameter? Add it to `check_consistency()` too.**
+1. **Two-group validation rule.** `LineRt.run()` calls `check_consistency()` (`core/consistency.py:43`). You MUST provide either **Group 1** (via `transition_info` + n_species + temperature) or **Group 2** (b_sca + mfp_i_sca_0). Group 1 takes precedence. If both incomplete, `ConsistencyError` is raised. **Adding a new mode or parameter? Add it to `check_consistency()` too.**
 2. **Don't derive absorption opacity from `cross_section()`.** `mfp_i_abs_0` must come from `base_fields`.
 3. **Don't add `b_abs` back.** It was intentionally removed everywhere.
 4. **Always run Kratos from a per-run subdir of `/tmp/line_rt/`** where the binary field/photon files live.

@@ -97,7 +97,8 @@ def _extract_field( results, field, unit_l0 = 1.0, unit_t0 = 1.0 ):
 
 def default_plot( results, fields = None, slice_plane = 'z', \
                   slice_idx = None, ax = None, figsize = None, \
-                  output_path = None, dyn_range = False ):
+                  output_path = None, dyn_range = False, \
+                  transition_info = None ):
     """Multi-panel default plot for LineRt results.
 
     2-column layout; number of rows = ceil(len(fields)/2).
@@ -116,6 +117,8 @@ def default_plot( results, fields = None, slice_plane = 'z', \
     dyn_range : bool  if True, apply logarithmic dynamic-range constraints
         (upper = 10^ceil(log10(max)); lower = 10^(upper_dex - clip(span,1,6))).
         If False (default), use unconstrained log scale.
+    transition_info : TransitionInfo or None  when given, labels the
+        spectrum panel with the species and J levels (e.g. "CO J=1->0").
     """
     if fields is None:
         fields = list( _DEFAULT_FIELDS );
@@ -146,6 +149,11 @@ def default_plot( results, fields = None, slice_plane = 'z', \
 
         if is_spectrum:
             _draw_spectrum( ax_i, results );
+            if transition_info is not None:
+                tr = transition_info.transition;
+                title = '%s J=%d->%d' \
+                        % ( transition_info.species_data.name, \
+                            tr.upper, tr.lower );
             ax_i.set_title( title );
             continue;
 

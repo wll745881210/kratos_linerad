@@ -5,8 +5,11 @@ pipeline. Users configure geometry, species, sources, and RT parameters
 via __init__ and add_source(), then call run() to execute.
 
 Usage:
-    rt = LineRt(species="CO", n_species=1e4, temperature=100.0)
-    rt.add_source(n_photon=50000, luminosity=0.8*Lsun, wavelength=2.6e-1)
+    from molecular.transition_info import TransitionInfo
+    ti = TransitionInfo( "CO", 0 )
+    rt = LineRt( transition_info = ti, \
+                 n_species = 1e4, temperature = 100.0 )
+    rt.add_source( n_photon = 50000, luminosity = 0.8 * Lsun )
     results = rt.run()
 """
 
@@ -16,9 +19,7 @@ from numpy import asarray, zeros, full, arange, meshgrid, sqrt, maximum, \
                   ones_like, random, ndarray, float64;
 
 from .source import make_cartesian_mesh
-from .fields import uniform_field
-from .species_db import load_species
-from .consistency import check_consistency, ConsistencyError, _compute_b
+from .consistency import check_consistency
 
 h_cgs = 6.62607015e-27;    # Planck constant [ erg s ]
 c_cgs = 2.99792458e10;     # speed of light [ cm / s ]
@@ -44,10 +45,11 @@ class LineRt:
         Length unit in CGS (cm per code-length).
     unit_t0 : float
         Time unit in CGS (s per code-time).
-    species : str | SpeciesData | None
-        LAMDA species name (e.g. "CO") or pre-loaded SpeciesData.
-    transition_idx : int
-        0-based index into species transitions.
+    transition_info : TransitionInfo or None
+        Species + transition + molecular mass bundle (see
+        molecular.transition_info). Pass it to use the species-based
+        (Group 1) configuration; LineRt then resolves the transition
+        index, molecular mass, and auto-wavelength from it.
     n_species : float | callable | None
         Number density of the scatterer [cm⁻³]. If callable, receives an
         ``(n_tot, 3)`` array of CGS cell-centre coordinates and returns an
@@ -67,8 +69,6 @@ class LineRt:
     vel : tuple | None
         Bulk velocity (vx, vy, vz) [cm/s]. Each component: float | callable.
         Callables receive ``(n_tot, 3)`` CGS coords.
-    mol_mass : float
-        Molecular mass [amu] for computing b_sca from temperature.
     a_voigt : float or None
         Voigt damping parameter a. If None (default), uses pure Gaussian
         profile.
@@ -94,10 +94,10 @@ class LineRt:
     def __init__( self, *, n_cell = ( 64, 2, 2 ), \
                   x_min = ( -5., 0., 0. ), x_max = ( 5., 0.2, 0.2 ), \
                   unit_l0 = 1.49598e13, unit_t0 = 1.0, \
-                  species = None, transition_idx = 0, \
+                  transition_info = None, \
                   n_species = None, temperature = None, \
                   b_sca = None, mfp_i_sca_0 = None, \
-                  mfp_i_abs_0 = 0.0, vel = None, mol_mass = 28.0, \
+                  mfp_i_abs_0 = 0.0, vel = None, \
                   a_voigt = None, ph_mode = 0, n_step = 10000, \
                   n_scat = 10000, n_fld = 1, n_cycles = 3, \
                   path = None, visualize = True, n_emission_max = 10, \
@@ -107,16 +107,16 @@ class LineRt:
         self._x_max          = tuple( x_max );
         self._unit_l0        = unit_l0;
         self._unit_t0        = unit_t0;
-        self._species_name   = species;
+        self._transition_info = transition_info;
         self._species_obj    = None;
-        self._transition_idx = transition_idx;
+        self._transition_idx = 0;
         self._n_species      = n_species;
         self._temperature    = temperature;
         self._b_sca          = b_sca;
         self._mfp_i_sca_0    = mfp_i_sca_0;
         self._mfp_i_abs_0    = mfp_i_abs_0;
         self._vel            = vel;
-        self._mol_mass       = mol_mass;
+        self._mol_mass       = None;
         self._a_voigt        = a_voigt;
         self._ph_mode        = ph_mode;
         self._n_step         = n_step;
@@ -187,6 +187,8 @@ class LineRt:
         wavelength : float or None
             Line-centre wavelength [cm]. Converts energetic flux/luminosity
             to photon-number flux/luminosity via E_ph = hc/λ.
+            If None and transition_info was given, defaults to the
+            transition wavelength (c / nu).
         x : float or None (slab)
             x-coordinate of the source plane.
         direction : str (slab)
@@ -203,6 +205,10 @@ class LineRt:
             Initial photon intrinsic Doppler width [cm/s] (sv).
             0 → monochromatic at line centre.
         """
+        if wavelength is None and self._transition_info is not None:
+            wavelength = c_cgs / ( self._transition_info.transition.freq_GHz \
+                                   * 1e9 );
+
         src = { 'type'      : type, \
                 'n_photon'  : n_photon, \
                 'luminosity': luminosity, \
@@ -296,7 +302,7 @@ class LineRt:
             n_scat = self._n_scat, ph_mode = self._ph_mode, \
             work_dir = work_dir, n_species = n_species_val, \
             transition_idx = self._transition_idx, \
-            mol_mass = self._mol_mass, \
+            mol_mass = self._mol_mass or 28.0, \
             unit_l0 = self._unit_l0, unit_t0 = self._unit_t0, \
             n_emission_max = self._n_emission_max, \
             callback = self._snapshot, par_overrides = par_overrides );
@@ -351,12 +357,12 @@ class LineRt:
         return X, Y, Z;
 
     def _resolve_species( self ):
-        if self._species_name is None:
+        if self._transition_info is None:
             return;
-        if isinstance( self._species_name, str ):
-            self._species_obj = load_species( self._species_name );
-        else:
-            self._species_obj = self._species_name;
+        self._species_obj = self._transition_info.species_data;
+        self._transition_idx = self._transition_info.transition_idx;
+        if self._mol_mass is None:
+            self._mol_mass = self._transition_info.mol_mass;
 
     def _check( self ):
         check_consistency( \
@@ -367,7 +373,7 @@ class LineRt:
             b_sca = self._b_sca, \
             mfp_i_sca_0 = self._mfp_i_sca_0, \
             sources = self._sources, \
-            mol_mass = self._mol_mass, \
+            mol_mass = self._mol_mass or 28.0, \
             unit_l0 = self._unit_l0, unit_t0 = self._unit_t0 );
 
     def _build_mesh( self ):
@@ -391,7 +397,8 @@ class LineRt:
             temp_vals = self._resolve_field( self._temperature, XYZ );
             b_vals = sqrt( 2.0 * 1.380649e-16 * \
                            maximum( temp_vals, 0.1 ) / \
-                           ( self._mol_mass * 1.67262192e-24 ) );
+                           ( ( self._mol_mass or 28.0 ) * \
+                             1.67262192e-24 ) );
             return b_vals;
         return full( XYZ[ 0 ].shape, 1e5, dtype = float64 );
 
@@ -545,4 +552,4 @@ class LineRt:
 
     def _plot_results( self, out ):
         from .visualize import default_plot
-        default_plot( out );
+        default_plot( out, transition_info = self._transition_info );

@@ -9,6 +9,9 @@ Run from ``/tmp/line_rt``:
     python3 docs/examples/plane_parallel_hl.py
 """
 
+############################################################
+#  Header: Imports
+
 import os, sys;
 _PROJECT = os.path.dirname( os.path.dirname( os.path.dirname( \
                                  os.path.realpath( __file__ ) ) ) );
@@ -20,7 +23,7 @@ matplotlib.use( 'Agg' );
 from numpy import full, zeros, sqrt, max as np_max, float64;
 
 from core.line_rt              import LineRt;
-from molecular.lamda_format    import load_species_transition;
+from molecular.transition_info import TransitionInfo;
 from core.visualize            import default_plot;
 
 ############################################################
@@ -33,7 +36,6 @@ AU = 1.49598e13;   # AU in cm
 
 tau0_slab   = 1e1;
 b_sca       = 1.0e5;
-mol_mass    = 28.0;
 temperature = 2.0;
 
 ############################################################
@@ -43,10 +45,9 @@ temperature = 2.0;
 #  LineRt computes sigma_co internally from species + b_sca, so we
 #  pass n_species as a callable that returns the same constant.
 
-lamda_path = os.path.join( _PROJECT, 'molecular', 'embedded', 'co.dat' );
-co, tr     = load_species_transition( lamda_path, freq_GHz = 115.271202 );
-tr_idx     = co.find_transition_idx( tr );
-sigma_co   = co.cross_section( 0, b_sca );
+ti         = TransitionInfo( 'CO', 0 );      # CO J=1->0 (idx 0)
+tr         = ti.transition;
+sigma_co   = ti.species_data.cross_section( 0, b_sca );
 L_slab_cm  = 10.0 * AU;   # x_min=-5, x_max=5 -> L=10 AU
 n_species  = ( tau0_slab / L_slab_cm ) / sigma_co;   # cm^-3
 n_cycle    = 3;
@@ -68,7 +69,7 @@ rt = LineRt(
     x_max        = (  8,  2, 0.2 ),
     unit_l0      = AU, unit_t0 = 1.0,
 
-    species       = 'CO', transition_idx = tr_idx,
+    transition_info = ti,
     n_species     = n_total_callable,
     temperature   = temperature_callable,
     b_sca         = b_sca,
@@ -76,21 +77,27 @@ rt = LineRt(
 
     ph_mode       = 2,           # R_IIA const-mem (production)
     n_step        = 20000, n_scat = 10000, n_cycles = n_cycle,
-    mol_mass      = mol_mass,
     visualize     = False,
 );
 rt.set_boundary( 'fre fre per per per per' );
 
 ############################################################
-#  3. Source (flux-based, matching lowlevel)
+#  3. Source (energetic flux, matching lowlevel)
 #
 #  Lowlevel: F0 = 1e6 photon/cm^2/s, sv = b_sca/sqrt(2), x=-4.999
+#  With transition_info set, a bare flux is interpreted as
+#  energetic flux at the auto-λ line centre, so convert the
+#  photon-number flux to erg/cm^2/s via E_ph = h*c/lambda.
+
+h_cgs = 6.62607015e-27;   # Planck constant [erg s]
+c_cgs = 2.99792458e10;    # speed of light [cm/s]
 
 F0_cgs = 1e6;   # photon number flux [photons cm^-2 s^-1]
+E_ph   = h_cgs * c_cgs / ( tr.wavelength_um * 1e-4 );
 rt.add_source(
     type     = 'slab', x = -5, direction = '+x',
     n_photon = 20000,
-    flux     = F0_cgs,            # photon number flux (no wavelength)
+    flux     = F0_cgs * E_ph,   # energetic flux [erg cm^-2 s^-1]
     sigma    = b_sca / sqrt( 2 ),
 );
 
