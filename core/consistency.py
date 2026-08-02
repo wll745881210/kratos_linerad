@@ -102,6 +102,16 @@ def check_consistency( *, species = None, transition_idx = 0, \
             problems.append( "temperature is required when species is " \
                              "specified" );
 
+        #  b_sca is redundant in Group 1: it is derived from temperature
+        #  and molecular mass.  Reject it to avoid silent inconsistency.
+        if g1_temp and b_sca is not None:
+            print( "  b_sca    : %s cm/s  ✗ REDUNDANT" \
+                   % _fmt_field( b_sca ) );
+            problems.append( \
+                "b_sca is redundant when species + temperature are " \
+                "given (b_sca is derived from T and mol_mass). " \
+                "Remove b_sca to use Group 1." );
+
         if g1_n_species and g1_temp:
             g1_ok = True;
 

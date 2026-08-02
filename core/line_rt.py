@@ -59,8 +59,9 @@ class LineRt:
         Gas temperature [K]. Required when species is given. If callable,
         receives ``(n_tot, 3)`` CGS coords and returns ``(n_tot,)`` array.
     b_sca : float | callable | None
-        Doppler b-parameter [cm/s]. Auto-computed from T if species given.
-        If callable, receives ``(n_tot, 3)`` CGS coords.
+        Doppler b-parameter [cm/s]. Only for Group 2 (no species).
+        In Group 1 (species + temperature), b_sca is derived from T
+        and mol_mass; passing it here raises a ConsistencyError.
     mfp_i_sca_0 : float | callable | None
         Inverse scattering mean free path [cm⁻¹]. Required if no species.
         If callable, receives ``(n_tot, 3)`` CGS coords.
@@ -93,8 +94,8 @@ class LineRt:
                                     populations=pops).
     kratos_root : str or None
         Path to the Kratos build tree root (containing ``bin/kratos``).
-        If None, falls back to the ``KRATOS_ROOT`` env var, then the
-        default ``~/apps/kratos_line_rt``.
+        If None, falls back to the ``KRATOS_ROOT`` env var.  One of the
+        two MUST be set (no default).
     """
 
     def __init__( self, *, n_cell = ( 64, 2, 2 ), \
@@ -105,7 +106,7 @@ class LineRt:
                   b_sca = None, mfp_i_sca_0 = None, \
                   mfp_i_abs_0 = 0.0, vel = None, \
                   a_voigt = None, ph_mode = 0, n_step = 10000, \
-                  n_scat = 10000, n_fld = 1, n_cycles = 3, \
+                  n_scat = 10000, n_fld = 1, n_cycles = 1, \
                   path = None, visualize = True, n_emission_max = 10, \
                   snapshot = None, kratos_root = None ):
         self._n_cell         = tuple( n_cell );
@@ -234,7 +235,7 @@ class LineRt:
     ########################################################
     # Run
 
-    def run( self, **overrides ):
+    def run( self, n_cycles = None, **overrides ):
         """Run the RT simulation and return results.
 
         Returns
@@ -250,6 +251,10 @@ class LineRt:
         """
         self._resolve_species( );
         self._check( );
+
+        if n_cycles is not None:
+            self._n_cycles = n_cycles;
+        #
 
         mesh = self._build_mesh( );
         species = self._species_obj;

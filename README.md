@@ -152,7 +152,7 @@ Additional species are auto-downloaded on first use to
   full optical-depth treatment with MC -> population -> MC cycles.
 - **Multi-level species** - LAMDA-based level populations with optional
   collisional rates.
-- **GPU acceleration** - Kratos CUDA backend (ph_mode 0/1/2/3).
+- **GPU acceleration** - Kratos CUDA/HIP/MUSA backend
 - **Validation** - regression tests against Neufeld (1990) analytic
   solutions; see `~/apps/kratos_line_rt/usr_ext/line_rt/tests/`.
 

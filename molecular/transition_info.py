@@ -11,6 +11,7 @@
 #  machinery.
 
 import os;
+from math import sqrt;
 
 from .lamda_format import SpeciesData, load_lamda, specify_transition;
 from .lamda_fetcher import CACHE_DIR, get_cached_species;
@@ -36,6 +37,8 @@ _MOL_MASS = { 'CO'    : 28.0, 'OH'    : 17.0, 'H2O'   : 18.0, \
 
 _C_CGS = 2.99792458e10;      # speed of light [cm/s]
 _H_CGS = 6.62607015e-27;     # Planck constant [erg s]
+_K_B   = 1.380649e-16;       # Boltzmann constant [erg/K]
+_M_P   = 1.67262192e-24;     # proton mass [g]
 
 _FREQ_UNITS    = { 'GHz' : 1.0e0, 'THz' : 1.0e3 };  # multiplier to GHz
 _WAVE_TO_CM    = { 'cm' : 1.0e0, 'mm' : 1.0e-1, 'um' : 1.0e-4, \
@@ -166,9 +169,48 @@ class TransitionInfo:
         """The resolved SpeciesData object."""
         return self._species_data;
 
+    def cross_section( self, temperature ):
+        """Line-centre cross section σ₀ at a given temperature.
+
+        Computes the Doppler b-parameter from ``temperature`` and the
+        molecular mass, then delegates to
+        ``species_data.cross_section(transition_idx, b)``.
+
+        Parameters
+        ----------
+        temperature : float
+            Gas temperature [K].
+
+        Returns
+        -------
+        float
+            Line-centre cross section σ₀ [cm²].
+        """
+        b = self.doppler_b( temperature );
+        return self._species_data.cross_section( self._transition_idx, b );
+
+    def doppler_b( self, temperature ):
+        """Doppler b-parameter from temperature and molecular mass.
+
+        b = sqrt(2 * k_B * T / (mol_mass * m_p))  [cm/s]
+
+        Parameters
+        ----------
+        temperature : float
+            Gas temperature [K].
+
+        Returns
+        -------
+        float
+            Doppler b-parameter [cm/s].
+        """
+        return sqrt( 2.0 * _K_B * float( temperature ) / \
+                     ( self.mol_mass * _M_P ) );
+
     def show_transition( self ):
         """Print the resolved transition in detail."""
         tr = self.transition;
+        print( '========================================' );
         print( 'Species     : %s' % self.species );
         print( 'Transition  : idx=%d  %d -> %d' \
                % ( self._transition_idx, tr.upper, tr.lower ) );
@@ -178,16 +220,17 @@ class TransitionInfo:
         print( '  E_u/K     : %.2f K' % tr.E_u_K );
         print( '  mol_mass  : %.1f amu (%s)' \
                % ( self.mol_mass, self._mol_mass_source ) );
-        print( 'Available   : %s' % ', '.join( _available_species( ) ) );
+        print( '========================================' );        
 
     def show_transitions( self ):
         """Print the full transition table of this species."""
+        print( 'Available : %s' % ', '.join( _available_species( ) ) );
         print( self._species_data.show_transitions( ) );
 
     def show( self ):
         """show_transition( ) then show_transitions( )."""
-        self.show_transition( );
-        self.show_transitions( );
+        self.show_transition (  );
+        self.show_transitions(  );
 
 
 ############################################################
