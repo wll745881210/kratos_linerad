@@ -3,7 +3,7 @@ from typing   import List, Dict, Optional, NamedTuple
 from numpy    import array, asarray, zeros, zeros_like, ones, full, \
                      where, interp, exp, pi, maximum, ceil, prod, \
                      random, sqrt, arccos, sin, cos, ndarray, float64, \
-                     int64;
+                     int64, mean;
 
 
 h_cgs   = 6.62607015e-27;      # Planck constant [ erg s ]
@@ -330,23 +330,34 @@ class SpeciesData:
                         for i in range( self.n_levels ) ) );
         n_total = asarray( n_total, dtype = float64 );
         shape = n_total.shape;
+        #  Use the gas Doppler b from base_fields (CGS) for the opacity,
+        #  not the hardcoded default.  Fall back only when absent.
+        if base_fields and 'b_sca' in base_fields:
+            b_field = asarray( base_fields[ 'b_sca' ], dtype = float64 );
+            b_sca_val = float( mean( b_field ) ) if b_field.size else 1e5;
+        else:
+            b_sca_val = 1e5;
         mfp_i_sca = self.compute_opacity( populations, \
+                                          b_sca = b_sca_val, \
                                           transition_idx = transition_idx );
         v_factor = unit_t0 / unit_l0;
         fields = { };
         if base_fields:
             for k, v in base_fields.items( ):
                 arr = asarray( v, dtype = float64 ).copy( );
-                if k == 'mfp_i_sca_0' or k == 'mfp_i_abs_0':
+                if k == 'mfp_i_abs_0':
                     arr *= unit_l0;
                 elif k in ( 'b_sca', ) or k.startswith( 'vel_' ):
                     arr *= v_factor;
                 elif k == 'temp':
                     pass;
+                else:
+                    continue;   # mfp_i_sca_0 is recomputed below
                 fields[ k ] = arr;
-        if 'mfp_i_sca_0' not in fields:
-            fields[ 'mfp_i_sca_0' ] = asarray( mfp_i_sca, \
-                                               dtype = float64 ) * unit_l0;
+        #  mfp_i_sca_0 is ALWAYS recomputed from the (possibly evolved)
+        #  populations, even if base_fields carried an earlier value.
+        fields[ 'mfp_i_sca_0' ] = asarray( mfp_i_sca, \
+                                           dtype = float64 ) * unit_l0;
         if 'b_sca' not in fields:
             fields[ 'b_sca' ] = full( shape, 1e5 * v_factor, \
                                       dtype = float64 );

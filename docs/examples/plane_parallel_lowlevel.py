@@ -56,9 +56,9 @@ m0 = ma * l0**3;
 ############################################################
 #  1. Mesh
 
-x_min  = ( -5, 0,   0   );
-x_max  = (  5, 0.2, 0.2 );
-n_cell = ( 64, 2,   2   );
+x_min  = ( -8, -2, 0   );
+x_max  = (  8,  2, 0.2 );
+n_cell = ( 64, 16, 2   );
 mesh   = make_cartesian_mesh\
        ( n_cell = n_cell, x_min = x_min, x_max = x_max );
 n_tot  = mesh[ 'n_tot' ];
@@ -66,9 +66,8 @@ n_tot  = mesh[ 'n_tot' ];
 ############################################################
 #  2. Physical parameters
 
-tau0_slab   = 10.0;
-temperature = 2;   # Kelvin
-x_cross_cm  = [ ( x_max[ a ] - x_min[ a ] ) * l0 for a in range( 3 ) ];
+tau0_slab   = 1e1;
+temperature = 2.7;   # Kelvin
 
 ############################################################
 #  3. Species (TransitionInfo resolves species data, the
@@ -81,7 +80,8 @@ mol_mass    = ti.mol_mass;          # from built-in table (28.0)
 
 b_sca       = ti.doppler_b( temperature );
 sigma_co    = ti.cross_section( temperature );
-n_species   = ( tau0_slab / x_cross_cm[ 0 ] ) / sigma_co;   # cm^-3
+L_slab_cm   = 10.0 * AU;   # same convention as the hl example
+n_species   = ( tau0_slab / L_slab_cm ) / sigma_co;   # cm^-3
 
 ti.show_transition(  );
 print( 'n_species = %.2e cm^-3' % n_species );
@@ -105,15 +105,17 @@ fields  = {
 n_photon = 20000;
 lam      = ti.transition.wavelength_um * 1e-4;   # CO J=1->0 [cm]
 sigma    = b_sca / sqrt( 2 );
-F0_cgs   = 1e6;   # Photon number fluxes in photon/cm^2/s
-L0       = F0_cgs * ( ( x_max[ 1 ] - x_min[ 1 ] ) *
-                      ( x_max[ 2 ] - x_min[ 2 ] ) ) * l0**2 / ( t0**-1 );
+F0_cgs   = 1e6;   # Photon number flux [photons cm^-2 s^-1]
+#  Slab source: plane x = -5, spanning y in (-2,2), z in (0,0.2),
+#  direction +x.  proper per packet = flux * area / n_photon.
+source_area_cm2 = ( x_max[ 1 ] - x_min[ 1 ] ) * \
+                  ( x_max[ 2 ] - x_min[ 2 ] ) * l0**2;
 ph = zeros( ( n_photon, 9 ), dtype = float64 );
-ph[ :, 0 ] = -4.999;
+ph[ :, 0 ] = -5.0;
 ph[ :, 1 ] = random.uniform( x_min[ 1 ], x_max[ 1 ], n_photon );
 ph[ :, 2 ] = random.uniform( x_min[ 2 ], x_max[ 2 ], n_photon );
 ph[ :, 3 ] = 1.0;
-ph[ :, 6 ] = L0 / n_photon;
+ph[ :, 6 ] = F0_cgs * source_area_cm2 / n_photon;
 ph[ :, 8 ] = sigma;
 
 ############################################################
