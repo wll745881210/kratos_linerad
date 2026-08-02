@@ -137,6 +137,7 @@ class LineRt:
         self._kratos_root    = kratos_root;
         self._sources        = [ ];
         self._boundary_kinds = 'fre fre fre fre fre fre';
+        self._results        = None;
 
     ########################################################
     # Boundary configuration
@@ -427,15 +428,27 @@ class LineRt:
 
         Parameters
         ----------
-        out : dict  the dict returned by LineRt.run().
+        out : dict, optional  the dict returned by LineRt.run().  When
+            omitted, plots the cached results of the most recent run().
         All other parameters mirror default_plot().
 
         Returns
         -------
         (fig, axes) as returned by default_plot.
+
+        Notes
+        -----
+        ``run()`` caches its return value in ``self._results``, so
+        ``out`` may be omitted to plot the most recent run.  Raises
+        ``ValueError`` if neither ``out`` nor a cached result exists.
         """
         from .visualize import default_plot
-        return default_plot( self._results if out is None else out, \
+        data = out if out is not None else self._results;
+        if data is None:
+            raise ValueError( \
+                "plot_results(): no results to plot — call run() " \
+                "first or pass out=" );
+        return default_plot( data, \
                              fields = fields, \
                              slice_plane = slice_plane, \
                              slice_idx = slice_idx, ax = ax, \

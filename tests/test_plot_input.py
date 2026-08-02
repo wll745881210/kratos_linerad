@@ -125,6 +125,25 @@ def test_plot_results_with_fields( ):
     assert axes.size >= 2;
 
 
+def test_plot_results_cached_out( ):
+    rt = make_rt_group2( );
+    mesh = rt._build_mesh( );
+    rt._results = { 'mesh' : mesh, 'unit_l0' : 1.0, 'unit_t0' : 1.0, \
+                    'b_sca' : 1e5 * np.ones( mesh[ 'n_tot' ] ), \
+                    'mfp_i_sca_0' : 1e-13 * np.ones( mesh[ 'n_tot' ] ) };
+    fig, axes = rt.plot_results( );    # no out -> uses self._results
+    assert axes.size >= 2;
+
+
+def test_plot_results_no_cache( ):
+    rt = make_rt_group2( );
+    try:
+        rt.plot_results( );    # self._results unset -> clear ValueError
+        assert False, "expected ValueError";
+    except ValueError:
+        pass;
+
+
 if __name__ == '__main__':
     import tempfile;
     import traceback;

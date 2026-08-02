@@ -130,8 +130,10 @@ the configured input fields — `n_species`, `temperature` (Group 1),
 `mfp_i_sca_0`, `b_sca`, `mfp_i_abs_0`, and `vel_0..2` (both groups) —
 resolved at cell centres **without running Kratos**, so you can verify
 the input before a run.  Unconfigured fields appear as `(no data)`
-panels.  After a run, `rt.plot_results( results )` plots the run
-output via `default_plot`.
+panels.  After a run, `rt.plot_results( )` plots the run output via
+`default_plot` — the `run()` return value is cached in `rt._results`,
+so the `out` argument is optional (`rt.plot_results( out )` still
+works if you want to plot a specific results dict).
 
 `LineRt` handles all I/O automatically: field binaries, par-file
 templating, and subprocess calls to Kratos.  See
