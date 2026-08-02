@@ -273,6 +273,11 @@ class LineRt:
         self._sources.append( src );
         return self;
 
+    def clear_sources( self ):
+        self._sources.clear(  );
+        return self;
+    #
+
     def show_sources( self ):
         """Print a summary of all registered photon sources."""
         if not self._sources:

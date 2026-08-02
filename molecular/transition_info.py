@@ -13,6 +13,8 @@
 import os;
 from math import sqrt;
 
+from numpy import array, float64;
+
 from .lamda_format import SpeciesData, load_lamda, specify_transition;
 from .lamda_fetcher import CACHE_DIR, get_cached_species;
 
@@ -226,6 +228,84 @@ class TransitionInfo:
         """Print the full transition table of this species."""
         print( 'Available : %s' % ', '.join( _available_species( ) ) );
         print( self._species_data.show_transitions( ) );
+
+    @classmethod
+    def user_defined( cls, *, A_ul, freq_GHz = None, value = None, \
+                      unit = None, g_u = 1.0, g_l = 1.0, \
+                      E_u_K = None, mol_mass = None, \
+                      species_name = 'user_defined' ):
+        """Build a TransitionInfo for a user-defined 2-level transition.
+
+        Use this when the transition of interest is not in the LAMDA
+        database (neither online nor embedded): specify the physical
+        transition parameters directly and get a fully functional
+        ``TransitionInfo`` object, ready to pass to ``LineRt``.
+
+        Parameters
+        ----------
+        A_ul : float
+            Einstein A coefficient [s⁻¹].
+        freq_GHz : float, optional
+            Line frequency [GHz]. Mutually exclusive with (value, unit).
+        value, unit : float, str, optional
+            Alternative frequency specification: wavelength (cm/mm/um/nm/
+            angstrom) or photon energy (eV/erg).  ``unit`` is required
+            whenever ``value`` is given.
+        g_u, g_l : float
+            Statistical weights of the upper and lower level (default 1/1).
+        E_u_K : float, optional
+            Upper-level energy [K].  Defaults to the photon energy
+            h·ν/k_B above the ground state (2-level convention).
+        mol_mass : float, optional
+            Molecular mass [amu].  Optional if ``species_name`` is in the
+            built-in mass table (e.g. ``'CO'``), required otherwise.
+        species_name : str
+            Name stored on the synthetic species; used for the built-in
+            molecular-mass lookup.
+
+        Returns
+        -------
+        TransitionInfo
+            A species-based Group 1 configuration.  Only 2-level species
+            are supported for now (collision-partner data is absent).
+
+        Examples
+        --------
+        >>> ti = TransitionInfo.user_defined( A_ul = 1e-6, \
+                freq_GHz = 115.271, species_name = 'CO' )
+        """
+        if float( A_ul ) <= 0.0:
+            raise ValueError( "A_ul must be positive (got %g)" % A_ul );
+
+        if value is not None or freq_GHz is not None:
+            if freq_GHz is not None:
+                if value is not None:
+                    raise ValueError( \
+                        "Give either (value, unit) or freq_GHz, not both" );
+                freq = float( freq_GHz );
+            else:
+                if unit is None:
+                    raise ValueError( "unit is required when value is given" );
+                freq = _value_to_freq_GHz( value, unit );
+        else:
+            raise ValueError( \
+                "Specify the line frequency via freq_GHz or (value, unit)" );
+
+        if E_u_K is None:
+            E_u_K = _H_CGS * ( freq * 1.0e9 ) / _K_B;
+
+        species = SpeciesData(
+            name          = str( species_name ),
+            n_levels      = 2,
+            n_transitions = 1,
+            levels        = array( [ [ 0.0, float( g_l ) ], \
+                                     [ float( E_u_K ), float( g_u ) ] ], \
+                                   dtype = float64 ),
+            transitions   = array( [ [ 1, 0, float( A_ul ), freq ] ], \
+                                   dtype = float64 ),
+        );
+
+        return cls( species, transition_idx = 0, mol_mass = mol_mass );
 
     def show( self ):
         """show_transition( ) then show_transitions( )."""

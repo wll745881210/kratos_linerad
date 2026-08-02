@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Build synthetic molecular species for analytic testing (Neufeld, etc.)."""
+"""Build synthetic molecular species for analytic testing (Neufeld, etc.).
+
+Note
+----
+``make_synthetic_2level`` is deprecated.  Use
+``TransitionInfo.user_defined(...)`` instead — it builds the same
+2-level species from physical transition parameters (A_ul, frequency,
+g_u/g_l, E_u) and returns a fully functional ``TransitionInfo`` for the
+high-level interface.
+"""
+
+import warnings;
 
 from numpy    import array, sqrt, pi, float64; \
 from .lamda_format import SpeciesData;
@@ -11,11 +22,15 @@ sqrt_pi = 1.77245385091;       # sqrt( pi )
 
 
 ############################################################
-# 2-level synthetic species
+# 2-level synthetic species (deprecated)
 
 def make_synthetic_2level( b, nu, a, *, transition_idx = 0, \
                            species_name = 'synthetic' ):
     """Create a synthetic 2-level species.
+
+    .. deprecated::
+       Use ``TransitionInfo.user_defined( A_ul = ..., freq_GHz = ... )``
+       instead.
 
     Parameters
     ----------
@@ -34,6 +49,11 @@ def make_synthetic_2level( b, nu, a, *, transition_idx = 0, \
     species : SpeciesData
     transition : Transition
     """
+    warnings.warn( \
+        'make_synthetic_2level is deprecated; use '
+        'TransitionInfo.user_defined( A_ul=..., freq_GHz=... ) instead.',
+        DeprecationWarning, stacklevel = 2 );
+
     if not ( 1e-50 < a < 100.0 ):
         raise ValueError( 'a = %g outside valid range (1e-50, 100)' % a );
 

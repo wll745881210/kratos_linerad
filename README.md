@@ -118,6 +118,25 @@ results = rt.run()
 rt.add_source( n_photon = 50000, flux = 1e-3, units = 'energy' )
 ```
 
+**Transition not in the LAMDA database?** Build a species-based Group 1
+configuration from physical transition parameters with
+`TransitionInfo.user_defined( )`:
+
+```python
+ti = TransitionInfo.user_defined(
+    A_ul       = 1.0e-6,          # Einstein A [s^-1]
+    freq_GHz   = 115.271,         # or value + unit (wavelength/energy)
+    g_u        = 3,  g_l = 1,     # degeneracies (default 1/1)
+    species_name = 'CO',          # resolves the molecular mass
+)                                # unknown name -> pass mol_mass
+rt = LineRt( transition_info = ti, n_species = 1e4, temperature = 100.0 )
+```
+
+The species is built as a 2-level system; `E_u/K` defaults to the photon
+energy `h·ν/k_B` (pass `E_u_K` to override).  Everything downstream
+(σ₀, Doppler b, populations, MCRT) works identically to a LAMDA species.
+
+
 Flux/luminosity default to **photon number**; pass `units='energy'`
 for erg-based quantities (the wavelength is taken from
 `transition_info`, so no `wavelength` argument is needed).  `flux` is
