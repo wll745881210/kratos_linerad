@@ -62,7 +62,7 @@ When installed, the same API is available as `from line_rt import LineRt, Transi
 | `docs/reference_mcrt/mcrt.py` | Reference Python MCRT (numba). ph_mode=1 uses USampler table-lookup R_IIA. `plot_neufeld.py` validates vs Neufeld (1990). |
 | `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py` | **Standalone Kratos regression test** (self-contained, no pipeline imports). Wide `aτ₀` sweep vs Neufeld eq (2.24) for ph_modes 1/2/3, golden med\|x\| table, PASS/FAIL exit code. Run: `python3 test_scaling_wide.py --kratos-root ~/apps/kratos_line_rt` |
 | `~/apps/kratos_line_rt/` | Kratos build tree (symlinked to Seafile source) |
-| `~/scratch/line_rt/` | Historical runtime dir; new runs default to per-run subdirs under `/tmp/line_rt/`. `fiducial/` subdir holds reference test records. |
+| `~/scratch/line_rt/` | Historical runtime dir; new runs default to per-run subdirs under `/dev/shm/line_rt/`. `fiducial/` subdir holds reference test records. |
 
 ---
 
@@ -78,7 +78,7 @@ When installed, the same API is available as `from line_rt import LineRt, Transi
 
 ## Running Kratos
 
-**ALWAYS run under a per-run subdir of `/tmp/line_rt/`** (auto-created by the pipeline). The Python pipeline writes field/photon binary files there, and Kratos reads them via the par file's `field_file` / `photon_file` entries. The run directory is printed at startup (e.g. `[LineRt] Run directory: /tmp/line_rt/rt_20260801_120000`).
+**ALWAYS run under a per-run subdir of `/dev/shm/line_rt/`** (auto-created by the pipeline). The Python pipeline writes field/photon binary files there, and Kratos reads them via the par file's `field_file` / `photon_file` entries. The run directory is printed at startup (e.g. `[LineRt] Run directory: /dev/shm/line_rt/rt_20260801_120000`).
 
 Kratos requires a `.par` file. The canonical template lives at:
 
@@ -89,7 +89,7 @@ line_rt_pipeline/core/line_rt_pipeline.par
 Minimal invocation:
 
 ```bash
-cd /tmp/line_rt/<run_dir>
+cd /dev/shm/line_rt/<run_dir>
 ~/apps/kratos_line_rt/bin/kratos <par_file>
 ```
 
@@ -102,7 +102,7 @@ pipeline/a0_test.par
 ```
 
 It can be used as a template for simple MCRT validation runs. Copy it to
-a per-run subdir of `/tmp/line_rt/` and edit `[mesh]`, `[line_rt]` `b_sca`,
+a per-run subdir of `/dev/shm/line_rt/` and edit `[mesh]`, `[line_rt]` `b_sca`,
 and `field_file`/`photon_file` paths as needed.
 
 The `[line_rt]` section must contain:
@@ -277,14 +277,14 @@ from docs.examples.plane_parallel import *
 Or run directly (generates plots):
 
 ```bash
-cd /tmp/line_rt
+cd /dev/shm/line_rt
 python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/examples/plane_parallel_hl.py
 ```
 
 Neufeld validation (Python reference MCRT):
 
 ```bash
-cd /tmp/line_rt
+cd /dev/shm/line_rt
 python3 ~/Seafile/seafile_sync/code/line_rt_pipeline/docs/reference_mcrt/plot_neufeld.py [output_prefix]
 ```
 
@@ -297,7 +297,7 @@ Full research record: `~/scratch/line_rt/fiducial/neufeld_test.md`
 1. **Two-group validation rule.** `LineRt.run()` calls `check_consistency()` (`core/consistency.py:43`). You MUST provide either **Group 1** (via `transition_info` + n_species + temperature) or **Group 2** (b_sca + mfp_i_sca_0). Group 1 takes precedence. If both incomplete, `ConsistencyError` is raised. **Adding a new mode or parameter? Add it to `check_consistency()` too.**
 2. **Don't derive absorption opacity from `cross_section()`.** `mfp_i_abs_0` must come from `base_fields`.
 3. **Don't add `b_abs` back.** It was intentionally removed everywhere.
-4. **Always run Kratos from a per-run subdir of `/tmp/line_rt/`** where the binary field/photon files live.
+4. **Always run Kratos from a per-run subdir of `/dev/shm/line_rt/`** where the binary field/photon files live.
 5. **Always pass a `.par` file.** Kratos won't run without one.
 6. **`compute_opacity()` returns only `mfp_sca`** — a single ndarray, not a tuple.
 7. **One excitation flux → one transition, not all levels.** `solve_populations()` applies F_ext × σ₀ only to the (lower↔upper) pair of the target transition.

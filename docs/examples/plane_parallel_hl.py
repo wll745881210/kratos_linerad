@@ -4,7 +4,7 @@
 Same physics and geometry as ``plane_parallel_lowlevel.py`` but using the
 ``LineRt`` orchestrator instead of the bare ``iterate()`` loop.
 
-Run from ``/tmp/line_rt``:
+Run from ``/dev/shm/line_rt``:
 
     python3 docs/examples/plane_parallel_hl.py
 """
@@ -19,6 +19,7 @@ import importlib.util, os;
 #  with:  from line_rt import LineRt, TransitionInfo, default_plot, AU, Lsun
 _PIPELINE = os.path.join( os.path.dirname( os.path.dirname( \
     os.path.dirname( os.path.realpath( __file__ ) ) ) ), 'line_rt.py' );
+print( _PIPELINE )
 _spec = importlib.util.spec_from_file_location( 'line_rt', _PIPELINE );
 line_rt = importlib.util.module_from_spec( _spec );
 _spec.loader.exec_module( line_rt );

@@ -4,7 +4,7 @@
 Same physics as ``plane_parallel_hl.py`` but using the bare loop
 (``core.iterator.iterate``) directly - no ``LineRt`` orchestrator.
 
-Run from ``/tmp/line_rt``:
+Run from ``/dev/shm/line_rt``:
 
     python3 docs/examples/plane_parallel_lowlevel.py
 """
@@ -123,7 +123,7 @@ results, final_pops = iterate(
     ph, co, fields, mesh, n_cycles = 3,
     n_step = 20000, n_scat = 10000,
     ph_mode = 2,           # R_IIA const-mem (production)
-    work_dir = None,       # auto: /tmp/line_rt/iterate_output
+    work_dir = None,       # auto: /dev/shm/line_rt/iterate_output
     n_species = n_species,
     transition_idx = tr_idx,
     mol_mass = mol_mass,

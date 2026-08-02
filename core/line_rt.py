@@ -20,6 +20,7 @@ from numpy import asarray, zeros, full, arange, meshgrid, sqrt, maximum, \
 
 from .source import make_cartesian_mesh
 from .consistency import check_consistency
+from .pipeline import DEFAULT_RUN_ROOT
 
 h_cgs = 6.62607015e-27;    # Planck constant [ erg s ]
 c_cgs = 2.99792458e10;     # speed of light [ cm / s ]
@@ -81,7 +82,8 @@ class LineRt:
     n_cycles : int
         Number of MC -> population -> MC cycles.
     path : str or None
-        Working directory. Default: per-run subdir under /tmp/line_rt/.
+        Working directory. Default: per-run subdir under /dev/shm/line_rt/
+        (falls back to /tmp/line_rt/ if /dev/shm is unavailable).
     visualize : bool
         If True, automatically plot results after run().
     n_emission_max : int
@@ -451,7 +453,7 @@ class LineRt:
         if self._path is not None:
             os.makedirs( self._path, exist_ok = True );
             return self._path;
-        base = '/tmp/line_rt';
+        base = DEFAULT_RUN_ROOT;
         os.makedirs( base, exist_ok = True );
         import time
         ts = time.strftime( '%Y%m%d_%H%M%S' );

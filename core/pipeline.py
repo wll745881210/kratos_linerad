@@ -20,6 +20,16 @@ from .kratos_io import \
     ( write_field_data, write_photon_data, read_output, \
       write_par_file );
 
+#  Default scratch directory for per-run outputs.
+#  /dev/shm is preferred (tmpfs, RAM-backed) when available, else /tmp.
+def _default_scratch_root( ):
+    shm = '/dev/shm';
+    if os.path.isdir( shm ) and os.access( shm, os.W_OK ):
+        return os.path.join( shm, 'line_rt' );
+    return os.path.join( '/tmp', 'line_rt' );
+
+DEFAULT_RUN_ROOT = _default_scratch_root( );
+
 from numpy import asarray, int32, float32, float64, nan_to_num
 
 #  Kratos binary location is NOT hardcoded.  Set it via:
@@ -201,7 +211,7 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
     mesh : dict from make_cartesian_mesh()
     work_dir : str
         Output directory.  If None, a per-run subdir under
-        /tmp/line_rt/ is created.
+        /dev/shm/line_rt/ (or /tmp/line_rt/ as fallback) is created.
     n_cycles : int
     n_photon : int
     n_step, n_scat : int
@@ -221,7 +231,7 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
     final_populations : dict
     """
     if  work_dir is None:
-        work_dir = os.path.join( '/tmp/line_rt', \
+        work_dir = os.path.join( DEFAULT_RUN_ROOT, \
             'run_%s' % time.strftime( '%Y%m%d_%H%M%S' ) );
     #
     os.makedirs( work_dir, exist_ok = True );

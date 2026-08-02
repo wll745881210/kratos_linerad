@@ -138,7 +138,7 @@ def main( ):
     out = parser.add_argument_group( 'Output' );
     out.add_argument( '--work-dir', default = None, \
                       help = 'Working directory (default: auto under ' \
-                             '/tmp/line_rt)' );
+                             '/dev/shm/line_rt, fall back to /tmp/line_rt)' );
     out.add_argument( '--kratos-root', default = None, \
                       help = 'Kratos build tree root (must contain ' \
                              'bin/kratos). Default: KRATOS_ROOT env ' \

@@ -3,7 +3,8 @@ from numpy import ones, zeros, asarray, broadcast_to, nan_to_num, \
                   mean, hstack, vstack, float32, float64;
 
 from .pipeline import run_kratos_cycle, \
-                      make_cartesian_mesh as _pipeline_make_cartesian_mesh
+                    DEFAULT_RUN_ROOT, \
+                    make_cartesian_mesh as _pipeline_make_cartesian_mesh
 from .kratos_io import write_field_data, write_photon_data, \
                        read_output, write_par_file
 from .pipeline import resolve_kratos_bin
@@ -20,7 +21,7 @@ def iterate( source_photons, species, fields_init, mesh, \
              n_species = None, transition_idx = 0, n_emission_max = 10, \
              unit_l0 = 1.49598e13, unit_t0 = 1.0, kratos_root = None ):
     if work_dir is None:
-        work_dir = os.path.join( '/tmp/line_rt', 'iterate_output' );
+        work_dir = os.path.join( DEFAULT_RUN_ROOT, 'iterate_output' );
     os.makedirs( work_dir, exist_ok = True );
     print( "[iterate] Run directory: %s" % work_dir );
 
