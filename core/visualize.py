@@ -7,6 +7,10 @@ from .fields import slice_plot_2d
 
 _PLANE_MAP = { 'x' : 'yz', 'y' : 'xz', 'z' : 'xy' };
 
+# Fields with signed values (can be negative/zero) that must use a
+# linear colormap, not LogNorm.
+_LINEAR_FIELDS = { 'vel_0', 'vel_1', 'vel_2' };
+
 ################################################################################
 # Default multi-panel plot
 
@@ -15,7 +19,13 @@ _DEFAULT_FIELDS = [ 'spectrum', 'flx', 'mfp_i_sca_0', 'b_sca', \
 
 _FIELD_LABELS = { 'flx'             : r'flux [photons cm$^{-2}$ s$^{-1}$]', \
                   'mfp_i_sca_0'     : r'mfp_i_sca_0 [cm$^{-1}$]', \
+                  'mfp_i_abs_0'     : r'mfp_i_abs_0 [cm$^{-1}$]', \
                   'b_sca'           : r'b_sca [km s$^{-1}$]', \
+                  'n_species'       : r'n$_{\rm species}$ [cm$^{-3}$]', \
+                  'temperature'     : r'T [K]', \
+                  'vel_0'           : r'$v_x$ [km s$^{-1}$]', \
+                  'vel_1'           : r'$v_y$ [km s$^{-1}$]', \
+                  'vel_2'           : r'$v_z$ [km s$^{-1}$]', \
                   'excited_fraction': r'n$_{\rm exc}$ / n$_{\rm tot}$', \
                   'emissivity'      : \
                       r'$\epsilon$ [erg s$^{-1}$ cm$^{-3}$ sr$^{-1}$]', };
@@ -23,7 +33,13 @@ _FIELD_LABELS = { 'flx'             : r'flux [photons cm$^{-2}$ s$^{-1}$]', \
 _FIELD_TITLES = { 'spectrum'        : 'Emergent Spectrum', \
                   'flx'             : 'Flux Map', \
                   'mfp_i_sca_0'     : 'mfp_i_sca_0', \
+                  'mfp_i_abs_0'     : 'mfp_i_abs_0', \
                   'b_sca'           : 'b_sca', \
+                  'n_species'       : 'n_species', \
+                  'temperature'     : 'Temperature', \
+                  'vel_0'           : r'$v_x$', \
+                  'vel_1'           : r'$v_y$', \
+                  'vel_2'           : r'$v_z$', \
                   'excited_fraction': 'Excited Fraction', \
                   'emissivity'      : 'Emissivity', };
 #
@@ -83,6 +99,14 @@ def _extract_field( results, field, unit_l0 = 1.0, unit_t0 = 1.0 ):
         b = asarray( b, dtype = float64 );
         # convert cm/s -> km/s
         return b * 1e-5, False;
+
+    if field in ( 'vel_0', 'vel_1', 'vel_2' ):
+        v = results.get( field, None );
+        if v is None:
+            return None, False;
+        v = asarray( v, dtype = float64 );
+        # convert cm/s -> km/s
+        return v * 1e-5, False;
 
     # generic: look in results first, then last cycle output
     val = results.get( field, None );
@@ -164,14 +188,16 @@ def default_plot( results, fields = None, slice_plane = 'z', \
             ax_i.set_yticks( [ ] );
             continue;
 
-        if dyn_range:
+        if field in _LINEAR_FIELDS or ( data <= 0 ).all(  ):
+            norm = None;
+        elif dyn_range:
             vmin, vmax = _log_limits( data );
             norm = LogNorm( vmin = vmin, vmax = vmax ) if vmin else LogNorm(  );
         else:
             norm = LogNorm(  );
 
         pc = slice_plot_2d( ax_i, data, mesh, plane = plane, \
-                            slice_idx = slice_idx, log = True, \
+                            slice_idx = slice_idx, log = ( norm is None ), \
                             cmap = 'turbo', norm = norm );
         if pc is not None:
             cbar = plt.colorbar( pc, ax = ax_i );

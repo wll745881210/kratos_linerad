@@ -42,10 +42,18 @@ module_spec.loader.exec_module( line_rt );
 KRATOS_ROOT = os.path.expanduser( '~/apps/kratos_line_rt' );
 
 ############################################################
-#  1. CGS constants and parameters
+#  1. Physics: CGS constants, and the concerned transitions
 
 AU   = line_rt.  AU;
 Lsun = line_rt.Lsun;
+
+# CO J=1->0 (idx 0)
+ti = line_rt.TransitionInfo( 'CO', 0 );
+
+# Show the transition information
+ti.show_transition(  );
+# Use the following line for all species available:
+# ti.show_transitions(  );
 
 ############################################################
 #  2. Configure LineRt (Group 1: species-based)
@@ -56,18 +64,7 @@ Lsun = line_rt.Lsun;
 #  returns the same constant.
 
 ##############################
-# 2.1 Configure the species and transition properites
-
-# CO J=1->0 (idx 0)
-ti = line_rt.TransitionInfo( 'CO', 0 );
-
-# Show the transition information
-ti.show_transition(  );
-# Use the following line for all species available:
-# ti.show_transitions(  );
-
-##############################
-# 2.2 Define the fields
+# 2.1 Define the fields
 
 temperature = 2.7;  # Kelvin
 
@@ -92,8 +89,8 @@ def vx_callable( x, y, z ):
     return zeros( x.shape );
 #
 
-##############################
-# 2.3 Configure the LineRT object
+############################## 
+# 2.2 Configure the LineRT object
 
 rt = line_rt.LineRt(
     n_cell       = ( 64, 16,   2 ),
@@ -112,16 +109,24 @@ rt = line_rt.LineRt(
     kratos_root  = KRATOS_ROOT,
 );
 rt.set_boundary( 'fre fre per per per per' );
+
+# Uncomment to plot the configured input fields (no Kratos
+# run) to verify: [ n_species, temperature, mfp_i_sca_0,
+# b_sca, mfp_i_abs_0, vx, vy, vz ]:
+
+# rt.plot_input( output_path =
+#                'plane_parallel_hl_input.png' );
+
 print( '==============================' );
 
 ############################################################
 #  3. Source (photon-number flux, default units)
 #
-#  Lowlevel: F0 = 1e6 photon/cm^2/s, sv = b_sca/sqrt(2),
-#  x=-4.999. With default units='photon', flux is photon
-#  number [photons cm^-2 s^-1] — no energy conversion needed.
-#  Pass units='energy' for erg cm^-2 s^-1 (uses the transition
-#  wavelength automatically).
+#  F0 = 1e6 photon/cm^2/s, sv = b_sca/sqrt(2), x = -5.
+#  With default units='photon', flux is photon number
+#  [photons cm^-2 s^-1], no energy conversion needed.
+#  Pass units='energy' for erg cm^-2 s^-1 (uses the
+#  transition photon energy automatically).
 
 F0_cgs = 1e6;   # photon number flux [photons cm^-2 s^-1]
 
@@ -135,21 +140,23 @@ print( 'CO, n_species = %.2e cm^-3, T = %.2e K' %
        ( n_species, temperature ) );
 print( 'Mesh: %s, external photon sources: %d' %
        ( rt._n_cell, len( rt._sources ) ) );
+rt.show_sources(  );
+
 print( '========================================' );
 
 ############################################################
 #  4. Run the iterations!
 ##############################
 
-n_cycle   = 10;
+n_cycle   = 3;
 print( 'Running %d MC cycles ...' % n_cycle );
-results = rt.run( n_cycle );
+rt.run( n_cycle );
 print( '========================================' );
 
 ############################################################
 #  5. Print run info
 
-res_list = results[ 'results' ];
+res_list = rt._results[ 'results' ];
 for k, res in enumerate( res_list ):
     flx   = res.get( 'flx' );
     exc   = res.get( 'exc_flux_flat',
@@ -168,7 +175,7 @@ print( '========================================' );
 
 outpath = os.path.join( os.path.dirname( __file__ ), \
                         'plane_parallel_hl_results.png' );
-line_rt.default_plot( results, output_path = outpath );
+rt.plot_results( output_path = outpath );
 print( '\nResults saved to %s' % outpath );
 
 ############################################################

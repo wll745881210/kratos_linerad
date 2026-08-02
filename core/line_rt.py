@@ -312,6 +312,138 @@ class LineRt:
                      src.get( 'sigma', 0.0 ) ) );
         return self;
 
+    def plot_input( self, fields = None, slice_plane = 'z', \
+                    slice_idx = None, ax = None, figsize = None, \
+                    output_path = None, dyn_range = False ):
+        """Plot slices of the configured input fields (no Kratos run).
+
+        Resolves the user-supplied field definitions — n_species,
+        temperature (Group 1), mfp_i_sca_0, b_sca, mfp_i_abs_0, and
+        velocity components — at cell centres in CGS and renders them
+        with default_plot. Use this to verify the geometry / field
+        inputs before running.
+
+        Default field set (2-column grid):
+          Group 1 (species set): n_species, temperature, mfp_i_sca_0,
+              b_sca, mfp_i_abs_0, vel_0, vel_1, vel_2.
+          Group 2: mfp_i_sca_0, b_sca, mfp_i_abs_0, vel_0, vel_1, vel_2
+              (vel only when ``vel`` is configured).
+        Fields not configured appear as '(no data)' panels.
+
+        Parameters mirror default_plot():
+            fields : list[str] or None
+            slice_plane : str  "x"|"y"|"z"
+            slice_idx : int or None
+            ax : array of Axes or None
+            figsize : tuple or None
+            output_path : str or None
+            dyn_range : bool
+
+        Returns
+        -------
+        (fig, axes) as returned by default_plot.
+        """
+        self._resolve_species( );
+        mesh = self._build_mesh( );
+        XYZ = self._cell_centers_cgs( mesh );
+
+        data = self._plot_input_data( mesh, XYZ );
+
+        if fields is None:
+            fields = self._input_default_fields( );
+
+        from .visualize import default_plot
+        return default_plot( data, fields = fields, \
+                             slice_plane = slice_plane, \
+                             slice_idx = slice_idx, ax = ax, \
+                             figsize = figsize, \
+                             output_path = output_path, \
+                             dyn_range = dyn_range );
+
+    def _plot_input_data( self, mesh = None, XYZ = None ):
+        """Resolve configured input fields to CGS 3D arrays.
+
+        Returns a pseudo-results dict (mesh, unit_l0, unit_t0, plus
+        resolved field arrays) suitable for default_plot.  Only fields
+        that are actually configured are included.
+        """
+        if mesh is None:
+            mesh = self._build_mesh( );
+        if XYZ is None:
+            XYZ = self._cell_centers_cgs( mesh );
+        self._resolve_species( );
+
+        data = { 'mesh' : mesh, \
+                 'unit_l0' : self._unit_l0, \
+                 'unit_t0' : self._unit_t0 };
+
+        if self._species_obj is not None:
+            if self._n_species is not None:
+                data[ 'n_species' ] = self._resolve_field( \
+                    self._n_species, XYZ );
+            if self._temperature is not None:
+                data[ 'temperature' ] = self._resolve_field( \
+                    self._temperature, XYZ );
+
+        b_sca_val = self._resolve_b_sca( XYZ );
+        data[ 'b_sca' ] = b_sca_val;
+
+        if self._species_obj is not None:
+            n_species_val = ( self._resolve_field( self._n_species, XYZ ) \
+                              if self._n_species is not None else None );
+            if n_species_val is not None:
+                mfp_sca_0, _ = self._resolve_mfp_species( \
+                    self._species_obj, mesh[ 'n_tot' ], b_sca_val, \
+                    n_species_val );
+                data[ 'mfp_i_sca_0' ] = mfp_sca_0;
+        elif self._mfp_i_sca_0 is not None:
+            data[ 'mfp_i_sca_0' ] = self._resolve_field( \
+                self._mfp_i_sca_0, XYZ );
+
+        data[ 'mfp_i_abs_0' ] = self._resolve_field( \
+            self._mfp_i_abs_0, XYZ );
+
+        if self._vel is not None:
+            vel_vals = self._resolve_vel( XYZ );
+            for i, k in enumerate( ( 'vel_0', 'vel_1', 'vel_2' ) ):
+                data[ k ] = vel_vals[ i ];
+
+        return data;
+
+    def _input_default_fields( self ):
+        """Default field list for plot_input based on configured inputs."""
+        fields = [ ];
+        if self._species_obj is not None:
+            fields += [ 'n_species', 'temperature' ];
+        fields += [ 'mfp_i_sca_0', 'b_sca', 'mfp_i_abs_0' ];
+        if self._vel is not None:
+            fields += [ 'vel_0', 'vel_1', 'vel_2' ];
+        return fields;
+
+    def plot_results( self, out = None, fields = None, slice_plane = 'z', \
+                      slice_idx = None, ax = None, figsize = None, \
+                      output_path = None, dyn_range = False ):
+        """Plot run() results via default_plot.
+
+        Parameters
+        ----------
+        out : dict  the dict returned by LineRt.run().
+        All other parameters mirror default_plot().
+
+        Returns
+        -------
+        (fig, axes) as returned by default_plot.
+        """
+        from .visualize import default_plot
+        return default_plot( self._results if out is None else out, \
+                             fields = fields, \
+                             slice_plane = slice_plane, \
+                             slice_idx = slice_idx, ax = ax, \
+                             figsize = figsize, \
+                             output_path = output_path, \
+                             dyn_range = dyn_range, \
+                             transition_info = self._transition_info );
+
     ########################################################
     # Run
 
@@ -423,7 +555,7 @@ class LineRt:
 
         if self._visualize:
             self._plot_results( out );
-
+        self._results = out;
         return out;
 
     ########################################################
@@ -638,5 +770,4 @@ class LineRt:
         return ph;
 
     def _plot_results( self, out ):
-        from .visualize import default_plot
-        default_plot( out, transition_info = self._transition_info );
+        self.plot_results( out );

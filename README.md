@@ -93,6 +93,7 @@ rt = LineRt(
 rt.set_boundary( 'fre fre per per per per' )
 rt.add_source( n_photon = 50000, flux = 1e-3 )
 rt.show_sources()
+rt.plot_input()                     # verify input fields before running
 results = rt.run()
 ```
 
@@ -123,6 +124,14 @@ for erg-based quantities (the wavelength is taken from
 only valid for `type='slab'`, `luminosity` only for `type='point'` —
 passing the wrong pair raises `ValueError`.  `rt.show_sources()`
 prints a summary of all registered sources.
+
+`rt.plot_input()` (interface mirrors `default_plot`) plots slices of
+the configured input fields — `n_species`, `temperature` (Group 1),
+`mfp_i_sca_0`, `b_sca`, `mfp_i_abs_0`, and `vel_0..2` (both groups) —
+resolved at cell centres **without running Kratos**, so you can verify
+the input before a run.  Unconfigured fields appear as `(no data)`
+panels.  After a run, `rt.plot_results( results )` plots the run
+output via `default_plot`.
 
 `LineRt` handles all I/O automatically: field binaries, par-file
 templating, and subprocess calls to Kratos.  See
