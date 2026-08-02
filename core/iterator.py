@@ -73,6 +73,12 @@ def iterate( source_photons, species, fields_init, mesh, \
         populations = { 'n0'      : ones( shape3d, dtype = float32 ), \
                         'n_total' : ones( shape3d, dtype = float32 ) };
 
+    # External source photons are FIXED across cycles.  Internal emission
+    # photons are recomputed each cycle from the updated populations and
+    # combined here, so the photon count does not accumulate.
+    ext_source = asarray( source_photons, dtype = float64 ).copy( );
+    emission_ph = None;
+
     fields = dict( fields_init );
     base_fields_cgs = { k: asarray( v, dtype = float64 ).copy( ) \
                         for k, v in fields.items( ) };
@@ -109,7 +115,11 @@ def iterate( source_photons, species, fields_init, mesh, \
                           unit_l0 = unit_l0, group = 'line' );
 
         photon_file = os.path.join( work_dir, 'photons_cycle%d.bin' % cycle );
-        ph_arr = asarray( source_photons, dtype = float64 ).copy( );
+        if emission_ph is None:
+            ph_arr = ext_source;
+        else:
+            ph_arr = vstack( [ ext_source, emission_ph ] );
+        ph_arr = asarray( ph_arr, dtype = float64 ).copy( );
         if ph_arr.shape[ 1 ] >= 8:
             v_factor = unit_t0 / unit_l0;
             ph_arr[ :, 7 ] *= v_factor;
@@ -207,18 +217,18 @@ def iterate( source_photons, species, fields_init, mesh, \
                 populations, transition_idx, temp_field, mesh, \
                 n_per_cell_max = n_emission_max );
             if len( emission_ph ) > 0:
-                n_ext_cols = source_photons.shape[ 1 ];
-                if source_photons.shape[ 1 ] < emission_ph.shape[ 1 ]:
-                    pad = zeros( ( source_photons.shape[ 0 ], \
+                if ext_source.shape[ 1 ] < emission_ph.shape[ 1 ]:
+                    pad = zeros( ( ext_source.shape[ 0 ], \
                                    emission_ph.shape[ 1 ] - \
-                                   source_photons.shape[ 1 ] ) );
-                    source_photons = hstack( [ source_photons, pad ] );
-                elif emission_ph.shape[ 1 ] < source_photons.shape[ 1 ]:
+                                   ext_source.shape[ 1 ] ) );
+                    ext_source = hstack( [ ext_source, pad ] );
+                elif emission_ph.shape[ 1 ] < ext_source.shape[ 1 ]:
                     pad = zeros( ( emission_ph.shape[ 0 ], \
-                                   source_photons.shape[ 1 ] - \
+                                   ext_source.shape[ 1 ] - \
                                    emission_ph.shape[ 1 ] ) );
                     emission_ph = hstack( [ emission_ph, pad ] );
-                source_photons = vstack( [ source_photons, emission_ph ] );
+            else:
+                emission_ph = None;
         else:
             for key in fields:
                 if key.startswith( 'mfp' ):
