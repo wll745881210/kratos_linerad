@@ -27,7 +27,7 @@ REPO = '/home/lilew/Seafile/seafile_sync/code/line_rt_pipeline';
 sys.path.insert( 0, REPO );
 sys.path.insert( 0, os.path.join( REPO, 'docs/reference_mcrt' ) );
 
-from pipeline.kratos_io import write_field_data, \
+from core.kratos_io import write_field_data, \
     write_photon_data, read_output;
 
 m = importlib.import_module( 'mcrt' );

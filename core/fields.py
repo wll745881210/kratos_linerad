@@ -1,9 +1,4 @@
-import sys
-import os
-
-sys.path.insert( 0, os.path.join( os.path.dirname( __file__ ), \
-                                  '..', 'pipeline' ) );
-from kratos_io import write_field_data, read_output, write_photon_data
+from .kratos_io import write_field_data, read_output, write_photon_data
 
 from numpy import asarray, full, exp, abs, sin, cos, array, zeros, \
                   diff, linspace, meshgrid, float32, float64, int32;

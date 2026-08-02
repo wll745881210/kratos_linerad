@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """
 Binary I/O helpers for Kratos line_rt.
-Thin wrappers around the kratos visual/binary_io module.
+
+Self-contained: ships its own copy of the binary_io class (originally
+from kratos/visual/binary_io.py).  No external sys.path hack needed.
 """
 
-import sys, os
-
-sys.path.insert( 0, os.path.expanduser( \
-    '~/Seafile/seafile_sync/code/kratos/visual' ) );
-
-from binary_io import binary_io
+from .binary_io import binary_io
 from numpy import asarray, array, int32, float32, float64, pad
 
 ############################################################

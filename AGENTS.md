@@ -8,17 +8,36 @@ HTTP proxy for external downloads: `http://127.0.0.1:7892`. Use `export http_pro
 
 ---
 
+## Installation
+
+```bash
+cd ~/Seafile/seafile_sync/code/line_rt_pipeline
+pip install -e . --break-system-packages   # editable; live edits, no reinstall needed
+```
+
+This registers the `line-rt` console script and makes `import core` / `import molecular` work from any CWD. Re-run only when `pyproject.toml` changes (new deps, new entry points).
+
+**Kratos binary location** is resolved at runtime by `core/pipeline.py:resolve_kratos_bin()` in this order:
+1. `kratos_root` kwarg: `LineRt(kratos_root=...)` / `iterate(kratos_root=...)` / `--kratos-root` CLI flag
+2. `KRATOS_ROOT` environment variable
+3. Default: `~/apps/kratos_line_rt`
+
+If the binary is missing, a `FileNotFoundError` is raised with instructions for all three methods (Python, notebook `%env`, shell `export`).
+
+**Running without install** also works: `python3 cli.py ...` from the repo root (the `cli.py` sys.path bootstrap was removed; Python's default CWD-on-path handles it).
+
+---
+
 ## Project layout
 
 | Directory | Purpose |
 |-----------|---------|
-| `core/` | `LineRt` orchestrator, field functions, source generation, iterator, visualization, consistency checks |
+| `core/` | `LineRt` orchestrator, field functions, source generation, iterator, visualization, consistency checks, Kratos I/O (`kratos_io.py`), `binary_io.py` (vendored from kratos/visual), low-level `run_pipeline()` + par templates |
 | `molecular/` | Species data (LAMDA), cross sections, population solver, LAMDA downloader |
-| `pipeline/` | Kratos I/O, par-file templating, low-level `run_pipeline()` |
 | `ui/` | Jupyter ipywidgets interface |
 | `web/` | Panel dashboard (`panel serve web/app.py`) |
-| `cli.py` | CLI entrypoint (`line-rt` console script, registered in `setup.py`) |
-| `tests/` | Standalone test scripts — run individually, e.g. `python tests/test_A_absorption_only.py` |
+| `cli.py` | CLI entrypoint (`line-rt` console script, registered in `pyproject.toml`) |
+| `docs/archived_tests/` | Archived standalone test scripts (moved from `tests/`) |
 | `docs/reference_mcrt/mcrt.py` | Reference Python MCRT (numba). ph_mode=1 uses USampler table-lookup R_IIA. `plot_neufeld.py` validates vs Neufeld (1990). |
 | `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py` | **Standalone Kratos regression test** (self-contained, no pipeline imports). Wide `aτ₀` sweep vs Neufeld eq (2.24) for ph_modes 1/2/3, golden med\|x\| table, PASS/FAIL exit code. Run: `python3 test_scaling_wide.py --kratos-root ~/apps/kratos_line_rt` |
 | `~/apps/kratos_line_rt/` | Kratos build tree (symlinked to Seafile source) |
@@ -43,7 +62,7 @@ HTTP proxy for external downloads: `http://127.0.0.1:7892`. Use `export http_pro
 Kratos requires a `.par` file. The canonical template lives at:
 
 ```
-line_rt_pipeline/pipeline/line_rt_pipeline.par
+line_rt_pipeline/core/line_rt_pipeline.par
 ```
 
 Minimal invocation:
@@ -206,8 +225,8 @@ Key functions:
 | `compute_opacity(pops, b_sca, transition_idx)` | `molecular/lamda_format.py` | `mfp_sca` only (absorption MFP is user-provided) |
 | `update_populations(exc_flux, flx, pops, cycle, dx, b_sca, T, colliders, transition_idx)` | `molecular/lamda_format.py` | Updated population dict |
 | `make_fields(pops, step, cycle, base_fields, unit_l0, unit_t0, transition_idx)` | `molecular/lamda_format.py` | Field dict — includes `mfp_i_abs_0` only if in `base_fields` |
-| `write_field_data(filename, fields, mesh, group='all')` | `pipeline/kratos_io.py` | Writes binary; `group='line'` (mfp_i_*), `'fixed'` (b_sca, vel), or `'all'` |
-| `write_photon_data(filename, photons)` | `pipeline/kratos_io.py` | Writes photon binary |
+| `write_field_data(filename, fields, mesh, group='all')` | `core/kratos_io.py` | Writes binary; `group='line'` (mfp_i_*), `'fixed'` (b_sca, vel), or `'all'` |
+| `write_photon_data(filename, photons)` | `core/kratos_io.py` | Writes photon binary |
 
 ### Field keys written to Kratos
 
@@ -301,9 +320,9 @@ Full research record: `~/scratch/line_rt/fiducial/neufeld_test.md`
    ```
 
 20. **CRITICAL: n_cell_global minimum is 2 in EVERY dimension. `n_cell=1` WILL silently fail — Kratos produces only particle output with no field data or escaped photons.** This is the #1 pitfall. Never use `n_cell_global = 1 2 2` or any dimension with 1 cell. Always `>=2` for each component. The mesh output `.bin` file is produced but contains zero flux fields, and `n_cell` comes back as `None` from `read_output()`. Purely a Kratos requirement; the Python reference MCRT can use n_cell=1 but Kratos cannot.
-21. **`pipeline/kratos_io.py` depends on external binary I/O** from `~/Seafile/seafile_sync/code/kratos/visual/binary_io` — if Kratos source moves, update the `sys.path` hack in `core/fields.py` and the import in `kratos_io.py`.
+21. **`core/binary_io.py` is vendored** from `~/Seafile/seafile_sync/code/kratos/visual/binary_io.py`. The pipeline is now self-contained — no `sys.path` hack needed for I/O. If the Kratos `binary_io` upstream changes, re-copy it into `core/binary_io.py`.
 
-    **In self-contained regression tests (`test_scaling_wide.py`, `test_absorption_scattering.py`), never import `binary_io` at module top level.** Load it lazily inside a `resolve_kratos_root(kratos_root)` helper that (1) validates `<kratos-root>/bin/kratos` and `<kratos-root>/visual/binary_io.py` exist, (2) inserts `<kratos-root>/visual` into `sys.path`, and (3) returns `binary_io`. Use `importlib` so static checkers (pyright/Pylance) never flag `Import "binary_io" could not be resolved`:
+    **Standalone regression tests** (`~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py`, `test_absorption_scattering.py`) are separate from the pipeline and use the **Kratos build tree's** `binary_io.py` (not the pipeline's vendored copy). There, never import `binary_io` at module top level.** Load it lazily inside a `resolve_kratos_root(kratos_root)` helper that (1) validates `<kratos-root>/bin/kratos` and `<kratos-root>/visual/binary_io.py` exist, (2) inserts `<kratos-root>/visual` into `sys.path`, and (3) returns `binary_io`. Use `importlib` so static checkers (pyright/Pylance) never flag `Import "binary_io" could not be resolved`:
 
     ```python
     import importlib

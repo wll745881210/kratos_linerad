@@ -23,9 +23,6 @@ import sys; \
 
 from numpy import max as np_max; \
 
-_PROJECT = os.path.dirname( os.path.abspath( __file__ ) );
-if _PROJECT not in sys.path:
-    sys.path.insert( 0, _PROJECT );
 
 from core.line_rt import LineRt;
 from molecular.transition_info import TransitionInfo, \
@@ -143,6 +140,10 @@ def main( ):
     out.add_argument( '--work-dir', default = None, \
                       help = 'Working directory (default: auto under ' \
                              '/tmp/line_rt)' );
+    out.add_argument( '--kratos-root', default = None, \
+                      help = 'Kratos build tree root (must contain ' \
+                             'bin/kratos). Default: KRATOS_ROOT env ' \
+                             'var or ~/apps/kratos_line_rt' );
     out.add_argument( '--no-plot', action = 'store_true', \
                       help = 'Disable matplotlib visualisation' );
     args = parser.parse_args( );
@@ -188,6 +189,7 @@ def main( ):
         path            = args.work_dir,
         visualize       = not args.no_plot,
         n_emission_max  = args.n_emission_max,
+        kratos_root     = args.kratos_root,
     );
     rt_obj.set_boundary( args.boundary );
 

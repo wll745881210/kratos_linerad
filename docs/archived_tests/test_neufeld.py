@@ -39,7 +39,7 @@ from numpy import array, zeros, full, linspace, sqrt, pi, asarray, \
 REPO = Path( __file__ ).resolve( ).parents[ 1 ];
 sys.path.insert( 0, str( REPO ) );
 
-from pipeline.kratos_io import write_field_data, \
+from core.kratos_io import write_field_data, \
     write_photon_data, read_output;
 from docs.reference_mcrt.mcrt import mcrt_slab;
 

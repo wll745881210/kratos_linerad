@@ -5,11 +5,9 @@ from numpy import asarray, zeros_like, ones_like, ones, array, ceil, \
 
 from .fields import slice_plot_2d
 
-
 _PLANE_MAP = { 'x' : 'yz', 'y' : 'xz', 'z' : 'xy' };
 
-
-############################################################
+################################################################################
 # Default multi-panel plot
 
 _DEFAULT_FIELDS = [ 'spectrum', 'flx', 'mfp_i_sca_0', 'b_sca', \
@@ -28,7 +26,7 @@ _FIELD_TITLES = { 'spectrum'        : 'Emergent Spectrum', \
                   'b_sca'           : 'b_sca', \
                   'excited_fraction': 'Excited Fraction', \
                   'emissivity'      : 'Emissivity', };
-
+#
 
 def _log_limits( data ):
     """Return (vmin, vmax) for a log colormap.
@@ -40,15 +38,15 @@ def _log_limits( data ):
     pos = data[ data > 0 ];
     if pos.size == 0:
         return None, None;
-    dmax = float( pos.max( ) );
+    dmax = float( pos.max(  ) );
     upper_dex = int( ceil( log10( dmax ) ) );
     vmax = 10.0 ** upper_dex;
-    dmin = float( pos.min( ) );
+    dmin = float( pos.min(  ) );
     span = upper_dex - log10( dmin );
     span = int( clip( span, 1, 6 ) );
     vmin = 10.0 ** ( upper_dex - span );
     return vmin, vmax;
-
+#
 
 def _extract_field( results, field, unit_l0 = 1.0, unit_t0 = 1.0 ):
     """Extract a 3D field array or spectrum data from the results dict.
@@ -93,7 +91,7 @@ def _extract_field( results, field, unit_l0 = 1.0, unit_t0 = 1.0 ):
     if val is None:
         return None, False;
     return asarray( val, dtype = float64 ), False;
-
+#
 
 def default_plot( results, fields = None, slice_plane = 'z', \
                   slice_idx = None, ax = None, figsize = None, \
@@ -168,9 +166,9 @@ def default_plot( results, fields = None, slice_plane = 'z', \
 
         if dyn_range:
             vmin, vmax = _log_limits( data );
-            norm = LogNorm( vmin = vmin, vmax = vmax ) if vmin else LogNorm( );
+            norm = LogNorm( vmin = vmin, vmax = vmax ) if vmin else LogNorm(  );
         else:
-            norm = LogNorm( );
+            norm = LogNorm(  );
 
         pc = slice_plot_2d( ax_i, data, mesh, plane = plane, \
                             slice_idx = slice_idx, log = True, \
@@ -185,11 +183,11 @@ def default_plot( results, fields = None, slice_plane = 'z', \
         row, col = divmod( i, ncols );
         axes[ row, col ].set_visible( False );
 
-    fig.tight_layout( );
+    fig.tight_layout(  );
     if output_path:
         fig.savefig( output_path, dpi = 150, bbox_inches = 'tight' );
     return fig, axes;
-
+#
 
 def _draw_spectrum( ax, results, bins = 80 ):
     """Draw emergent spectrum histogram in km/s."""
@@ -206,7 +204,7 @@ def _draw_spectrum( ax, results, bins = 80 ):
             vel = asarray( phot.get( 'vel', [ ] ) );
             if len( vel ) > 0:
                 l_arr = asarray( phot.get( 'l', ones_like( vel ) ) );
-                weights = l_arr.ravel( ) if l_arr.size == vel.size \
+                weights = l_arr.ravel(  ) if l_arr.size == vel.size \
                     else ones_like( vel );
                 break;
 
@@ -218,14 +216,14 @@ def _draw_spectrum( ax, results, bins = 80 ):
         ax.set_yticks( [ ] );
         return;
 
-    vel_kms = vel.ravel( ) * 1e-5;
-    ax.hist( vel_kms, bins = bins, weights = weights.ravel( ), \
+    vel_kms = vel.ravel(  ) * 1e-5;
+    ax.hist( vel_kms, bins = bins, weights = weights.ravel(  ), \
              histtype = 'step', color = 'black' );
     ax.set_xlabel( r'$\Delta v$ [km s$^{-1}$]' );
     ax.set_ylabel( 'count' );
+#
 
-
-############################################################
+################################################################################
 # Legacy single-panel helpers (kept for backward compat)
 
 def _find_median( data_flat, mesh, axis ):
@@ -234,7 +232,7 @@ def _find_median( data_flat, mesh, axis ):
     dx_val = mesh[ 'dx' ][ 'xyz'.index( axis ) ];
     x0 = mesh[ 'x_min' ][ 'xyz'.index( axis ) ];
     return x0 + ( n // 2 + 0.5 ) * dx_val;
-
+#
 
 def _axis_to_slice( data_flat, mesh, axis, coord ):
     """Convert flat data to 2D slice at given axis and coordinate."""
@@ -260,7 +258,7 @@ def _axis_to_slice( data_flat, mesh, axis, coord ):
         return data_3d[ :, idx, : ], mesh, 'xz', idx;
     else:
         return data_3d[ idx, :, : ], mesh, 'xy', idx;
-
+#
 
 def plot_flux( results, axis = 'x', coord = None, ax = None, \
                output_path = None, log = True, cmap = 'turbo' ):
@@ -277,7 +275,7 @@ def plot_flux( results, axis = 'x', coord = None, ax = None, \
     cmap : str
     """
     if ax is None:
-        _, ax = plt.subplots( );
+        _, ax = plt.subplots(  );
     mesh = results.get( 'mesh', { } );
     flx = results.get( 'flx', None );
     if flx is None and results.get( 'results' ):
@@ -287,13 +285,13 @@ def plot_flux( results, axis = 'x', coord = None, ax = None, \
                  ha = 'center', va = 'center' );
         return;
 
-    flx = asarray( flx, dtype = float64 ).ravel( );
+    flx = asarray( flx, dtype = float64 ).ravel(  );
     if coord is None:
         coord = _find_median( flx, mesh, axis );
 
     slc, _, plane, si = _axis_to_slice( flx, mesh, axis, coord );
 
-    pc = slice_plot_2d( ax, slc.ravel( ), mesh, plane = plane, \
+    pc = slice_plot_2d( ax, slc.ravel(  ), mesh, plane = plane, \
                         slice_idx = si, log = log, cmap = cmap );
 
     other = _other_axes( axis );
@@ -308,8 +306,8 @@ def plot_flux( results, axis = 'x', coord = None, ax = None, \
 
     if output_path:
         plt.savefig( output_path, dpi = 150, bbox_inches = 'tight' );
-    plt.show( );
-
+    plt.show(  );
+#
 
 def plot_population( results, axis = 'x', coord = None, ax = None, \
                      output_path = None, log = True, cmap = 'plasma' ):
@@ -326,7 +324,7 @@ def plot_population( results, axis = 'x', coord = None, ax = None, \
     cmap : str
     """
     if ax is None:
-        _, ax = plt.subplots( );
+        _, ax = plt.subplots(  );
     mesh = results.get( 'mesh', { } );
     pops = results.get( 'populations', None );
     if pops is None and results.get( 'results' ):
@@ -337,12 +335,12 @@ def plot_population( results, axis = 'x', coord = None, ax = None, \
         return;
 
     n0 = asarray( pops.get( 'n0', pops.get( 'n_total', ones( 1 ) ) ), \
-                  dtype = float64 ).ravel( );
-    n_exc_keys = [ k for k in pops.keys( ) if k.startswith( 'n' ) and \
+                  dtype = float64 ).ravel(  );
+    n_exc_keys = [ k for k in pops.keys(  ) if k.startswith( 'n' ) and \
                    k != 'n0' and k != 'n_total' ];
     n_exc = zeros_like( n0 );
     for k in n_exc_keys:
-        n_exc += asarray( pops[ k ], dtype = float64 ).ravel( );
+        n_exc += asarray( pops[ k ], dtype = float64 ).ravel(  );
     denom = n0 + n_exc;
     denom[ denom == 0 ] = 1.0;
     frac = n_exc / denom;
@@ -351,7 +349,7 @@ def plot_population( results, axis = 'x', coord = None, ax = None, \
         coord = _find_median( frac, mesh, axis );
 
     slc, _, plane, si = _axis_to_slice( frac, mesh, axis, coord );
-    pc = slice_plot_2d( ax, slc.ravel( ), mesh, plane = plane, \
+    pc = slice_plot_2d( ax, slc.ravel(  ), mesh, plane = plane, \
                         slice_idx = si, log = log, cmap = cmap );
 
     other = _other_axes( axis );
@@ -368,8 +366,8 @@ def plot_population( results, axis = 'x', coord = None, ax = None, \
 
     if output_path:
         plt.savefig( output_path, dpi = 150, bbox_inches = 'tight' );
-    plt.show( );
-
+    plt.show(  );
+#
 
 def plot_spectrum( results, ax = None, bins = 80, xlim = None, \
                    output_path = None, label = '' ):
@@ -385,7 +383,7 @@ def plot_spectrum( results, ax = None, bins = 80, xlim = None, \
     label : str
     """
     if ax is None:
-        _, ax = plt.subplots( );
+        _, ax = plt.subplots(  );
     spectrum = results.get( 'spectrum', { } );
     vel = asarray( spectrum.get( 'vel', [ ] ) );
     weights = asarray( spectrum.get( 'n', \
@@ -406,7 +404,7 @@ def plot_spectrum( results, ax = None, bins = 80, xlim = None, \
         ax.set_ylabel( 'count' );
         return;
 
-    ax.hist( vel.ravel( ), bins = bins, weights = weights.ravel( ), \
+    ax.hist( vel.ravel(  ), bins = bins, weights = weights.ravel(  ), \
              histtype = 'step', density = False, \
              label = label if label else None );
 
@@ -415,12 +413,12 @@ def plot_spectrum( results, ax = None, bins = 80, xlim = None, \
     if xlim is not None:
         ax.set_xlim( xlim );
     if label:
-        ax.legend( );
+        ax.legend(  );
 
     if output_path:
         plt.savefig( output_path, dpi = 150, bbox_inches = 'tight' );
-    plt.show( );
-
+    plt.show(  );
+#
 
 def _other_axes( axis ):
     if axis == 'x':
@@ -429,7 +427,7 @@ def _other_axes( axis ):
         return ( 'x', 'z' );
     else:
         return ( 'x', 'y' );
-
+#
 
 def _aspect_ratio( mesh, axis ):
     dx = mesh[ 'dx' ];
@@ -440,9 +438,9 @@ def _aspect_ratio( mesh, axis ):
         return ( n_cell[ 0 ] * dx[ 0 ] ) / ( n_cell[ 2 ] * dx[ 2 ] );
     else:
         return ( n_cell[ 0 ] * dx[ 0 ] ) / ( n_cell[ 1 ] * dx[ 1 ] );
+#
 
-
-############################################################
+################################################################################
 # Backward-compatible wrappers (low-level API)
 
 def plot_emergent_spectrum( ax, photons, bins = 80, xlim = None, \
@@ -458,8 +456,8 @@ def plot_emergent_spectrum( ax, photons, bins = 80, xlim = None, \
                  transform = ax.transAxes, ha = 'center', va = 'center' );
         return;
 
-    weights = l_arr.ravel( );
-    vel_flat = vel.ravel( );
+    weights  = l_arr.ravel(  );
+    vel_flat = vel  .ravel(  );
 
     ax.hist( vel_flat, bins = bins, weights = weights, \
              histtype = 'step', density = False, \
@@ -470,8 +468,8 @@ def plot_emergent_spectrum( ax, photons, bins = 80, xlim = None, \
     if xlim is not None:
         ax.set_xlim( xlim );
     if label:
-        ax.legend( );
-
+        ax.legend(  );
+#
 
 def plot_flux_slice( ax, flx, mesh, title = '', log = True, \
                      cmap = 'turbo', cbar_label = None, slice_idx = None ):
@@ -480,7 +478,7 @@ def plot_flux_slice( ax, flx, mesh, title = '', log = True, \
     label = cbar_label or 'flux [photons cm$^{-2}$ s$^{-1}$]';
     plt.colorbar( pc, ax = ax, label = label );
     ax.set_title( title or 'Flux slice (xy)' );
-
+#
 
 def plot_population_map( ax, n, mesh, level = 0, title = '', log = True, \
                          cmap = 'plasma', cbar_label = None ):
@@ -489,19 +487,19 @@ def plot_population_map( ax, n, mesh, level = 0, title = '', log = True, \
     label = cbar_label or 'n%d [cm$^{-3}$]' % level;
     plt.colorbar( pc, ax = ax, label = label );
     ax.set_title( title or 'Population level %d slice (xy)' % level );
-
+#
 
 def plot_convergence( ax, pop_history, cycles ):
     deltas = [ 0.0 ];
-    keys = sorted( pop_history[ 0 ].keys( ) );
+    keys = sorted( pop_history[ 0 ].keys(  ) );
     for k in range( 1, len( pop_history ) ):
-        max_delta = max( \
-            abs( pop_history[ k ][ key ] - \
-                 pop_history[ k - 1 ][ key ] ).max( ) \
-            for key in keys );
+        max_delta = max( abs( pop_history[ k ][ key ] - \
+                              pop_history[ k - 1 ][ key ] ).max(  ) \
+                         for key in keys );
         deltas.append( float( max_delta ) );
 
     ax.plot( cycles[ : len( deltas ) ], deltas, 'o-', color = 'black' );
     ax.set_xlabel( 'Cycle' );
     ax.set_ylabel( r'$\max|\Delta n|$' );
     ax.set_title( 'Population convergence' );
+#

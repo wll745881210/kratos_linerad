@@ -89,6 +89,10 @@ class LineRt:
     snapshot : callable or None
         Called after each cycle: fn(results=output, cycle=cycle,
                                     populations=pops).
+    kratos_root : str or None
+        Path to the Kratos build tree root (containing ``bin/kratos``).
+        If None, falls back to the ``KRATOS_ROOT`` env var, then the
+        default ``~/apps/kratos_line_rt``.
     """
 
     def __init__( self, *, n_cell = ( 64, 2, 2 ), \
@@ -101,7 +105,7 @@ class LineRt:
                   a_voigt = None, ph_mode = 0, n_step = 10000, \
                   n_scat = 10000, n_fld = 1, n_cycles = 3, \
                   path = None, visualize = True, n_emission_max = 10, \
-                  snapshot = None ):
+                  snapshot = None, kratos_root = None ):
         self._n_cell         = tuple( n_cell );
         self._x_min          = tuple( x_min );
         self._x_max          = tuple( x_max );
@@ -127,6 +131,7 @@ class LineRt:
         self._visualize      = visualize;
         self._n_emission_max = n_emission_max;
         self._snapshot       = snapshot;
+        self._kratos_root    = kratos_root;
         self._sources        = [ ];
         self._boundary_kinds = 'fre fre fre fre fre fre';
 
@@ -305,7 +310,8 @@ class LineRt:
             mol_mass = self._mol_mass or 28.0, \
             unit_l0 = self._unit_l0, unit_t0 = self._unit_t0, \
             n_emission_max = self._n_emission_max, \
-            callback = self._snapshot, par_overrides = par_overrides );
+            callback = self._snapshot, par_overrides = par_overrides, \
+            kratos_root = self._kratos_root );
 
         spectrum = { 'vel' : array( [ ] ), 'n' : array( [ ] ) };
         if results and results[ -1 ].get( 'photons' ):

@@ -1,19 +1,16 @@
 import os
-import sys
 from numpy import ones, zeros, asarray, broadcast_to, nan_to_num, \
                   mean, hstack, vstack, float32, float64;
 
-sys.path.insert( 0, os.path.join( os.path.dirname( __file__ ), \
-                                  '..', 'pipeline' ) );
-from pipeline import run_kratos_cycle, \
-                     make_cartesian_mesh as _pipeline_make_cartesian_mesh
-from kratos_io import write_field_data, write_photon_data, \
-                      read_output, write_par_file
+from .pipeline import run_kratos_cycle, \
+                      make_cartesian_mesh as _pipeline_make_cartesian_mesh
+from .kratos_io import write_field_data, write_photon_data, \
+                       read_output, write_par_file
+from .pipeline import resolve_kratos_bin
 
 
-_KRATOS_EXE   = os.path.expanduser( '~/apps/kratos_line_rt/bin/kratos' );
-_PAR_TEMPLATE = os.path.join( \
-    os.path.dirname( __file__ ), '..', 'pipeline', 'line_rt_pipeline.par' );
+_PAR_TEMPLATE = os.path.join( os.path.dirname( __file__ ), \
+                              'line_rt_pipeline.par' );
 
 
 def iterate( source_photons, species, fields_init, mesh, \
@@ -21,7 +18,7 @@ def iterate( source_photons, species, fields_init, mesh, \
              n_scat = 10000, ph_mode = 1, par_overrides = None, \
              mol_mass = 28.0, work_dir = None, callback = None, \
              n_species = None, transition_idx = 0, n_emission_max = 10, \
-             unit_l0 = 1.49598e13, unit_t0 = 1.0 ):
+             unit_l0 = 1.49598e13, unit_t0 = 1.0, kratos_root = None ):
     if work_dir is None:
         work_dir = os.path.join( '/tmp/line_rt', 'iterate_output' );
     os.makedirs( work_dir, exist_ok = True );
@@ -122,7 +119,8 @@ def iterate( source_photons, species, fields_init, mesh, \
         prefix = 'cycle%d' % cycle;
         output, log_text, elapsed = run_kratos_cycle( \
             work_dir, cycle, field_file, photon_file, \
-            prefix, _PAR_TEMPLATE, base_overrides );
+            prefix, _PAR_TEMPLATE, base_overrides, \
+            kratos_bin = resolve_kratos_bin( kratos_root ) );
 
         if output is None:
             break;

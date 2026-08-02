@@ -3,7 +3,7 @@
 Kratos-based population-updating radiative transfer pipeline.
 
 Key insight from mc_ph:
-  excitation_flux → excited population → updated opacity → next RT cycle
+  excitation_flux -> excited population -> updated opacity -> next RT cycle
 
 Flow:
   1. Generate initial field + photon files
@@ -16,21 +16,69 @@ Flow:
 
 import subprocess, sys, os, time
 
-try:
-    from .kratos_io import \
-        ( write_field_data, write_photon_data, read_output, \
-          write_par_file );
-except ImportError:
-    from kratos_io import \
-        ( write_field_data, write_photon_data, read_output, \
-          write_par_file );
+from .kratos_io import \
+    ( write_field_data, write_photon_data, read_output, \
+      write_par_file );
 
 from numpy import asarray, int32, float32, float64, nan_to_num
 
-KRATOS_EXE = os.path.expanduser( \
-    '~/apps/kratos_line_rt/bin/kratos' );
+#  Default Kratos binary location.  Override at runtime via:
+#    - environment variable  KRATOS_ROOT=/path/to/build/tree
+#    - LineRt(kratos_root=...) / iterate(kratos_root=...) kwarg
+#  The build tree must contain bin/kratos.
+_DEFAULT_KRATOS_ROOT = os.path.expanduser( '~/apps/kratos_line_rt' );
 _PAR_TEMPLATE = os.path.join( os.path.dirname( __file__ ), \
                               'line_rt_pipeline.par' );
+
+
+def resolve_kratos_bin( kratos_root = None ):
+    """Resolve the Kratos binary path and validate it exists.
+
+    Resolution order:
+      1. ``kratos_root`` argument (a directory or full bin path)
+      2. ``KRATOS_ROOT`` environment variable
+      3. ``~/apps/kratos_line_rt`` default
+
+    Parameters
+    ----------
+    kratos_root : str or None
+        Path to the Kratos build tree root (containing ``bin/kratos``)
+        or directly to the ``kratos`` binary.  If None, falls back to
+        the ``KRATOS_ROOT`` env var, then the default.
+
+    Returns
+    -------
+    str
+        Absolute path to the ``kratos`` binary.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the binary cannot be found, with instructions on how to
+        set KRATOS_ROOT in Python, notebooks, or the shell.
+    """
+    if kratos_root is None:
+        kratos_root = os.environ.get( 'KRATOS_ROOT', _DEFAULT_KRATOS_ROOT );
+    kratos_root = os.path.expanduser( kratos_root );
+
+    #  Accept either the build-tree root or the binary path itself.
+    if os.path.basename( kratos_root ) == 'kratos' \
+       and os.path.isfile( kratos_root ):
+        return kratos_root;
+    kratos_bin = os.path.join( kratos_root, 'bin', 'kratos' );
+
+    if not os.path.isfile( kratos_bin ):
+        msg = (
+            "Kratos binary not found at: %s\n"
+            "Set the build tree root via one of:\n"
+            "  Python:    rt = LineRt( kratos_root='/path/to/kratos_line_rt' )\n"
+            "  Notebook:  %%env KRATOS_ROOT /path/to/kratos_line_rt\n"
+            "  Shell:     export KRATOS_ROOT=/path/to/kratos_line_rt\n"
+            "The path must contain bin/kratos (the compiled binary)."
+        ) % kratos_bin;
+        raise FileNotFoundError( msg );
+    return kratos_bin;
+
 
 
 class PopulationModel:
@@ -71,9 +119,16 @@ def make_cartesian_mesh( n_cell, x_min, x_max ):
 
 
 def run_kratos_cycle( work_dir, cycle, field_file, photon_file, \
-                      prefix, par_template, par_overrides ):
+                      prefix, par_template, par_overrides, \
+                      kratos_bin = None ):
     """
     Run one Kratos cycle.
+
+    Parameters
+    ----------
+    kratos_bin : str or None
+        Path to the Kratos binary.  If None, resolved via
+        resolve_kratos_bin() (KRATOS_ROOT env var or default).
 
     Returns
     -------
@@ -91,9 +146,11 @@ def run_kratos_cycle( work_dir, cycle, field_file, photon_file, \
 
     write_par_file( par_path, par_template, overrides );
 
+    if kratos_bin is None:
+        kratos_bin = resolve_kratos_bin( );
     t0 = time.time( );
     result = subprocess.run \
-        ( [ KRATOS_EXE, par_path ],
+        ( [ kratos_bin, par_path ],
           stdout = subprocess.PIPE, stderr = subprocess.STDOUT,
           timeout = 3600, cwd = work_dir );
     elapsed = time.time( ) - t0;
@@ -126,7 +183,7 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
                   n_photon = 10000, n_step = 1000, n_scat = 100, \
                   n_fld = 2, ph_mode = 0, par_overrides = None, \
                   keep_intermediate = True, \
-                  unit_l0 = 1.0, unit_t0 = 1.0 ):
+                  unit_l0 = 1.0, unit_t0 = 1.0, kratos_root = None ):
     """
     Run the full population-updating pipeline.
 
@@ -145,6 +202,10 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
     par_overrides : dict  Additional par file overrides
     unit_l0 : float  code length unit in CGS (cm per code-length)
     unit_t0 : float  code time unit in CGS (s per code-time)
+    kratos_root : str or None
+        Path to the Kratos build tree root (containing ``bin/kratos``).
+        If None, falls back to ``KRATOS_ROOT`` env var, then the
+        default ``~/apps/kratos_line_rt``.
 
     Returns
     -------
@@ -219,7 +280,8 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
         prefix = 'cycle%d' % cycle;
         output, log_text, elapsed = run_kratos_cycle \
             ( work_dir, cycle, field_file, photon_file, \
-              prefix, _PAR_TEMPLATE, base_overrides );
+              prefix, _PAR_TEMPLATE, base_overrides, \
+              kratos_bin = resolve_kratos_bin( kratos_root ) );
 
         if  output is None:
             print( 'Pipeline stopped at cycle %d' % cycle );

@@ -9,7 +9,7 @@ sys.path.insert( 0, \
 sys.path.insert( 0, \
     '/home/lilew/Seafile/seafile_sync/code/kratos/visual' );
 
-from pipeline.kratos_io import write_field_data, \
+from core.kratos_io import write_field_data, \
     write_photon_data, read_output;
 
 random.seed( 42 );
