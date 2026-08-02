@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from numpy import asarray, zeros_like, ones_like, ones, array, ceil, \
-                  log10, clip, abs, float64, atleast_2d;
+                  log10, clip, abs, float64, atleast_2d, average
 
 from .fields import slice_plot_2d
 
@@ -519,13 +519,13 @@ def plot_convergence( ax, pop_history, cycles ):
     deltas = [ 0.0 ];
     keys = sorted( pop_history[ 0 ].keys(  ) );
     for k in range( 1, len( pop_history ) ):
-        max_delta = max( abs( pop_history[ k ][ key ] - \
-                              pop_history[ k - 1 ][ key ] ).max(  ) \
+        med_delta = max( average( abs( pop_history[ k ][ key ] - \
+                                       pop_history[ k - 1 ][ key ] ) ) \
                          for key in keys );
-        deltas.append( float( max_delta ) );
+        deltas.append( float( med_delta ) );
 
     ax.plot( cycles[ : len( deltas ) ], deltas, 'o-', color = 'black' );
     ax.set_xlabel( 'Cycle' );
-    ax.set_ylabel( r'$\max|\Delta n|$' );
+    ax.set_ylabel( r'$\max\overline{|\Delta n|}$' );
     ax.set_title( 'Population convergence' );
 #
