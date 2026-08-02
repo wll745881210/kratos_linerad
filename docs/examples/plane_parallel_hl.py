@@ -12,19 +12,27 @@ Run from ``/tmp/line_rt``:
 ############################################################
 #  Header: Imports
 
-import os, sys;
-_PROJECT = os.path.dirname( os.path.dirname( os.path.dirname( \
-                                 os.path.realpath( __file__ ) ) ) );
-if _PROJECT not in sys.path:
-    sys.path.insert( 0, _PROJECT );
+import importlib.util, os, sys;
+
+#  Bootstrap the pipeline without installation (adds pipeline dir
+#  to sys.path, re-exports the public API as module ``lr``).
+_BOOT = os.path.join( os.path.dirname( os.path.dirname( \
+    os.path.dirname( os.path.realpath( __file__ ) ) ) ), \
+    'line_rt_bootstrap.py' );
+_spec = importlib.util.spec_from_file_location( 'line_rt_bootstrap', \
+                                                _BOOT );
+lr = importlib.util.module_from_spec( _spec );
+_spec.loader.exec_module( lr );
 
 import matplotlib;
 matplotlib.use( 'Agg' );
 from numpy import full, zeros, sqrt, max as np_max, float64;
 
-from core.line_rt              import LineRt;
-from molecular.transition_info import TransitionInfo;
-from core.visualize            import default_plot;
+LineRt          = lr.LineRt;
+TransitionInfo  = lr.TransitionInfo;
+default_plot    = lr.default_plot;
+AU              = lr.AU;
+Lsun            = lr.Lsun;
 
 ############################################################
 #  CGS constants

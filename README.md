@@ -29,8 +29,28 @@ This registers the `line-rt` console script and makes `import core`,
 If the binary is missing, a `FileNotFoundError` is raised with
 instructions for all three methods.
 
-**Running without install** also works: `python3 cli.py ...` from the
-repo root.
+**Running without install** also works.  Two options:
+
+1. **CLI**: `python3 cli.py ...` from the repo root.
+2. **Scripts / notebooks**: use `line_rt_bootstrap.py` - it adds the
+   pipeline directory to `sys.path` and re-exports the public API:
+
+   ```python
+   import importlib.util, os
+   _BOOT = os.path.expanduser(
+       '/path/to/line_rt_pipeline/line_rt_bootstrap.py' )
+   _spec = importlib.util.spec_from_file_location(
+       'line_rt_bootstrap', _BOOT )
+   lr = importlib.util.module_from_spec( _spec )
+   _spec.loader.exec_module( lr )
+
+   rt = lr.LineRt( ... )            # high-level orchestrator
+   ti = lr.TransitionInfo( 'CO', 0 ) # species selection
+   res = rt.run()
+   ```
+
+   Set the path in one place (the `_BOOT` line); no other
+   `sys.path` manipulation needed.
 
 ## Three ways to use
 
@@ -52,6 +72,15 @@ Run `line-rt --help` for all flags, or `line-rt --list-species` to see
 available molecules.
 
 ### 2. Python module (scripting / automation)
+
+If installed (`pip install -e .`), import directly:
+
+```python
+from core.line_rt import LineRt
+```
+
+If NOT installed, use the bootstrap (see "Running without install"
+above), then use `lr.LineRt` instead of `LineRt`.
 
 **Group 2 - explicit opacity** (no species data needed):
 

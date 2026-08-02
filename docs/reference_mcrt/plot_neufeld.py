@@ -11,18 +11,25 @@ Usage:
   python docs/reference_mcrt/plot_neufeld.py [output_prefix]
 """
 
-import os, sys, time;
+import importlib.util, os, sys, time;
 
 from numpy import array, zeros, linspace, logspace, log10, \
                  abs, clip, cosh, sqrt, pi, histogram, diff, \
                  argmax, polyfit, trapz, median, mean, nan, \
                  int32, float64, random;
 
-_project = os.path.dirname( os.path.dirname( os.path.dirname( \
-    os.path.realpath( __file__ ) ) ) );
-sys.path.insert( 0, _project );
+#  Bootstrap the pipeline without installation.
+_BOOT = os.path.join( os.path.dirname( os.path.dirname( \
+    os.path.dirname( os.path.realpath( __file__ ) ) ) ), \
+    'line_rt_bootstrap.py' );
+_spec = importlib.util.spec_from_file_location( 'line_rt_bootstrap', \
+                                                _BOOT );
+lr = importlib.util.module_from_spec( _spec );
+_spec.loader.exec_module( lr );
 
-from docs.reference_mcrt.mcrt import run_mcrt;
+#  The reference MCRT lives in this directory (sibling module).
+sys.path.insert( 0, os.path.dirname( os.path.realpath( __file__ ) ) );
+from mcrt import run_mcrt;
 
 A_VOIGT = 0.01;
 B_SCA   = 1.0e5;

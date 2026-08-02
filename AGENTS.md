@@ -33,7 +33,16 @@ This registers the `line-rt` console script and makes `import core` / `import mo
 
 If the binary is missing, a `FileNotFoundError` is raised with instructions for all three methods (Python, notebook `%env`, shell `export`).
 
-**Running without install** also works: `python3 cli.py ...` from the repo root (the `cli.py` sys.path bootstrap was removed; Python's default CWD-on-path handles it).
+**Running without install** also works: `python3 cli.py ...` from the repo root (the `cli.py` sys.path bootstrap was removed; Python's default CWD-on-path handles it). For scripts and notebooks, use `line_rt_bootstrap.py` (at the repo root) - it adds the pipeline directory to `sys.path` and re-exports the public API as module attributes. Load it via `importlib.util.spec_from_file_location()` so the path is set in one place:
+
+```python
+import importlib.util, os;
+_BOOT = '/path/to/line_rt_pipeline/line_rt_bootstrap.py';
+_spec = importlib.util.spec_from_file_location( 'line_rt_bootstrap', _BOOT );
+lr = importlib.util.module_from_spec( _spec );
+_spec.loader.exec_module( lr );
+rt = lr.LineRt( ... );
+```
 
 ---
 
@@ -46,6 +55,7 @@ If the binary is missing, a `FileNotFoundError` is raised with instructions for 
 | `ui/` | Jupyter ipywidgets interface |
 | `web/` | Panel dashboard (`panel serve web/app.py`) |
 | `cli.py` | CLI entrypoint (`line-rt` console script, registered in `pyproject.toml`) |
+| `line_rt_bootstrap.py` | Bootstrap loader for running without install; adds pipeline dir to `sys.path`, re-exports public API |
 | `docs/archived_tests/` | Archived standalone test scripts (moved from `tests/`) |
 | `docs/reference_mcrt/mcrt.py` | Reference Python MCRT (numba). ph_mode=1 uses USampler table-lookup R_IIA. `plot_neufeld.py` validates vs Neufeld (1990). |
 | `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py` | **Standalone Kratos regression test** (self-contained, no pipeline imports). Wide `aτ₀` sweep vs Neufeld eq (2.24) for ph_modes 1/2/3, golden med\|x\| table, PASS/FAIL exit code. Run: `python3 test_scaling_wide.py --kratos-root ~/apps/kratos_line_rt` |
