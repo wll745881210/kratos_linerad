@@ -47,9 +47,6 @@ KRATOS_ROOT = os.path.expanduser( '~/apps/kratos_line_rt' );
 AU   = line_rt.  AU;
 Lsun = line_rt.Lsun;
 
-tau0_slab   = 1e1;
-temperature = 2.0;
-
 ############################################################
 #  2. Configure LineRt (Group 1: species-based)
 #
@@ -57,26 +54,31 @@ temperature = 2.0;
 #  sigma_co) LineRt computes sigma_co internally from
 #  species + b_sca, so we pass n_species as a callable that
 #  returns the same constant.
+
 ##############################
 # 2.1 Configure the species and transition properites
 
-ti        = line_rt.TransitionInfo( 'CO', 0 );
-          # CO J=1->0 (idx 0)
-b_sca     = ti.doppler_b( temperature );
-sigma_co  = ti.cross_section( temperature );
-L_slab_cm = 10.0 * AU;   # x_min=-5, x_max=5 -> L=10 AU
-n_species = ( tau0_slab / L_slab_cm ) / sigma_co; # cm^-3
-# Or you can write n_species in cm^-3 on your own, no need to
-# compute from
-# n_species = 1e2
+# CO J=1->0 (idx 0)
+ti = line_rt.TransitionInfo( 'CO', 0 );
 
 # Show the transition information
 ti.show_transition(  );
-# Use the following line for all transitions available:
+# Use the following line for all species available:
 # ti.show_transitions(  );
 
 ##############################
 # 2.2 Define the fields
+
+temperature = 2.7;  # Kelvin
+
+tau0_slab = 1e1;
+sigma_co  = ti.cross_section( temperature );
+L_slab_cm = 10.0 * AU;   # x_min=-5, x_max=5 -> L=10 AU
+n_species = ( tau0_slab / L_slab_cm ) / sigma_co; # cm^-3
+
+# Or you can write n_species in cm^-3 on your own, no need
+# to compute from the things above, like this:
+# n_species = 1e2
 
 def n_total_callable( x, y, z ):
     res = full( x.shape, n_species );
@@ -102,7 +104,6 @@ rt = line_rt.LineRt(
     transition_info = ti,
     n_species    = n_total_callable,
     temperature  = temperature_callable,
-    # b_sca        = b_sca,
     vel          = ( vx_callable, 0.0, 0.0 ),
 
     ph_mode      = 2, # R_IIA const-mem (production)
@@ -128,17 +129,16 @@ c_cgs = 2.99792458e10;    # speed of light [cm/s]
 F0_cgs = 1e6;   # photon number flux [photons cm^-2 s^-1]
 E_ph   = h_cgs * c_cgs \
        / ( ti.transition.wavelength_um * 1e-4 );
-rt.add_source(
-    type     = 'slab', x = -5, direction = '+x',
-    n_photon = 20000,
-    flux     = F0_cgs * E_ph, # energetic flux [erg cm^-2 s^-1]
-    sigma    = b_sca / sqrt( 2 ),
-);
+rt.add_source\
+( type     = 'slab', x = -5, direction = '+x',
+  n_photon = 20000,
+  flux     = F0_cgs * E_ph, # energetic flux [erg cm^-2 s^-1]
+  sigma    = ti.doppler_b( temperature ) / sqrt( 2 ) );
 
 print( 'CO n_species=%.2e cm^-3' % n_species );
 print( 'Mesh: %s, external photon sources: %d' %
        ( rt._n_cell, len( rt._sources ) ) );
-print( '==============================' );
+print( '========================================' );
 
 ############################################################
 #  4. Run the iterations!
@@ -147,7 +147,7 @@ print( '==============================' );
 n_cycle   = 3;
 print( 'Running %d MC cycles ...' % n_cycle );
 results = rt.run( n_cycle );
-print( '==============================' );
+print( '========================================' );
 
 ############################################################
 #  5. Print run info
@@ -164,7 +164,7 @@ for k, res in enumerate( res_list ):
     else:
         print( '  Cycle %d: flx=N/A, n_esc=%d'
                % ( k, n_esc ) );
-print( '==============================' );
+print( '========================================' );
 
 ############################################################
 #  6. Plot (default multi-panel)
