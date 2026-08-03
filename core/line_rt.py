@@ -585,7 +585,8 @@ class LineRt:
                            cmap = 'magma' ):
         """Plot a grid of single-channel spatial maps from the
         imaging cube.  All panels share a logarithmic colour
-        scale with dynamic range clipped to <= 6 dex.
+        scale with dynamic range clipped to <= 4 dex; values
+        below the lower limit saturate to the bottom colour.
 
         Parameters
         ----------
@@ -598,7 +599,7 @@ class LineRt:
         n_cols : int  number of columns in the panel grid.
         n_channels : int or None  total channels to plot
             (default ``n_cols``, i.e. one row).
-        dyn_range : bool  apply 6-dex log clipping (default True).
+        dyn_range : bool  apply 4-dex log clipping (default True).
         cmap : str  colormap (default 'magma').
         """
         from .visualize import plot_channel_maps

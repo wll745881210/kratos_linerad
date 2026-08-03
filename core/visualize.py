@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from numpy import asarray, zeros_like, ones_like, ones, array, ceil, \
                   log10, clip, abs, float64, atleast_2d, average, \
                   zeros, arange, int32, isfinite
@@ -543,8 +544,10 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
 
     All panels share a single colour scale.  When
     ``dyn_range=True`` (default) the scale is logarithmic with
-    the dynamic range clipped to <= 6 dex (upper = 10^ceil of
-    the global max, lower = 10^(upper_dex - 6)).
+    the dynamic range clipped to <= 4 dex (upper = 10^ceil of
+    the global max, lower = 10^(upper_dex - 4)).  Values below
+    the lower limit are saturated (clipped) to the bottom of
+    the colour scale rather than masked out.
 
     Parameters
     ----------
@@ -557,7 +560,7 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
         (selected around the spectral peak).  If None, defaults
         to ``n_cols`` (one row).  Ignored when ``channels``
         is given explicitly.
-    dyn_range : bool  apply 6-dex log clipping (default True).
+    dyn_range : bool  apply 4-dex log clipping (default True).
     ax : array of Axes or None  (created if None).
     figsize : tuple or None.
     output_path : str or None  save figure if given.
@@ -625,15 +628,17 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
         if not isfinite( pmax ) or pmax <= 0:
             pmax = 1.0;
         if not isfinite( pmin ) or pmin <= 0:
-            pmin = pmax * 1e-6;
+            pmin = pmax * 1e-4;
         upper_dex = int( ceil( log10( pmax ) ) );
         vmax = 10.0 ** upper_dex;
         span = upper_dex - log10( pmin );
-        span = int( clip( span, 1, 6 ) );
+        span = int( clip( span, 1, 4 ) );
         vmin = 10.0 ** ( upper_dex - span );
         if vmin >= vmax:
             vmin = vmax * 1e-3;
-        norm = LogNorm( vmin = vmin, vmax = vmax );
+        # clip=True saturates values below vmin (incl. <=0) to
+        # the bottom colour instead of masking them to white.
+        norm = LogNorm( vmin = vmin, vmax = vmax, clip = True );
     else:
         norm = LogNorm( );
 
@@ -680,9 +685,13 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
         row, col = divmod( i, ncols );
         axes[ row, col ].set_visible( False );
 
-    # Single shared colorbar
-    fig.colorbar( im, ax = axes.ravel( ).tolist( ),
-                  label = 'intensity [CGS]', shrink = 0.85 );
+    # Dedicated colourbar axis beside the last used panel, so it
+    # never invades the panel grid.
+    last_row, last_col = divmod( n_pan - 1, ncols );
+    divider = make_axes_locatable( axes[ last_row, last_col ] );
+    cax = divider.append_axes( 'right', size = '4%', pad = 0.08 );
+    fig.colorbar( im, cax = cax, label = 'intensity [CGS]',
+                  extend = 'min' );
 
     if transition_info is not None:
         fig.suptitle( transition_info.transition_name, y = 0.995,
