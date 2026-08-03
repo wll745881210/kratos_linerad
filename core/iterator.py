@@ -205,9 +205,21 @@ def iterate( source_photons, species, fields_init, mesh, \
     for cycle in range( n_cycles ):
         # Line-dependent fields (mfp_i_sca_0, mfp_i_abs_0,
         # emiss) are written per cycle (populations evolve).
-        line_fields = { k: v for k, v in fields.items( ) \
+        # The emiss field is rescaled by 1/proper_scale so that
+        # the thermal seed (emiss/mfp_i_sca) carried by st_cam
+        # lives in the same scaled-proper units as the
+        # scattering part accumulated from the (scaled) photon
+        # propers.  Both are then divided by scale_factor on
+        # readback.  Work on a copy so the in-memory fields
+        # dict retains CGS values for plotting/inspection.
+        line_fields = { k: ( v.copy( ) if k == 'emiss' else v )
+                        for k, v in fields.items( )
                         if k in ( 'mfp_i_sca_0', 'mfp_i_abs_0',
                                   'emiss' ) };
+        if 'emiss' in line_fields and proper_scale != 1.0:
+            line_fields[ 'emiss' ] = asarray( line_fields[ 'emiss' ],
+                                              dtype = float64 ) \
+                                     / proper_scale;
         field_file = os.path.join( work_dir, 'fields_cycle%d.bin' % cycle );
         write_field_data( field_file, line_fields, mesh, \
                           unit_l0 = unit_l0, group = 'line' );
@@ -300,6 +312,12 @@ scale = %.3e" % ( proper_scale, \
                 if n_chan > 0 and \
                    l_flat.size == n_pix * n_chan:
                     cube = l_flat.reshape( n_pix, n_chan );
+                    # Undo proper scaling: st_cam is a sum of
+                    # scaled photon propers (scattering part)
+                    # plus a thermal seed built from the
+                    # equally-scaled emiss field.  Both carry
+                    # the same scale_factor.
+                    cube = cube / scale_factor;
                     img[ 'cube' ] = cube;  # (n_pix, n_chan) code units
                     img[ 'n_chan' ] = n_chan;
                     img[ 'i2d' ] = i2d.reshape( n_pix, 2 );
