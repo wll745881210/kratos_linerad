@@ -578,6 +578,44 @@ class LineRt:
                              dyn_range = dyn_range, \
                              transition_info = self._transition_info );
 
+    def plot_channel_maps( self, out = None, channels = None, \
+                           n_cols = 6, dyn_range = True, ax = None, \
+                           figsize = None, output_path = None, \
+                           cmap = 'magma' ):
+        """Plot a grid of single-channel spatial maps from the
+        imaging cube.  All panels share a logarithmic colour
+        scale with dynamic range clipped to <= 6 dex.
+
+        Parameters
+        ----------
+        out : dict, optional  the dict returned by LineRt.run().
+            When omitted, uses the cached results of the most
+            recent run().
+        channels : list[int] or None  channel indices to plot.
+            If None, selects ``n_cols`` channels centred on the
+            spectral peak.
+        n_cols : int  number of columns (and channels when
+            ``channels`` is None).
+        dyn_range : bool  apply 6-dex log clipping (default True).
+        cmap : str  colormap (default 'magma').
+        """
+        from .visualize import plot_channel_maps
+        data = out if out is not None else self._results;
+        if data is None:
+            raise ValueError( \
+                "plot_channel_maps(): no results to plot - call " \
+                "run() first or pass out=" );
+        return plot_channel_maps( data, \
+                                  channels = channels, \
+                                  n_cols = n_cols, \
+                                  dyn_range = dyn_range, \
+                                  ax = ax, \
+                                  figsize = figsize, \
+                                  output_path = output_path, \
+                                  cmap = cmap, \
+                                  transition_info = \
+                                      self._transition_info );
+
     ########################################################
     # Run
 

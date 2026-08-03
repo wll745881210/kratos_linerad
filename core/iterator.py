@@ -115,6 +115,7 @@ def iterate( source_photons, species, fields_init, mesh, \
             'dir_cam_phi'     : str( float( phi ) ),
             'v_chan_min'      : str( float( v_lo ) * _v2c ),
             'v_chan_max'      : str( float( v_hi ) * _v2c ),
+            '_v_chan_cgs'     : ( float( v_lo ), float( v_hi ) ),
         };
         if 'img_xmin' in imaging:
             imaging_pars[ 'img_xmin' ] = ' '.join(
@@ -321,6 +322,12 @@ scale = %.3e" % ( proper_scale, \
                     img[ 'cube' ] = cube;  # (n_pix, n_chan) code units
                     img[ 'n_chan' ] = n_chan;
                     img[ 'i2d' ] = i2d.reshape( n_pix, 2 );
+                    # Store the CGS channel velocity range for
+                    # downstream plotting (v_chan_min/max in
+                    # imaging_pars are in code units).
+                    if imaging_pars is not None and \
+                       '_v_chan_cgs' in imaging_pars:
+                        img[ 'v_chan' ] = imaging_pars[ '_v_chan_cgs' ];
                     # Convert code-unit intensity to CGS
                     # [erg cm^-2 s^-1 sr^-1].  The thermal seed
                     # (emiss/mfp_s, emiss in code units) gives
