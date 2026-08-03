@@ -7,7 +7,7 @@ from kratos/visual/binary_io.py).  No external sys.path hack needed.
 """
 
 from .binary_io import binary_io
-from numpy import asarray, array, int32, float32, float64, pad
+from numpy import asarray, array, int32, float32, float64
 
 ############################################################
 # Field prefixes
@@ -53,13 +53,25 @@ def write_field_data( filename, fields, mesh, unit_l0 = 1.0, \
     Data layout: ijkl=0 is written so interp_t indexes as
     iz*ny*nx + iy*nx + ix (z slowest, x fastest), matching the
     (nz, ny, nx) C-order of the 3D arrays directly.
+
+    Node layout: cell-centered. The interp_t grid is placed at
+    cell centres (x0 = x_min + 0.5*dx, n_pts = n_cell), so the
+    data array is the field values evaluated at cell centres
+    themselves - no padding, no half-cell shift. Kratos samples
+    the table at cell centres (geo.x_cc()), which then coincide
+    with the nodes and return the exact stored value. The earlier
+    vertex scheme (x0 = x_min, n_pts = n_cell+1, edge-padded)
+    stored cell-centre values at vertex positions, producing a
+    half-cell shift and an asymmetric high-side duplicate that
+    broke mirror symmetry for spatially-varying fields.
     """
     bio = binary_io( filename );
     n_cell = asarray( mesh[ 'n_cell' ], dtype = int32   );
     x_min  = asarray( mesh[ 'x_min'  ], dtype = float32 );
     dx     = asarray( mesh[ 'dx'     ], dtype = float32 );
 
-    n_pts = ( n_cell + 1 ).astype( int32 );
+    n_pts    = n_cell.copy( );
+    x0_nodes = x_min + 0.5 * dx;
     ijkl_flag = array( 0, dtype = int32 );
 
     if   group == 'all':
@@ -80,18 +92,16 @@ got %r" % ( group ) );
             continue;
         arr = asarray( fields.get( key, fields.get( prefix ) ), \
                        dtype = float32 );
-        padded = pad( arr, ( ( 0, 1 ), ( 0, 1 ), ( 0, 1 ) ), \
-                      mode = 'edge' );
 
-        bio.cache( prefix + 'ijkl',  ijkl_flag,          \
+        bio.cache( prefix + 'ijkl',  ijkl_flag,           \
                    dtype = 'int32' );
-        bio.cache( prefix + 'n_pts', n_pts,              \
+        bio.cache( prefix + 'n_pts', n_pts,               \
                    dtype = 'int32' );
-        bio.cache( prefix + 'x0',    x_min,              \
+        bio.cache( prefix + 'x0',    x0_nodes,            \
                    dtype = 'float32' );
-        bio.cache( prefix + 'dx',    dx,                 \
+        bio.cache( prefix + 'dx',    dx,                  \
                    dtype = 'float32' );
-        bio.cache( prefix + 'data',  padded.ravel().astype( float32 ), \
+        bio.cache( prefix + 'data',  arr.ravel( ).astype( float32 ), \
                    dtype = 'float32' );
     #
     bio.save(  );
@@ -168,8 +178,9 @@ def read_output( filename ):
       'flx' - effective flux array (n_tot + ghosts stripped to
               n_tot, float32)
       'excitation_flux' - flux for excitation array (n_tot, float32)
-      'photons' - dict with keys 'x', 'dir', 'l', 'vel'
-                  (escaped photons only)
+      'photons' - dict with keys 'x', 'dir', 'proper', 'vel'
+                  (escaped photons only; 'l' is a deprecated alias
+                  for 'proper')
     """
     bio = binary_io( filename );
     bio.open(  );
@@ -259,7 +270,9 @@ def read_output( filename ):
         elif '_rank_' in raw_key and raw_key.endswith( '_dir' ):
             phot[ 'dir' ] = bio.as_array( raw_key, 'f' );
         elif '_rank_' in raw_key and raw_key.endswith( '_l' ):
-            phot[ 'l' ] = bio.as_array( raw_key, 'f' );
+            proper = bio.as_array( raw_key, 'f' );
+            phot[ 'proper' ] = proper;
+            phot[ 'l' ]      = proper;   # deprecated alias
         elif '_rank_' in raw_key and raw_key.endswith( '_vel' ):
             phot[ 'vel' ] = bio.as_array( raw_key, 'f' );
     #

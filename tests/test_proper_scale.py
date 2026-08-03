@@ -50,23 +50,28 @@ class _FakeKratos:
     division by scale_factor must restore flx_true.
     """
 
-    def __init__( self, n_tot, flx_true, max_proper_orig ):
+    def __init__( self, n_tot, flx_true, max_proper_orig, n_esc = 0 ):
         self.n_tot = n_tot;
         self.flx_true = flx_true;
         self.max_proper_orig = max_proper_orig;
+        self.n_esc = n_esc;
 
     def __call__( self, work_dir, cycle, field_file, photon_file, \
                   prefix, par_template, par_overrides, kratos_bin = None ):
         written = _read_photon_proper( photon_file );
         scale = float( np_max( written ) ) / self.max_proper_orig;
         flx_val = self.flx_true * scale;
+        esc_proper = full( self.n_esc, written[ 0 ], dtype = float64 );
         output = { 'exc_flux_flat' : zeros( self.n_tot, \
                                             dtype = float64 ), \
                    'flx'           : full( self.n_tot, flx_val, \
                                            dtype = float64 ), \
-                   'photons'       : { 'vel' : zeros( 0 ), \
-                                       'x'   : zeros( 0 ), \
-                                       'l'   : zeros( 0 ) } };
+                   'photons'       : { 'vel'  : full( self.n_esc, 0.0, \
+                                                      dtype = float64 ), \
+                                       'x'    : zeros( self.n_esc * 3, \
+                                                       dtype = float64 ), \
+                                       'l'    : esc_proper, \
+                                       'proper' : esc_proper.copy( ) } };
         return output, '[fake]', 0.01;
 
 
@@ -170,6 +175,78 @@ def test_line_rt_ctor_accepts_proper_scale( ):
     rt = LineRt( proper_scale = 1e-25, kratos_root = '/' );
     assert rt._proper_scale == 1e-25, "proper_scale not stored";
     print( "OK: LineRt stores proper_scale = %.1e" % rt._proper_scale );
+
+
+def test_escaped_proper_is_weight_not_length( ):
+    """iterate() must NOT multiply escaped proper by unit_l0."""
+    n_cell = ( 8, 4, 4 );
+    mesh = make_cartesian_mesh( n_cell, ( -4, -1, -1 ), ( 4, 1, 1 ) );
+    n_tot = int( mesh[ 'n_tot' ] );
+    fields = _base_fields( mesh );
+
+    ext = zeros( ( 5, 9 ), dtype = float64 );
+    ext[ :, 0 ] = 0.0;
+    ext[ :, 3 ] = 1.0;
+    ext[ :, 6 ] = 1.0;
+    ext[ :, 7 ] = 0.0;
+    ext[ :, 8 ] = 1e4;
+
+    fake = _FakeKratos( n_tot, flx_true = 1.0, max_proper_orig = 1.0, \
+                        n_esc = 3 );
+    work_dir = tempfile.mkdtemp( prefix = 'proper_scale_' );
+    it_mod.run_kratos_cycle = fake;
+    it_mod.resolve_kratos_bin = lambda root = None: '/fake/kratos';
+
+    results, pops = it_mod.iterate( \
+        ext.copy( ), None, fields, mesh, n_cycles = 1, \
+        work_dir = work_dir, transition_idx = 0, \
+        unit_l0 = 1.49598e13, unit_t0 = 1.0, kratos_root = '/' );
+
+    phot = results[ 0 ][ 'photons' ];
+    assert 'proper' in phot, "escaped photons must carry 'proper'";
+    prop = phot[ 'proper' ];
+    assert prop[ 0 ] == 1.0, \
+        "escaped proper must be the weight (1.0), got %g" % prop[ 0 ];
+    assert prop[ 0 ] != 1.49598e13, \
+        "escaped proper must NOT be multiplied by unit_l0";
+    assert phot.get( 'l' ) is not None, "'l' alias must remain";
+    assert phot[ 'l' ][ 0 ] == prop[ 0 ], "'l' alias must equal proper";
+    print( "OK: escaped proper kept as weight (not scaled by unit_l0)" );
+
+
+def test_escaped_proper_undoes_proper_scale( ):
+    """iterate() divides escaped proper back by the applied proper_scale."""
+    n_cell = ( 8, 4, 4 );
+    mesh = make_cartesian_mesh( n_cell, ( -4, -1, -1 ), ( 4, 1, 1 ) );
+    n_tot = int( mesh[ 'n_tot' ] );
+    fields = _base_fields( mesh );
+
+    ext = zeros( ( 5, 9 ), dtype = float64 );
+    ext[ :, 0 ] = 0.0;
+    ext[ :, 3 ] = 1.0;
+    ext[ :, 6 ] = 1.0;
+    ext[ :, 7 ] = 0.0;
+    ext[ :, 8 ] = 1e4;
+
+    fake = _FakeKratos( n_tot, flx_true = 1.0, max_proper_orig = 1.0, \
+                        n_esc = 3 );
+    work_dir = tempfile.mkdtemp( prefix = 'proper_scale_' );
+    it_mod.run_kratos_cycle = fake;
+    it_mod.resolve_kratos_bin = lambda root = None: '/fake/kratos';
+
+    # proper_scale=1e-20: written proper = 1e-20, escaped must come back 1.0.
+    results, pops = it_mod.iterate( \
+        ext.copy( ), None, fields, mesh, n_cycles = 1, \
+        work_dir = work_dir, transition_idx = 0, \
+        unit_l0 = 1.49598e13, unit_t0 = 1.0, \
+        kratos_root = '/', proper_scale = 1e-20 );
+
+    phot = results[ 0 ][ 'photons' ];
+    prop = phot[ 'proper' ];
+    assert abs( prop[ 0 ] - 1.0 ) < 1e-6, \
+        "escaped proper must be restored after proper_scale undo, got %g" \
+        % prop[ 0 ];
+    print( "OK: escaped proper restored to 1.0 after proper_scale=1e-20" );
 
 
 if __name__ == '__main__':

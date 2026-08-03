@@ -121,6 +121,18 @@ rt.add_source( type = 'slab', flux = 1e-3,
 `vel_range = None` (default) keeps the current behaviour: every photon
 gets exactly `vel_offset`.
 
+**Extended point source** — spread each packet's initial position
+uniformly (volume-weighted) over a sphere of radius `r_random` [cm]
+centred on `position`:
+
+```python
+rt.add_source( type = 'point', luminosity = 1e30, position = ( 0, 0, 0 ),
+               r_random = 1.5e13 )   # emission within R=1.5e13 cm
+```
+
+`r_random = 0.0` (default) keeps all photons exactly at `position`.
+`r_random > 0` is rejected for slab sources.
+
 **Group 1 - species-based** (LAMDA data + density + temperature):
 
 ```python
@@ -214,6 +226,20 @@ bound both:
 Stored output fields (`flx`, `exc_flux_flat`) are always `float32` —
 Kratos produces float32 field binaries, so nothing is lost while halving
 storage relative to float64.
+
+### Escaped photons and proper weights
+
+Each cycle's `results` dict carries the escaped photons under
+`results[i]['photons']` with keys `x` (positions, CGS cm), `dir`
+(unit direction vectors), `vel` (CGS cm/s), and **`proper`** — the
+surviving photon weight in photons/s per packet (CGS).  `proper` is what
+matters for photon statistics: scattered/absorbed photons contribute
+proportionally less, and `sum(proper)` is the total escaped photon
+luminosity.  The `run()` output `spectrum` (`{'vel': ..., 'n': ...}`) is
+proper-weighted, so the emergent histogram reflects photon statistics
+rather than raw packet counts.  (The old key `'l'` is retained as a
+deprecated alias for `'proper'` — it was a weight all along, never a
+path length.)
 
 ### 3. Jupyter notebook (interactive)
 

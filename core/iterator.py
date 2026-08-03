@@ -208,15 +208,20 @@ scale = %.3e" % ( proper_scale, \
 
         if 'photons' in output:
             v_factor = unit_t0 / unit_l0;
+            inv_scale = 1.0 / scale_factor;
             phot = output[ 'photons' ];
-            for key in ( 'vel', 'x', 'l' ):
+            for key in ( 'vel', 'x', 'proper' ):
                 if key in phot:
                     arr = asarray( phot[ key ], dtype = float64 );
-                    if key in ( 'x', 'l' ):
+                    if key == 'x':
                         arr *= unit_l0;
-                    else:
+                    elif key == 'vel':
                         arr /= v_factor;
+                    else:
+                        arr *= inv_scale;
                     phot[ key ] = arr;
+            if 'l' in phot:
+                phot[ 'l' ] = phot.get( 'proper', phot[ 'l' ] );
 
         results.append( output );
 

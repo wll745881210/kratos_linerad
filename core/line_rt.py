@@ -205,7 +205,7 @@ class LineRt:
                     luminosity = None, flux = None, \
                     units = None, x = None, \
                     direction = '+x', y_range = None, \
-                    z_range = None, position = None, \
+                    z_range = None, position = None, r_random = 0.0, \
                     vel_offset = 0.0, sigma = 0.0, \
                     vel_range = None, vel_pdf = 'uniform', \
                     vel_sigma = None ):
@@ -243,6 +243,11 @@ class LineRt:
             (z_min, z_max) for uniform distribution. None → full domain.
         position : tuple or None (point)
             (x, y, z) of point source.
+        r_random : float (point)
+            Radius [cm] of the sphere around ``position`` within which
+            each photon's initial position is drawn uniformly (volume-
+            weighted).  0.0 (default) → all photons start exactly at
+            ``position``.
         vel_offset : float
             Velocity offset of emitted photons [cm/s].
         sigma : float
@@ -298,6 +303,17 @@ class LineRt:
             raise ValueError( \
                 "source type must be 'slab' or 'point', got '%s'" % type );
 
+        if r_random is None:
+            r_random = 0.0;
+        r_random = float( r_random );
+        if r_random < 0.0:
+            raise ValueError( \
+                "r_random must be >= 0, got %g" % r_random );
+        if type == 'slab' and r_random > 0.0:
+            raise ValueError( \
+                "r_random is for point sources only; "
+                "slab sources emit from the plane x=%.6g" % x );
+
         wavelength = None;
         if units == 'energy':
             if self._transition_info is None:
@@ -336,6 +352,7 @@ class LineRt:
                 'y_range'   : y_range, \
                 'z_range'   : z_range, \
                 'position'  : position, \
+                'r_random'  : r_random, \
                 'vel_offset': vel_offset, \
                 'sigma'     : sigma, \
                 'vel_range' : vel_range, \
@@ -376,8 +393,11 @@ class LineRt:
             else:
                 qty = "luminosity = %s %s" % ( lum, \
                       'erg/s' if units == 'energy' else 'photons/s' );
+                r_rand = src.get( 'r_random', 0.0 );
                 geo = "pos=%s" % ( src.get( 'position' ) \
                                    or ( 0, 0, 0 ), );
+                if r_rand:
+                    geo += ", r_random=%.4e cm" % r_rand;
             if units == 'energy' and wl is not None:
                 wl_str = ", λ=%.4e cm" % wl;
             else:
@@ -556,7 +576,9 @@ class LineRt:
             'mesh'          — mesh dict
             'exc_flux_flat' — final CGS excitation flux (1D)
             'flx'           — final CGS flux (1D)
-            'spectrum'      — {"vel": ..., "n": ...}
+            'spectrum'      — {"vel": ..., "n": proper-weighted escaped
+                               photon counts (surviving photons/s per
+                               packet, CGS)}
             'sources'       — list[dict] (source configs used)
         """
         self._resolve_species( );
@@ -647,8 +669,10 @@ class LineRt:
         if results and results[ -1 ].get( 'photons' ):
             phot = results[ -1 ][ 'photons' ];
             if 'vel' in phot:
+                weights = asarray( phot.get( 'proper', \
+                                 ones_like( phot[ 'vel' ] ) ) );
                 spectrum = { 'vel' : asarray( phot[ 'vel' ] ), \
-                             'n'   : ones_like( phot[ 'vel' ] ) };
+                             'n'   : weights };  # proper-weighted
 
         out = { 'results'      : results, \
                 'populations'  : final_pops, \
@@ -929,9 +953,23 @@ class LineRt:
                 ph[ :, 8 ] = sigma;
 
             pos = src.get( 'position' ) or ( 0.0, 0.0, 0.0 );
-            ph[ :, 0 ] = float( pos[ 0 ] );
-            ph[ :, 1 ] = float( pos[ 1 ] );
-            ph[ :, 2 ] = float( pos[ 2 ] );
+            r_rand = float( src.get( 'r_random', 0.0 ) );
+            if r_rand > 0.0:
+                # Uniform (volume-weighted) position within the sphere.
+                # r = r_rand * u^(1/3) gives dV-uniform sampling; the
+                # offset direction is drawn independently of the flight
+                # direction below.
+                u_r = random.random( n_ph ) ** ( 1.0 / 3.0 );
+                r = r_rand * u_r;
+                th_o = arccos( 2.0 * random.random( n_ph ) - 1.0 );
+                ph_o = 2.0 * pi * random.random( n_ph );
+                ph[ :, 0 ] = float( pos[ 0 ] ) + r * sin( th_o ) * cos( ph_o );
+                ph[ :, 1 ] = float( pos[ 1 ] ) + r * sin( th_o ) * sin( ph_o );
+                ph[ :, 2 ] = float( pos[ 2 ] ) + r * cos( th_o );
+            else:
+                ph[ :, 0 ] = float( pos[ 0 ] );
+                ph[ :, 1 ] = float( pos[ 1 ] );
+                ph[ :, 2 ] = float( pos[ 2 ] );
             theta = arccos( 2.0 * random.random( n_ph ) - 1.0 );
             phi = 2.0 * pi * random.random( n_ph );
             ph[ :, 3 ] = sin( theta ) * cos( phi );

@@ -15,6 +15,7 @@ import numpy as np;
 sys.path.insert( 0, os.path.dirname( os.path.dirname( \
     os.path.abspath( __file__ ) ) ) );
 
+from numpy import sqrt;  # noqa: E402
 from line_rt import LineRt, TransitionInfo;  # noqa: E402
 
 H_CGS = 6.62607015e-27;
@@ -177,6 +178,68 @@ def test_point_energy_luminosity_proper( ):
     E_ph = H_CGS * C_CGS / wl;
     assert isclose( ph[ :, 6 ].mean( ), ( 5e30 / E_ph ) / 100, \
                     rel_tol = 1e-12 );
+
+
+############################################################
+# r_random sphere randomization (point sources)
+
+def test_r_random_default_zero_no_spread( ):
+    """Default r_random=0 keeps all point photons at the position."""
+    rt = make_rt( );
+    rt.add_source( type = 'point', n_photon = 1000, luminosity = 1e6, \
+                   position = ( 1, -2, 3 ) );
+    mesh = rt._build_mesh( );
+    ph = rt._generate_one_source( rt._sources[ 0 ], mesh, 1e5 );
+    assert np.all( ph[ :, 0 ] == 1.0 ), "x must be at position";
+    assert np.all( ph[ :, 1 ] == -2.0 ), "y must be at position";
+    assert np.all( ph[ :, 2 ] == 3.0 ), "z must be at position";
+    print( "OK: r_random=0 (default) keeps photons at position" );
+
+
+def test_r_random_spreads_within_sphere( ):
+    """r_random>0 places photons inside the sphere (|dr| <= r_random)."""
+    rt = make_rt( );
+    rt.add_source( type = 'point', n_photon = 20000, luminosity = 1e6, \
+                   position = ( 0, 0, 0 ), r_random = 2.5 );
+    mesh = rt._build_mesh( );
+    ph = rt._generate_one_source( rt._sources[ 0 ], mesh, 1e5 );
+    r = sqrt( ph[ :, 0 ] ** 2 + ph[ :, 1 ] ** 2 + ph[ :, 2 ] ** 2 );
+    assert r.max( ) <= 2.5 * ( 1 + 1e-9 ), \
+        "all photons must be inside the sphere, max r=%g" % r.max( );
+    assert r.min( ) < 0.5, "some photons should be near the centre";
+    # Volume-weighted sampling: mean r^3 = R^3 / 2 (E[r^3] over a
+    # uniform volume distribution; E[r] = 3R/4).
+    r3 = ( r ** 3 ).mean( );
+    assert isclose( r3, 0.5 * 2.5 ** 3, rel_tol = 0.1 ), \
+        "mean r^3=%g should be ~ 0.5*r^3=%g" % ( r3, 0.5 * 2.5 ** 3 );
+    print( "OK: r_random=2.5 fills sphere, mean r^3=%.3g" % r3 );
+
+
+def test_r_random_rejected_for_slab( ):
+    """r_random>0 with a slab source raises ValueError."""
+    rt = make_rt( );
+    raised = False;
+    try:
+        rt.add_source( type = 'slab', x = -5, direction = '+x', \
+                       flux = 1e6, r_random = 2.0 );
+    except ValueError as e:
+        raised = True;
+        assert 'point sources only' in str( e );
+    assert raised, "r_random on a slab source must raise";
+    print( "OK: r_random rejected for slab sources" );
+
+
+def test_r_random_negative_rejected( ):
+    """r_random < 0 raises ValueError."""
+    rt = make_rt( );
+    raised = False;
+    try:
+        rt.add_source( type = 'point', luminosity = 1e6, \
+                       r_random = -1.0 );
+    except ValueError:
+        raised = True;
+    assert raised, "negative r_random must raise";
+    print( "OK: negative r_random raised ValueError" );
 
 
 ############################################################

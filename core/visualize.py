@@ -222,15 +222,15 @@ def _draw_spectrum( ax, results, bins = 80 ):
     spec = results.get( 'spectrum', { } );
     if spec:
         vel = asarray( spec.get( 'vel', [ ] ) );
-        weights = asarray( spec.get( 'n', spec.get( 'weights', \
+        weights = asarray( spec.get( 'n', spec.get( 'proper', \
                                                     ones_like( vel ) ) ) );
     if len( vel ) == 0:
         for r in reversed( results.get( 'results', [ ] ) ):
             phot = r.get( 'photons', { } );
             vel = asarray( phot.get( 'vel', [ ] ) );
             if len( vel ) > 0:
-                l_arr = asarray( phot.get( 'l', ones_like( vel ) ) );
-                weights = l_arr.ravel(  ) if l_arr.size == vel.size \
+                w_arr = asarray( phot.get( 'proper', ones_like( vel ) ) );
+                weights = w_arr.ravel(  ) if w_arr.size == vel.size \
                     else ones_like( vel );
                 break;
 
@@ -473,9 +473,11 @@ def plot_emergent_spectrum( ax, photons, bins = 80, xlim = None, \
                             label = '' ):
     if isinstance( photons, dict ):
         vel = asarray( photons.get( 'vel', [ ] ) );
-        l_arr = asarray( photons.get( 'l', [ ] ) );
+        l_arr = asarray( photons.get( 'proper', \
+                       photons.get( 'l', [ ] ) ) );
     else:
-        raise TypeError( "photons must be a dict with 'vel' and 'l' keys" );
+        raise TypeError( "photons must be a dict with 'vel' and "
+                         "'proper' keys" );
 
     if len( vel ) == 0:
         ax.text( 0.5, 0.5, 'No escaped photons', \
@@ -490,7 +492,7 @@ def plot_emergent_spectrum( ax, photons, bins = 80, xlim = None, \
              label = label if label else None );
 
     ax.set_xlabel( 'velocity [cm/s]' );
-    ax.set_ylabel( 'l-weighted count' );
+    ax.set_ylabel( 'proper-weighted count' );
     if xlim is not None:
         ax.set_xlim( xlim );
     if label:

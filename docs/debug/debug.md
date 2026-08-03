@@ -297,6 +297,43 @@ Documented in AGENTS.md pitfall 4 and `usr_ext/line_rt/tests/README.md`.
 
 ---
 
+### Bug 11: vertex+pad field nodes broke mirror symmetry (Aug 3)
+
+**Symptom:** A fully reflection-symmetric medium (central point source,
+`vel=(0,0,0)`, `n_scat=0`, symmetric Gaussian `mfp_i_abs_0` profile)
+produced a flux map with ~20% mirror asymmetry in x and y and a 3×
+imbalance of the summed flux between the x+ and x- halves
+(`7.75e12` vs `2.40e13`). The z axis (the symmetry axis) was nearly
+symmetric (~4%), but x and y were badly broken. Uniform `mfp_i_abs_0`
+was symmetric (~1.5%, pure MC noise), so the bug was specific to
+spatially-varying absorption.
+
+**Root cause:** `write_field_data()` (`core/kratos_io.py`) wrote the
+`interp_t` grid in vertex/node layout: `n_pts = n_cell + 1`,
+`x0 = x_min`, and the data array was the 3D cell-centre cube padded
+with `np.pad(..., mode='edge')` on the high side. So node `j` at
+position `x_min + j*dx` held the value of cell-centre `j` (at
+`x_min + (j+0.5)*dx`) - a half-cell shift - and node `n_cell` was a
+duplicate of node `n_cell-1`. When Kratos samples the table at cell
+centres `geo.x_cc(i) = x_min + (i+0.5)*dx`, it gets
+`0.5*cc[i] + 0.5*cc[i+1]` for `i < n_cell-1` but `cc[n_cell-1]` at the
+last cell - the two domain edges are treated differently, breaking
+mirror symmetry for any field that varies across the domain. The
+diagnosis was confirmed by a clean control: monkeypatching
+`write_field_data` to cell-centred nodes (`n_pts = n_cell`,
+`x0 = x_min + 0.5*dx`, no pad) restored symmetry to ~0.8% (MC noise)
+with balanced half-sums (`5.07e13` / `5.05e13`).
+
+**Fix:** `write_field_data()` now writes cell-centred nodes:
+`n_pts = n_cell`, `x0 = x_min + 0.5*dx`, data array ravels directly
+(no padding). Kratos `init_rad_fields_kernel` samples at cell centres,
+which coincide with the nodes and return the exact stored value.
+Verified on the symmetric Gaussian absorption test: x/y/z asymmetry
+~0.8-1.0%, all axis half-sums balanced. Documented in AGENTS.md
+pitfall 26.
+
+---
+
 ## Verification: USampler tables are identical
 
 To rule out the R_IIA redistribution kernel as a source of error,
@@ -483,6 +520,7 @@ to statistical noise from only 5000 photons at extreme τ.
 | 8   | interp_t data ordering     | streaks in x-gradient     | write `ijkl=0` flag                 | `097db8b` |
 | 9   | `_cell_centers_cgs` units  | uniform n_species         | multiply entire expr by `unit_l0`   | `097db8b` |
 | 10  | `n_scat=0` disables scatter| pure-absorption behavior  | set `n_scat` ≥ 1 in par             | -         |
+| 11  | vertex+pad field nodes    | 3× x+/x- flux asymmetry   | cell-centred nodes (`n_pts=n_cell`) | -         |
 
 After all fixes: single-scatter gap -0.12%, unlimited-scatter gap
 -1.31%, seed audit mean gap -0.68% ± 2.07%, wide-scaling sweep

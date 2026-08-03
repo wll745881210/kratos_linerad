@@ -408,6 +408,12 @@ proper_per_packet = L_phot / N_packets       [n][t]⁻¹
 
 Directions: uniform in cosθ ∈ [−1,1], φ ∈ [0,2π].
 
+With `r_random = R` [cm] (default 0), each packet's initial position is
+drawn uniformly (volume-weighted) over the sphere of radius R centred on
+`position`: `r = R·u^(1/3)` with u ∈ U(0,1), then an independent
+isotropic unit vector.  This gives E[r³] = R³/2 (E[r] = 3R/4) and
+approaches the ideal point source as R → 0.  Rejected for slab sources.
+
 **Plane-parallel extended (slab) source**: user specifies photon number flux F_phot [n][l]⁻²[t]⁻¹.
 
 For a slab face with area A = (y_max − y_min) × (z_max − z_min) in physical units (cm²):
@@ -464,9 +470,10 @@ On readback, the pipeline MUST undo this scaling on Kratos outputs that carry th
 ```
 flx_cgs    = flx_code    × scale_factor / (unit_l0² × unit_t0)
 F_ext_cgs  = F_ext_code  × scale_factor / (unit_l0² × unit_t0)
+proper_escaped_cgs = proper_written / scale_factor
 ```
 
-Both `iterate()` (low-level) and `run_pipeline()` (high-level) handle this automatically. The `results` dict returned to the user always contains CGS-scaled flux quantities.
+Both `iterate()` (low-level) and `run_pipeline()` (high-level) handle this automatically. The `results` dict returned to the user always contains CGS-scaled flux quantities. Escaped-photon `proper` weights are divided by `scale_factor` only (no `unit_l0` — they are photon-number weights, NOT path lengths); they appear in `results[i]['photons']['proper']` (CGS photons/s per packet, absorption-attenuated), with `'l'` retained as a deprecated alias.
 
 ### 11.3 Volume Consistency
 
@@ -485,9 +492,10 @@ Python-side cell volumes used for internal source luminosity must match Kratos c
 7. **Missing fields**: b_sca and velocity vectors must be provided to Kratos via the field binary file; mfp_i_abs_0 is user-provided, not auto-derived from cross_section
 8. **Applying F_ext to all levels**: excitation flux maps to ONE transition — only update the (lower↔upper) pair's population, not all levels
 9. **Forgetting to undo FP32 proper scaling**: Kratos fluxes inherit the proper weight scaling factor; reader MUST multiply flx and excitation_flux by the `scale_factor` returned by `write_photon_data()` after readback (handled by `iterate()` and `run_pipeline()`)
-10. **Photon velocity code→CGS conversion**: escaped photon velocities are in code units and must be converted to CGS (× `unit_l0/unit_t0`) for plots and diagnostics
-11. **Boundary kinds with 3 faces**: Kratos expects 6 boundary kinds (−x,+x,−y,+y,−z,+z). Specifying only 3 leaves the remaining faces undefined, defaulting to periodic and causing photon wrap-around artifacts
-12. **Periodic boundary corner bug**: the framework's `geo_loc_t::fix` can produce zero-width cells when photons cross periodic boundaries in two dimensions simultaneously; fixed by adding a convergence loop and cell-index updates in `particle_base.h`
+ 10. **Photon velocity code→CGS conversion**: escaped photon velocities are in code units and must be converted to CGS (× `unit_l0/unit_t0`) for plots and diagnostics
+ 11. **Treating escaped-photon `proper` as a path length**: Kratos writes the photon weight (`proper`) under the binary key `_l`; the reader must NOT multiply it by `unit_l0`. Escaped weights are divided by `scale_factor` only, and exposed as `'proper'` (with `'l'` as a deprecated alias)
+ 12. **Boundary kinds with 3 faces**: Kratos expects 6 boundary kinds (−x,+x,−y,+y,−z,+z). Specifying only 3 leaves the remaining faces undefined, defaulting to periodic and causing photon wrap-around artifacts
+ 13. **Periodic boundary corner bug**: the framework's `geo_loc_t::fix` can produce zero-width cells when photons cross periodic boundaries in two dimensions simultaneously; fixed by adding a convergence loop and cell-index updates in `particle_base.h`
 
 ---
 
