@@ -114,8 +114,8 @@ class LineRt:
         If None, falls back to the ``KRATOS_ROOT`` env var.  One of the
         two MUST be set (no default).
     keep_intermediate : bool
-        If True (default), all per-cycle binary files and the run
-        directory are kept on disk.  If False, each cycle's files are
+        If True, all per-cycle binary files and the run directory are
+        kept on disk.  If False (default), each cycle's files are
         deleted as soon as its data is read back into RAM, and the whole
         auto-created run directory is removed at the end of run() (only
         when ``path`` was not set explicitly), freeing /dev/shm tmpfs.
@@ -123,6 +123,15 @@ class LineRt:
         If set, only the last ``retain_cycles`` cycle dicts are kept in
         ``out['results']`` (older ones are dropped) to bound RAM usage.
         None (default) keeps every cycle.
+    max_run_age : float or None
+        Before starting a run in the auto-created scratch dir, delete
+        existing ``rt_*`` run dirs older than this many seconds
+        (default 10800 = 3 hours).  None/0 disables age-based pruning.
+    size_cap : float or None
+        Bound the total size of the auto-created scratch dir: when the
+        ``rt_*`` run dirs exceed this many bytes, the oldest dirs are
+        removed until under the cap (default 4e9 = 4 GB).  None/0
+        disables the size cap.
     """
 
     def __init__( self, *, n_cell = ( 64, 2, 2 ), \
@@ -136,9 +145,9 @@ class LineRt:
                   n_scat = 10000, n_fld = 1, n_cycles = 1, \
                   path = None, visualize = True, n_emission_max = 10, \
                   colliders = None, snapshot = None, \
-                  proper_scale = 1.0, keep_intermediate = True, \
+                  proper_scale = 1.0, keep_intermediate = False, \
                   retain_cycles = None, kratos_root = None, \
-                  imaging = None ):
+                  imaging = None, max_run_age = None, size_cap = None ):
         """
         imaging : dict or None
             Camera configuration for line imaging.  When set, the
@@ -184,6 +193,8 @@ class LineRt:
         self._retain_cycles  = retain_cycles;
         self._kratos_root    = kratos_root;
         self._imaging        = imaging;
+        self._max_run_age    = max_run_age;
+        self._size_cap       = size_cap;
         self._sources        = [ ];
         self._boundary_kinds = 'fre fre fre fre fre fre';
         self._results        = None;
@@ -585,8 +596,12 @@ class LineRt:
                            cmap = 'magma' ):
         """Plot a grid of single-channel spatial maps from the
         imaging cube.  All panels share a logarithmic colour
-        scale with dynamic range clipped to <= 4 dex; values
-        below the lower limit saturate to the bottom colour.
+        scale.  ``dyn_range`` is multi-purpose: ``True`` clips
+        the dynamic range to 4 dex; a number ``D`` clips it to
+        ``D`` dex; ``[hi, lo]`` sets explicit log10 limits
+        (vmin = 10^min, vmax = 10^max); ``False`` disables
+        clipping.  Values below the lower limit saturate to the
+        bottom colour.
 
         Parameters
         ----------
@@ -599,7 +614,8 @@ class LineRt:
         n_cols : int  number of columns in the panel grid.
         n_channels : int or None  total channels to plot
             (default ``n_cols``, i.e. one row).
-        dyn_range : bool  apply 4-dex log clipping (default True).
+        dyn_range : bool, number, or [hi, lo]  colour-scale
+            limits (default True -> 4 dex).
         cmap : str  colormap (default 'magma').
         """
         from .visualize import plot_channel_maps
@@ -707,22 +723,39 @@ class LineRt:
         par_overrides = { 'kinds'   : self._boundary_kinds, \
                           'a_voigt' : str( float( a_voigt_val ) ), \
                           'n_fld'   : str( int( self._n_fld ) ) };
-        results, final_pops = iterate( \
-            photons, species, fields, mesh, \
-            n_cycles = self._n_cycles, n_step = self._n_step, \
-            n_scat = self._n_scat, ph_mode = self._ph_mode, \
-            work_dir = work_dir, n_species = n_species_val, \
-            transition_idx = self._transition_idx, \
-            mol_mass = self._mol_mass or 28.0, \
-            unit_l0 = self._unit_l0, unit_t0 = self._unit_t0, \
-            n_emission_max = self._n_emission_max, \
-            colliders = colliders_val, \
-            proper_scale = self._proper_scale, \
-            keep_intermediate = self._keep_intermediate, \
-            retain_cycles = self._retain_cycles, \
-            callback = self._snapshot, par_overrides = par_overrides, \
-            kratos_root = self._kratos_root, \
-            imaging = self._imaging );
+        def _cleanup_work_dir( ):
+            #  Memory-saving mode: remove the auto-created run directory.
+            #  Only auto-created dirs are removed - an explicit `path` is
+            #  left untouched.  Safe to call on any exit path (success or
+            #  exception), hence the except/finally-friendly form.
+            if not self._keep_intermediate and self._path is None \
+               and os.path.isdir( work_dir ):
+                import shutil
+                shutil.rmtree( work_dir, ignore_errors = True );
+                print( '[LineRt] Removed run directory: %s' % work_dir );
+
+        try:
+            results, final_pops = iterate( \
+                photons, species, fields, mesh, \
+                n_cycles = self._n_cycles, n_step = self._n_step, \
+                n_scat = self._n_scat, ph_mode = self._ph_mode, \
+                work_dir = work_dir, n_species = n_species_val, \
+                transition_idx = self._transition_idx, \
+                mol_mass = self._mol_mass or 28.0, \
+                unit_l0 = self._unit_l0, unit_t0 = self._unit_t0, \
+                n_emission_max = self._n_emission_max, \
+                colliders = colliders_val, \
+                proper_scale = self._proper_scale, \
+                keep_intermediate = self._keep_intermediate, \
+                retain_cycles = self._retain_cycles, \
+                callback = self._snapshot, par_overrides = par_overrides, \
+                kratos_root = self._kratos_root, \
+                imaging = self._imaging );
+        except BaseException:
+            #  Crashed/interrupted run: still free the tmpfs dir so a
+            #  failure does not leave stale rt_* dirs accumulating.
+            _cleanup_work_dir( );
+            raise;
 
         spectrum = { 'vel' : array( [ ] ), 'n' : array( [ ] ) };
         if results and results[ -1 ].get( 'photons' ):
@@ -753,15 +786,7 @@ class LineRt:
             self._plot_results( out );
         self._results = out;
 
-        if not self._keep_intermediate and self._path is None:
-            # Memory-saving mode: remove the auto-created run directory
-            # (per-cycle files were already deleted as we went; the final
-            # cycle's outputs have been read into RAM).  Only auto-created
-            # dirs are removed - an explicit `path` is left untouched.
-            import shutil
-            if os.path.isdir( work_dir ):
-                shutil.rmtree( work_dir, ignore_errors = True );
-                print( '[LineRt] Removed run directory: %s' % work_dir );
+        _cleanup_work_dir( );
 
         return out;
 
@@ -879,6 +904,22 @@ class LineRt:
             return self._path;
         base = DEFAULT_RUN_ROOT;
         os.makedirs( base, exist_ok = True );
+        #  Bound the tmpfs (RAM) usage of the auto-created scratch dir:
+        #  drop stale rt_* dirs and enforce the size cap before starting.
+        from .pipeline import prune_scratch, \
+            _DEFAULT_MAX_RUN_AGE, _DEFAULT_SIZE_CAP;
+        n_age, n_size = prune_scratch( \
+            base        = base,
+            max_run_age = self._max_run_age \
+                          if self._max_run_age is not None \
+                          else _DEFAULT_MAX_RUN_AGE,
+            size_cap    = self._size_cap \
+                          if self._size_cap is not None \
+                          else _DEFAULT_SIZE_CAP );
+        if n_age or n_size:
+            print( '[LineRt] Scratch prune: removed %d stale run dir(s) '
+                   '(age), %d oldest run dir(s) (size cap).' \
+                   % ( n_age, n_size ) );
         import time
         ts = time.strftime( '%Y%m%d_%H%M%S' );
         run_dir = os.path.join( base, 'rt_%s' % ts );

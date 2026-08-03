@@ -38,7 +38,7 @@ def iterate( source_photons, species, fields_init, mesh, \
              mol_mass = 28.0, work_dir = None, callback = None, \
              n_species = None, transition_idx = 0, n_emission_max = 10, \
              colliders = None, proper_scale = 1.0, \
-             keep_intermediate = True, retain_cycles = None, \
+             keep_intermediate = False, retain_cycles = None, \
              unit_l0 = 1.49598e13, unit_t0 = 1.0, kratos_root = None, \
              imaging = None ):
     """

@@ -697,6 +697,24 @@ dyn_range)` generates a 2-column, N-row panel grid:
   `slice_idx`.
 - `slice_plot_2d` now respects an explicit `norm` kwarg.
 
+### plot_channel_maps() multi-purpose dyn_range
+
+`core/visualize.py:plot_channel_maps(..., dyn_range)` accepts
+three forms for `dyn_range` (resolved by the helper
+`_resolve_log_norm`):
+
+- `True` (default): shared log scale, dynamic range clipped to 4 dex
+  (upper = 10^ceil of the global max).
+- number `D`: like `True` but clips the dynamic range to `D` dex.
+- `[hi, lo]` (list or tuple of 2): explicit log10 limits —
+  `vmax = 10^max(hi, lo)`, `vmin = 10^min(hi, lo)`.  Values below
+  `vmin` (including non-positive) saturate to the bottom colour
+  (LogNorm `clip=True`).
+- `False`: unconstrained log scale (LogNorm with matplotlib auto
+  vmin/vmax).
+
+`LineRt.plot_channel_maps` passes `dyn_range` through unchanged.
+
 ### CLI rewrite
 
 `cli.py` rewritten to use `LineRt` directly (old version imported a

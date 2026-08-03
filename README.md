@@ -234,17 +234,24 @@ templating, and subprocess calls to Kratos.  See
 Per-cycle binaries live in the run directory under `/dev/shm/line_rt/`
 (a tmpfs mount — so on-disk files consume **RAM**), and every cycle's
 full float64 flux/population arrays are held in the returned `results`
-list.  For long multi-cycle runs this can exhaust memory.  Two knobs
+list.  For long multi-cycle runs this can exhaust memory.  Several knobs
 bound both:
 
-- **`keep_intermediate=False`** (constructor / `iterate()` /
-  `run_pipeline()` / `--no-keep-intermediate`): each cycle's
-  `fields_cycleN.bin`, `photons_cycleN.bin`, `cycleN.par`,
-  `cycleN.txt`, and `cycleN_00000.bin` are deleted as soon as their data
-  has been read back into RAM.  The fixed fields file and the final
-  cycle's output are always kept.  When using `LineRt` with an
+- **`keep_intermediate=False`** (default for `LineRt` / `iterate()` /
+  `run_pipeline()` / CLI; pass `--keep-intermediate` to keep files):
+  each cycle's `fields_cycleN.bin`, `photons_cycleN.bin`,
+  `cycleN.par`, `cycleN.txt`, and `cycleN_00000.bin` are deleted as soon
+  as their data has been read back into RAM.  The fixed fields file and
+  the final cycle's output are always kept.  When using `LineRt` with an
   auto-created run directory, `run()` additionally removes the whole
-  directory afterwards (an explicit `path=` is never touched).
+  directory afterwards — including on a crashed/interrupted run (an
+  explicit `path=` is never touched).
+- **`max_run_age` / `size_cap`** (constructor / `--max-run-age` /
+  `--size-cap`): before starting each auto-created run, `run()` prunes
+  the scratch root — deleting `rt_*` run dirs older than `max_run_age`
+  (default 3 hours) and, if the total size of `rt_*` dirs exceeds
+  `size_cap` (default 4 GB), removing the oldest dirs until under the
+  cap.  Pass `0` to disable either.
 - **`retain_cycles=N`** (constructor / `iterate()` / `run_pipeline()` /
   `--retain-cycles`): only the last `N` cycle dicts are kept in
   `out['results']`; older cycles are dropped to bound Python-side RAM.

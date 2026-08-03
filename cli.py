@@ -144,9 +144,12 @@ def main( ):
                              '(>= 3.4e38); the read-back flux is divided ' \
                              'back automatically.' );
     rt.add_argument( '--keep-intermediate', action = 'store_true', \
-                     default = True, \
+                     default = False, \
                      help = 'Keep all per-cycle binary files in the run ' \
-                            'directory (default).' );
+                            'directory. Default: delete per-cycle files ' \
+                            'as they are read back and remove the ' \
+                            'auto-created run dir afterwards (frees ' \
+                            '/dev/shm tmpfs and RAM).' );
     rt.add_argument( '--no-keep-intermediate', dest = 'keep_intermediate', \
                      action = 'store_false', \
                      help = 'Delete per-cycle files as they are read back ' \
@@ -155,6 +158,16 @@ def main( ):
     rt.add_argument( '--retain-cycles', type = int, default = None, \
                      help = 'Keep only the last N cycle results in memory ' \
                             '(drop older ones). Default: keep all cycles.' );
+    rt.add_argument( '--max-run-age', type = float, default = None, \
+                     help = 'Delete auto-created rt_* run dirs older than ' \
+                            'this many seconds before starting a new run ' \
+                            '(default: 10800 = 3 hours). Pass 0 to disable ' \
+                            'age-based pruning.' );
+    rt.add_argument( '--size-cap', type = float, default = None, \
+                     help = 'Bound the total size of auto-created rt_* run ' \
+                            'dirs: when it exceeds this many bytes, remove ' \
+                            'oldest dirs until under (default: 4e9 = 4 GB). ' \
+                            'Pass 0 to disable the size cap.' );
 
     ############################################################
     # Output
@@ -196,6 +209,9 @@ def main( ):
 
     ############################################################
     # Build LineRt
+    #  0 for --max-run-age / --size-cap means "disable" that constraint
+    max_run_age = args.max_run_age if args.max_run_age else None;
+    size_cap    = args.size_cap    if args.size_cap    else None;
     rt_obj = LineRt(
         n_cell          = n_cell, x_min = x_min, x_max = x_max,
         unit_l0         = args.unit_l0, unit_t0 = args.unit_t0,
@@ -215,6 +231,8 @@ def main( ):
         keep_intermediate = args.keep_intermediate,
         retain_cycles   = args.retain_cycles,
         kratos_root     = args.kratos_root,
+        max_run_age     = max_run_age,
+        size_cap        = size_cap,
     );
     rt_obj.set_boundary( args.boundary );
 

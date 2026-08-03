@@ -84,7 +84,7 @@ def _ext_photons( n = 5 ):
 
 
 def test_keep_intermediate_true_keeps_files( ):
-    """Default keep_intermediate=True leaves all per-cycle files intact."""
+    """keep_intermediate=True leaves all per-cycle files intact."""
     n_cell = ( 8, 4, 4 );
     mesh = make_cartesian_mesh( n_cell, ( -4, -1, -1 ), ( 4, 1, 1 ) );
     n_tot = int( mesh[ 'n_tot' ] );
@@ -99,7 +99,7 @@ def test_keep_intermediate_true_keeps_files( ):
     it_mod.iterate( _ext_photons( ), species, fields, mesh, \
         n_cycles = 3, n_emission_max = 4, work_dir = work_dir, \
         transition_idx = 0, unit_l0 = 1.49598e13, unit_t0 = 1.0, \
-        kratos_root = '/' );
+        keep_intermediate = True, kratos_root = '/' );
 
     assert os.path.exists( os.path.join( work_dir, 'fields_fixed.bin' ) );
     for cycle in range( 3 ):
@@ -284,6 +284,105 @@ def test_line_rt_run_keeps_explicit_path( ):
     assert os.path.isdir( explicit ), \
         "explicit path must NOT be removed";
     print( "OK: run() left explicit path intact" );
+
+
+def test_prune_scratch_age_and_size( ):
+    """prune_scratch removes old rt_* dirs (age) and over-cap dirs (size)."""
+    from core.pipeline import prune_scratch;
+    import time as _time;
+
+    base = tempfile.mkdtemp( prefix = 'prune_' );
+    try:
+        #  two dirs, one > 3h old, one fresh, each holding a small file
+        old = os.path.join( base, 'rt_20260801_000000' );
+        os.makedirs( old );
+        with open( os.path.join( old, 'a.bin' ), 'wb' ) as fh:
+            fh.write( b'\0' * 1000 );
+        t = _time.time( ) - 4 * 3600;
+        os.utime( old, ( t, t ) );
+
+        fresh = os.path.join( base, 'rt_20260803_000000' );
+        os.makedirs( fresh );
+        with open( os.path.join( fresh, 'b.bin' ), 'wb' ) as fh:
+            fh.write( b'\0' * 1000 );
+        t = _time.time( ) - 1 * 3600;
+        os.utime( fresh, ( t, t ) );
+
+        #  age pruning: only the >3h dir is removed
+        n_age, n_size = prune_scratch( max_run_age = 3 * 3600.0, \
+                                       size_cap = None, base = base );
+        assert n_age == 1 and n_size == 0, \
+            "age prune: expected (1,0), got (%d,%d)" % ( n_age, n_size );
+        assert not os.path.exists( old );
+        assert os.path.isdir( fresh );
+
+        #  size cap: total now 1000 B; cap of 500 must remove the dir
+        n_age, n_size = prune_scratch( max_run_age = None, \
+                                       size_cap = 500.0, base = base );
+        assert n_age == 0 and n_size == 1, \
+            "size prune: expected (0,1), got (%d,%d)" % ( n_age, n_size );
+        assert not os.path.exists( fresh );
+    finally:
+        import shutil;
+        shutil.rmtree( base, ignore_errors = True );
+    print( "OK: prune_scratch age + size pruning" );
+
+
+def test_line_rt_run_prunes_and_cleans_on_failure( ):
+    """Auto-created dirs are pruned at start; a failed run still cleans up."""
+    import core.line_rt as lrt_mod;
+    import core.iterator as it3;
+    import time as _time;
+    from line_rt import LineRt;
+
+    base = tempfile.mkdtemp( prefix = 'auto_root_' );
+    saved = lrt_mod.DEFAULT_RUN_ROOT;
+    lrt_mod.DEFAULT_RUN_ROOT = base;
+    try:
+        #  a stale >3h dir under the (fake) scratch root
+        stale = os.path.join( base, 'rt_20260801_000000' );
+        os.makedirs( stale );
+        with open( os.path.join( stale, 'a.bin' ), 'wb' ) as fh:
+            fh.write( b'\0' * 100 );
+        t = _time.time( ) - 4 * 3600;
+        os.utime( stale, ( t, t ) );
+
+        #  force iterate to raise -> run() must still remove its own dir
+        def _boom( *a, **k ):
+            raise RuntimeError( 'boom' );
+        it3.run_kratos_cycle = _boom;
+        it3.resolve_kratos_bin = lambda root = None: '/fake/kratos';
+
+        rt = LineRt(
+            n_cell = ( 8, 4, 4 ), x_min = ( -4, -1, -1 ), \
+            x_max = ( 4, 1, 1 ), \
+            transition_info = TransitionInfo.user_defined( \
+                A_ul = 1.0e-6, freq_GHz = 115.271, \
+                species_name = 'CO' ), \
+            n_species = 1e4, temperature = 2.7, \
+            visualize = False, n_cycles = 1, kratos_root = '/', \
+            max_run_age = 3 * 3600.0, size_cap = None );
+
+        try:
+            rt.run( );
+        except RuntimeError:
+            pass;
+        else:
+            raise AssertionError( "run() should have propagated the error" );
+
+        #  stale dir pruned at start; no auto rt_* dirs left behind
+        assert not os.path.exists( stale ), \
+            "stale dir must be pruned before the run";
+        leftovers = [ n for n in os.listdir( base ) \
+                      if n.startswith( 'rt_' ) ];
+        assert leftovers == [ ], \
+            "failed run must clean up its auto-created dir, left: %s" \
+            % leftovers;
+    finally:
+        import shutil;
+        shutil.rmtree( base, ignore_errors = True );
+        lrt_mod.DEFAULT_RUN_ROOT = saved;
+    print( "OK: run() prunes stale dirs and cleans up on failure" );
 
 
 if __name__ == '__main__':

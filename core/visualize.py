@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from numbers import Real
 from numpy import asarray, zeros_like, ones_like, ones, array, ceil, \
                   log10, clip, abs, float64, atleast_2d, average, \
                   zeros, arange, int32, isfinite
@@ -64,6 +65,55 @@ def _log_limits( data ):
     span = int( clip( span, 1, 6 ) );
     vmin = 10.0 ** ( upper_dex - span );
     return vmin, vmax;
+#
+
+def _resolve_log_norm( dyn_range, pos ):
+    """Build the shared LogNorm for channel maps.
+
+    ``pos`` is the flattened array of positive finite values to
+    be coloured.  ``dyn_range`` is multi-purpose:
+
+      * bool ``True``  - auto limits, dynamic range clipped to
+        4 dex (upper = 10^ceil of the max).
+      * bool ``False`` - plain LogNorm( ), no clipping.
+      * number ``D``   - like ``True`` but clips the dynamic
+        range to ``D`` dex.
+      * list/tuple of 2 numbers ``[hi, lo]`` - explicit limits:
+        vmax = 10^max(hi, lo), vmin = 10^min(hi, lo).  Values
+        below vmin (incl. non-positive) saturate to the bottom
+        colour rather than being masked.
+
+    Returns a LogNorm or None if no positive finite values.
+    """
+    if pos.size == 0:
+        return None;
+    if dyn_range is False:
+        return LogNorm( );
+    if isinstance( dyn_range, ( list, tuple ) ) and \
+       len( dyn_range ) == 2:
+        hi, lo = float( dyn_range[ 0 ] ), float( dyn_range[ 1 ] );
+        return LogNorm( vmin = 10.0 ** min( hi, lo ), \
+                        vmax = 10.0 ** max( hi, lo ), clip = True );
+    # auto path: bool True (default) or a number D = max dex span
+    dex = 4 if dyn_range is True else \
+          ( float( dyn_range ) if isinstance( dyn_range, Real ) and \
+            not isinstance( dyn_range, bool ) else 4 );
+    pmax = float( pos.max( ) );
+    pmin = float( pos.min( ) );
+    if not isfinite( pmax ) or pmax <= 0:
+        pmax = 1.0;
+    if not isfinite( pmin ) or pmin <= 0:
+        pmin = pmax * 1e-4;
+    upper_dex = int( ceil( log10( pmax ) ) );
+    vmax = 10.0 ** upper_dex;
+    span = upper_dex - log10( pmin );
+    span = int( clip( span, 1, dex ) );
+    vmin = 10.0 ** ( upper_dex - span );
+    if vmin >= vmax:
+        vmin = vmax * 1e-3;
+    # clip=True saturates values below vmin (incl. <=0) to
+    # the bottom colour instead of masking them to white.
+    return LogNorm( vmin = vmin, vmax = vmax, clip = True );
 #
 
 def _extract_field( results, field, unit_l0 = 1.0, unit_t0 = 1.0 ):
@@ -542,12 +592,19 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
     """Plot a grid of single-channel spatial maps from the
     imaging cube.
 
-    All panels share a single colour scale.  When
-    ``dyn_range=True`` (default) the scale is logarithmic with
-    the dynamic range clipped to <= 4 dex (upper = 10^ceil of
-    the global max, lower = 10^(upper_dex - 4)).  Values below
-    the lower limit are saturated (clipped) to the bottom of
-    the colour scale rather than masked out.
+    All panels share a single colour scale.  ``dyn_range`` is
+    multi-purpose:
+
+      * ``True`` (default): logarithmic scale, dynamic range
+        clipped to 4 dex (upper = 10^ceil of the global max).
+      * ``False``: plain logarithmic scale, no clipping.
+      * number ``D``: like ``True`` but clips the dynamic range
+        to ``D`` dex.
+      * ``[hi, lo]``: explicit log10 limits, vmin = 10^min(hi,
+        lo), vmax = 10^max(hi, lo).
+
+    Values below the lower limit (including non-positive values)
+    saturate to the bottom colour rather than being masked out.
 
     Parameters
     ----------
@@ -560,7 +617,8 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
         (selected around the spectral peak).  If None, defaults
         to ``n_cols`` (one row).  Ignored when ``channels``
         is given explicitly.
-    dyn_range : bool  apply 4-dex log clipping (default True).
+    dyn_range : bool, number, or [hi, lo]  colour-scale limits
+        (see above).
     ax : array of Axes or None  (created if None).
     figsize : tuple or None.
     output_path : str or None  save figure if given.
@@ -622,25 +680,10 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
     if pos.size == 0:
         print( 'plot_channel_maps: no positive finite values in cube' );
         return None, None;
-    if dyn_range:
-        pmax = float( pos.max( ) );
-        pmin = float( pos.min( ) );
-        if not isfinite( pmax ) or pmax <= 0:
-            pmax = 1.0;
-        if not isfinite( pmin ) or pmin <= 0:
-            pmin = pmax * 1e-4;
-        upper_dex = int( ceil( log10( pmax ) ) );
-        vmax = 10.0 ** upper_dex;
-        span = upper_dex - log10( pmin );
-        span = int( clip( span, 1, 4 ) );
-        vmin = 10.0 ** ( upper_dex - span );
-        if vmin >= vmax:
-            vmin = vmax * 1e-3;
-        # clip=True saturates values below vmin (incl. <=0) to
-        # the bottom colour instead of masking them to white.
-        norm = LogNorm( vmin = vmin, vmax = vmax, clip = True );
-    else:
-        norm = LogNorm( );
+    norm = _resolve_log_norm( dyn_range, pos );
+    if norm is None:
+        print( 'plot_channel_maps: no positive finite values in cube' );
+        return None, None;
 
     # Layout
     ncols = min( n_pan, n_cols );

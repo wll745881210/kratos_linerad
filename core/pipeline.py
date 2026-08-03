@@ -30,6 +30,85 @@ def _default_scratch_root( ):
 
 DEFAULT_RUN_ROOT = _default_scratch_root( );
 
+#  Default scratch-dir constraints (see prune_scratch below).
+#  Run dirs under DEFAULT_RUN_ROOT older than _DEFAULT_MAX_RUN_AGE seconds
+#  are deleted whenever a new run is created; if total usage exceeds
+#  _DEFAULT_SIZE_CAP bytes, the oldest run dirs are removed until under.
+_DEFAULT_MAX_RUN_AGE = 3 * 3600.0;    # 3 hours
+_DEFAULT_SIZE_CAP    = 4.0e9;         # 4 GB
+
+
+def _dir_size_bytes( d ):
+    """Recursively sum the sizes of all files under directory ``d``."""
+    total = 0;
+    for root, _dirs, files in os.walk( d ):
+        for f in files:
+            try:
+                total += os.path.getsize( os.path.join( root, f ) );
+            except OSError:
+                pass;
+    return total;
+
+
+def prune_scratch( max_run_age = None, size_cap = None, base = None ):
+    """Remove stale ``rt_*`` run dirs under a scratch root.
+
+    Called when a new run is created, to keep the tmpfs (/dev/shm)
+    usage bounded.  Two independent constraints:
+
+      ``max_run_age`` : seconds.  Any ``rt_*`` dir older than this is
+                        deleted.
+      ``size_cap``    : bytes.  If the total size of ``rt_*`` dirs
+                        exceeds this, the oldest dirs are removed until
+                        the total is back under the cap.
+
+    Passing ``None`` for a constraint disables it.  ``base`` defaults
+    to ``DEFAULT_RUN_ROOT``.  Only dirs matching ``rt_*`` under ``base``
+    are touched; an explicit user ``path`` is never affected.
+
+    Returns ``( n_age, n_size )``: number of dirs removed by each
+    constraint.
+    """
+    import shutil;
+    base = base or DEFAULT_RUN_ROOT;
+    if max_run_age is None and size_cap is None:
+        return 0, 0;
+    if not os.path.isdir( base ):
+        return 0, 0;
+    now = time.time( );
+    run_dirs = [ ];
+    for name in sorted( os.listdir( base ) ):
+        p = os.path.join( base, name );
+        if os.path.isdir( p ) and name.startswith( 'rt_' ):
+            run_dirs.append( p );
+    #  oldest first
+    run_dirs.sort( key = os.path.getmtime );
+
+    n_age = 0;
+    if max_run_age is not None:
+        keep = [ ];
+        for p in run_dirs:
+            try:
+                age = now - os.path.getmtime( p );
+            except OSError:
+                keep.append( p );
+                continue;
+            if age > max_run_age:
+                shutil.rmtree( p, ignore_errors = True );
+                n_age += 1;
+            else:
+                keep.append( p );
+        run_dirs = keep;
+
+    n_size = 0;
+    if size_cap is not None:
+        while run_dirs and _dir_size_bytes( base ) > size_cap:
+            p = run_dirs.pop( 0 );      # oldest
+            shutil.rmtree( p, ignore_errors = True );
+            n_size += 1;
+
+    return n_age, n_size;
+
 from numpy import asarray, int32, float32, float64, nan_to_num
 
 #  Kratos binary location is NOT hardcoded.  Set it via:
@@ -217,11 +296,11 @@ def _remove_intermediate( work_dir, cycle, field_file, photon_file ):
 
 def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
                   n_photon = 10000, n_step = 1000, n_scat = 100, \
-                  n_fld = 2, ph_mode = 0, par_overrides = None, \
-                   keep_intermediate = True, \
-                   retain_cycles = None, \
-                   proper_scale = 1.0, \
-                   unit_l0 = 1.0, unit_t0 = 1.0, kratos_root = None ):
+                   n_fld = 2, ph_mode = 0, par_overrides = None, \
+                    keep_intermediate = False, \
+                    retain_cycles = None, \
+                    proper_scale = 1.0, \
+                    unit_l0 = 1.0, unit_t0 = 1.0, kratos_root = None ):
     """
     Run the full population-updating pipeline.
 
@@ -239,10 +318,11 @@ def run_pipeline( model, mesh, work_dir = None, n_cycles = 3, \
     ph_mode : int  0=CFR, 1=R_IIA (USampler)
     par_overrides : dict  Additional par file overrides
     keep_intermediate : bool
-        If True (default), all per-cycle binary files are kept in the
-        run directory.  If False, each cycle's files are deleted as soon
-        as its data has been read back into RAM (frees /dev/shm tmpfs),
-        keeping only the fixed fields file and the final cycle's output.
+        If True, all per-cycle binary files are kept in the run
+        directory.  If False (default), each cycle's files are deleted as
+        soon as its data has been read back into RAM (frees /dev/shm
+        tmpfs), keeping only the fixed fields file and the final cycle's
+        output.
     retain_cycles : int or None
         If set, only the last ``retain_cycles`` cycle dicts are kept in
         the returned ``results`` list (older ones are dropped) to bound
