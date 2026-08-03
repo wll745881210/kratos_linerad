@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, Normalize
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from numbers import Real
 from numpy import asarray, zeros_like, ones_like, ones, array, ceil, \
@@ -47,24 +47,88 @@ _FIELD_TITLES = { 'spectrum'        : 'Emergent Spectrum', \
                   'emissivity'      : 'Emissivity', };
 #
 
-def _log_limits( data ):
-    """Return (vmin, vmax) for a log colormap.
+def _slice_array( data, mesh, plane = 'xy', slice_idx = None ):
+    """Return the 2-D slice array that slice_plot_2d would plot.
 
-    vmax = 10^ceil(log10(max)).
-    vmin = 10^(vmax_dex - d)  with  d = clip(log10(vmax/min_positive), 1, 6).
-    Returns (None, None) if no positive values.
+    Mirrors the reshaping / slicing / transpose done in
+    core/fields.slice_plot_2d so that colour limits computed here
+    match the data actually rendered in the panel.
     """
-    pos = data[ data > 0 ];
+    n_cell = mesh.get( 'n_cell', mesh.get( 'n_cell_global', [ 1, 1, 1 ] ) );
+    nx, ny, nz = int( n_cell[ 0 ] ), int( n_cell[ 1 ] ), int( n_cell[ 2 ] );
+    d = asarray( data );
+    if d.ndim == 1:
+        if d.size > nx * ny * nz:
+            d3 = d.reshape( nz, ny, nx, -1 )[ :, :, :, 0 ];
+        else:
+            d3 = d.reshape( nz, ny, nx );
+    else:
+        d3 = d;
+
+    coords = mesh.get( 'coords', 'cartesian' );
+    if coords == 'cartesian':
+        if plane == 'xy':
+            si = slice_idx if slice_idx is not None else nz // 2;
+            return d3[ si, :, : ].T;
+        elif plane == 'xz':
+            si = slice_idx if slice_idx is not None else ny // 2;
+            return d3[ :, si, : ].T;
+        elif plane == 'yz':
+            si = slice_idx if slice_idx is not None else nx // 2;
+            return d3[ :, :, si ].T;
+    elif coords == 'spherical':
+        phi_face = mesh.get( 'phi_face', [ ] );
+        if plane == 'rtheta':
+            si = slice_idx if slice_idx is not None else \
+                 ( len( phi_face ) - 1 ) // 2;
+            return d3[ :, :, si ].T;
+    # fall back to the full array (limits over everything)
+    return d3;
+#
+
+def _panel_norm( dyn_range, slc ):
+    """Resolve the per-panel colour norm for default_plot.
+
+    ``dyn_range`` accepts a boolean or a number:
+
+      * ``False``/``None`` - unconstrained LogNorm( ).
+      * ``True`` - logarithmic with dynamic range clipped to 6 dex
+        (upper = 10^ceil of the slice max).
+      * number ``D`` - like ``True`` but clipped to ``D`` dex.
+
+    When ``dyn_range`` is ``True`` or a number and the plotted
+    slice actually spans less than 1 dex, a linear
+    ``Normalize`` is returned instead, with vmin/vmax equal to
+    the slice's actual min/max.
+    """
+    pos = slc[ ( slc > 0 ) & isfinite( slc ) ];
+    if dyn_range is False or dyn_range is None:
+        return LogNorm( );
     if pos.size == 0:
-        return None, None;
-    dmax = float( pos.max(  ) );
-    upper_dex = int( ceil( log10( dmax ) ) );
+        return None;
+    dex = 6.0 if dyn_range is True else \
+          ( float( dyn_range ) if isinstance( dyn_range, Real ) and \
+            not isinstance( dyn_range, bool ) else 6.0 );
+    pmax = float( pos.max( ) );
+    pmin = float( pos.min( ) );
+    actual_span = log10( pmax ) - log10( pmin );
+    if actual_span < 1.0:
+        # nearly constant panel: linear scale matching the slice range
+        vmin_l = float( slc.min( ) );
+        vmax_l = float( slc.max( ) );
+        if not ( vmax_l > vmin_l ):
+            # degenerate (constant) slice: widen slightly so the
+            # colour scale is non-empty
+            pad = max( abs( vmin_l ) * 1e-3, 1e-12 );
+            vmax_l = vmin_l + pad;
+        return Normalize( vmin = vmin_l, vmax = vmax_l );
+    upper_dex = int( ceil( log10( pmax ) ) );
     vmax = 10.0 ** upper_dex;
-    dmin = float( pos.min(  ) );
-    span = upper_dex - log10( dmin );
-    span = int( clip( span, 1, 6 ) );
+    span = int( clip( actual_span, 1, dex ) );
     vmin = 10.0 ** ( upper_dex - span );
-    return vmin, vmax;
+    if vmin >= vmax:
+        vmin = vmax * 1e-3;
+    return LogNorm( vmin = vmin, vmax = vmax );
 #
 
 def _resolve_log_norm( dyn_range, pos ):
@@ -188,9 +252,15 @@ def default_plot( results, fields = None, slice_plane = 'z', \
     ax : array of Axes or None  (created if None).
     figsize : tuple or None.
     output_path : str or None  save figure if given.
-    dyn_range : bool  if True, apply logarithmic dynamic-range constraints
-        (upper = 10^ceil(log10(max)); lower = 10^(upper_dex - clip(span,1,6))).
-        If False (default), use unconstrained log scale.
+    dyn_range : bool, number, or None  colour-scale control for the
+        colormap panels (spectrum panel unaffected).  ``False``/``None``
+        (default) uses an unconstrained LogNorm.  ``True`` applies
+        logarithmic limits (upper = 10^ceil(log10(slice max)); lower =
+        10^(upper_dex - clip(span, 1, 6))).  A number ``D`` does the
+        same but clips the dynamic range to ``D`` dex.  When ``True``
+        or a number is given and a panel's actual slice spans less
+        than 1 dex, a linear ``Normalize`` is used instead, with
+        vmin/vmax equal to the slice's actual min/max.
     transition_info : TransitionInfo or None  when given, labels the
         spectrum panel with the transition name (e.g. "CO J=1->0").
     """
@@ -241,8 +311,10 @@ def default_plot( results, fields = None, slice_plane = 'z', \
         if field in _LINEAR_FIELDS or ( data <= 0 ).all(  ):
             norm = None;
         elif dyn_range:
-            vmin, vmax = _log_limits( data );
-            norm = LogNorm( vmin = vmin, vmax = vmax ) if vmin else LogNorm(  );
+            # compute limits on the plotted slice so they match the panel
+            slc = _slice_array( data, mesh, plane = plane, \
+                                slice_idx = slice_idx );
+            norm = _panel_norm( dyn_range, slc );
         else:
             norm = LogNorm(  );
 

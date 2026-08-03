@@ -470,7 +470,11 @@ class LineRt:
             ax : array of Axes or None
             figsize : tuple or None
             output_path : str or None
-            dyn_range : bool
+            dyn_range : bool, number, or None  colour-scale control:
+                False/None = unconstrained LogNorm; True = log limits
+                clipped to 6 dex; a number D = clipped to D dex.  When
+                True/number and a panel's slice spans < 1 dex, that
+                panel uses a linear scale matching the slice range.
 
         Returns
         -------
