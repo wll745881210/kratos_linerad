@@ -63,7 +63,7 @@ When installed, the same API is available as `from line_rt import LineRt, Transi
 | `web/` | Panel dashboard (`panel serve web/app.py`) |
 | `cli.py` | CLI entrypoint (`line-rt` console script, registered in `pyproject.toml`) |
 | `line_rt.py` | Public facade: re-exports `LineRt`, `TransitionInfo`, etc. Single import point for both installed and importlib loading. |
-| `docs/archived_tests/` | Archived standalone test scripts (moved from `tests/`) |
+| `tests/archived_tests/` | Archived standalone test scripts (moved from `docs/archived_tests/`) |
 | `docs/reference_mcrt/mcrt.py` | Reference Python MCRT (numba). ph_mode=1 uses USampler table-lookup R_IIA. `plot_neufeld.py` validates vs Neufeld (1990). |
 | `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py` | **Standalone Kratos regression test** (self-contained, no pipeline imports). Wide `aτ₀` sweep vs Neufeld eq (2.24) for ph_modes 1/2/3, golden med\|x\| table, PASS/FAIL exit code. Run: `python3 test_scaling_wide.py --kratos-root ~/apps/kratos_line_rt` |
 | `~/apps/kratos_line_rt/` | Kratos build tree (symlinked to Seafile source) |
@@ -114,7 +114,7 @@ The `[line_rt]` section must contain:
 
 ```ini
 [line_rt]
-field_file       = fields_cycle0.bin   # line-dependent (mfp_i_sca_0, mfp_i_abs_0)
+field_file       = fields_cycle0.bin   # line-dependent (mfp_i_sca_0, mfp_i_abs_0, emiss)
 field_fixed_file = fields_fixed.bin    # line-independent (b_sca, vel) - optional, falls back to field_file
 photon_file      = photons_cycle0.bin
 ph_mode          = 0          # 0=CFR (Gaussian), 1/2/3=R_IIA (USampler)
@@ -126,9 +126,27 @@ a_voigt          = 0.0        # Voigt damping parameter (0 = pure Gaussian)
 ```
 
 **Field file split (Task 2):** Fields are split into two groups to prepare for multi-line problems:
-- `field_file` (line-dependent): `mfp_i_sca_0`, `mfp_i_abs_0` - change per cycle as populations evolve and differ per transition.
+- `field_file` (line-dependent): `mfp_i_sca_0`, `mfp_i_abs_0`, `emiss` - change per cycle as populations evolve and differ per transition.
 - `field_fixed_file` (line-independent): `b_sca`, `vel_0..2` - depend only on the gas (bulk velocity, thermal temperature, molecular weight), fixed across lines. Written once per simulation.
 - If `field_fixed_file` is omitted, Kratos falls back to reading `b_sca`/`vel` from `field_file` (backward compatibility).
+
+**Imaging (two-step, runs on the FINAL cycle only):** the `[imaging]` section controls the camera + channel grid. When `enabled=0` (default) the st_cam field is neither allocated nor initialised — non-imaging runs are unaffected.
+
+```ini
+[imaging]
+enabled        = 1           # 1 = run the imaging pass on the final cycle
+n_chan         = 32          # number of velocity channels
+dir_cam_theta  = 0.785       # camera LOS polar angle [rad] (pointing INTO the domain)
+dir_cam_phi    = 0.0         # camera LOS azimuth [rad]
+v_chan_min     = -1.0e5      # channel grid lower edge [CODE units, × unit_t0/unit_l0]
+v_chan_max     = 1.0e5       # channel grid upper edge [CODE units]
+img_xmin       = ...         # optional image-plane lower corner [code units]
+img_xmax       = ...         # optional image-plane upper corner [code units]
+img_resol      = 64 64       # optional image resolution (pixels)
+step_max       = 65535       # ray-march step budget (imaging module)
+```
+
+Physics and units are documented in `docs/PHYSICS.md` §12.
 
 **ph_mode values:**
 - `0` – CFR: `Δv = −v·d̂`, `σ_ph = σ_th` (no random velocity)
@@ -202,12 +220,16 @@ make clean && make USRDIR=usr_ext/line_rt -j8
 
 | File | Role |
 |------|------|
-| `usr_ext/line_rt/radiation.h` | Field I/O, `init_cond` (GPU kernel), `ini_t` (interp tables, `to_device`/`free_device`) |
-| `usr_ext/line_rt/photon.h` | `proc_geo` (scattering physics), `proc_phys` (excitation) |
+| `usr_ext/line_rt/radiation.h` | Field I/O, `init_cond` (GPU kernel), `ini_t` (interp tables, `to_device`/`free_device`), imaging thermal seed (`st_cam = emiss/mfp_i_sca_0`) |
+| `usr_ext/line_rt/photon.h` | `proc_geo` (scattering physics), `proc_phys` (excitation + st_cam scattering accumulation) |
+| `usr_ext/line_rt/photon_img.h` | `line_img_t` imaging photon: per-channel analytic RT integration, pixel ray setup |
+| `usr_ext/line_rt/rad_img.h` | `rad_img_t` imaging module (parasite of `radiation_t`), `enabled` gate |
+| `usr_ext/line_rt/pool_img.h` / `.cpp` | `pol_img_t` imaging output writing (`_dir_img`, `_x_img`, `_i2d_img`, `_l_img`) |
+| `usr_ext/line_rt/photon_gen_img.h` / `.cpp` | `gen_img_t` pixel generation (one ray per image-plane pixel) |
 | `usr_ext/line_rt/pool.h` | Escaped photon output writing |
 | `usr_ext/line_rt/gen.h` | Photon generation from binary |
-| `usr_ext/line_rt/intg.h` | Integrator parameters, Voigt interpolation table |
-| `usr_ext/line_rt/block_data.h` | `rad_t` struct, block I/O (`copy_input` blank, `copy_output` device->host) |
+| `usr_ext/line_rt/intg.h` | Integrator parameters, camera (`dir_cam`, `q_cam`), channel grid (`d_v_chan`), Voigt interpolation table |
+| `usr_ext/line_rt/block_data.h` | `rad_t` struct (incl. `st_cam`, `emiss`, `imaging`, `n_chan`), block I/O (`copy_input` blank, `copy_output` device->host) |
 | `usr_ext/line_rt/line_rt.h` | Profile functions (b_sca only) |
 
 ### GPU field initialization (Task 1)
@@ -249,9 +271,10 @@ Key functions:
 | Function | File | Returns |
 |----------|------|---------|
 | `compute_opacity(pops, b_sca, transition_idx)` | `molecular/lamda_format.py` | `mfp_sca` only (absorption MFP is user-provided) |
+| `compute_emissivity(populations, transition_idx, temperature)` | `molecular/lamda_format.py` | Volume emissivity `n_u·A_ul·h·ν/(4π)` [erg cm⁻³ s⁻¹ sr⁻¹] |
 | `update_populations(exc_flux, flx, pops, cycle, dx, b_sca, T, colliders, transition_idx)` | `molecular/lamda_format.py` | Updated population dict |
-| `make_fields(pops, step, cycle, base_fields, unit_l0, unit_t0, transition_idx)` | `molecular/lamda_format.py` | Field dict — includes `mfp_i_abs_0` only if in `base_fields` |
-| `write_field_data(filename, fields, mesh, group='all')` | `core/kratos_io.py` | Writes binary; `group='line'` (mfp_i_*), `'fixed'` (b_sca, vel), or `'all'` |
+| `make_fields(pops, step, cycle, base_fields, unit_l0, unit_t0, transition_idx)` | `molecular/lamda_format.py` | Field dict — includes `mfp_i_abs_0` only if in `base_fields`, plus `emiss` when `transition_idx` given |
+| `write_field_data(filename, fields, mesh, group='all')` | `core/kratos_io.py` | Writes binary; `group='line'` (mfp_i_*, emiss), `'fixed'` (b_sca, vel), or `'all'` |
 | `write_photon_data(filename, photons)` | `core/kratos_io.py` | Writes photon binary |
 
 ### Field keys written to Kratos
@@ -262,6 +285,7 @@ Key functions:
 |------|-----|---------|
 | `field_file` (line-dependent, per cycle) | `mfp_i_sca_0_` | **Inverse** scattering MFP at line centre (σ₀ × n_lower) [code-l]⁻¹ |
 | `field_file` | `mfp_i_abs_0_` | **Inverse** absorption MFP [code-l]⁻¹ |
+| `field_file` | `emiss_` | Volume emissivity `n_u·A_ul·h·ν/(4π)` [code units]; rescaled by `proper_scale` for the imaging thermal seed (optional, only written when a transition is used) |
 | `field_fixed_file` (line-independent, once) | `b_sca_` | Doppler b for scattering overlap integral |
 | `field_fixed_file` | `vel_0_`, `vel_1_`, `vel_2_` | Bulk velocity (3 components) |
 | `field_fixed_file` | `temp_` | Temperature (optional, diagnostic) |
@@ -410,3 +434,7 @@ Full research record: `~/scratch/line_rt/fiducial/neufeld_test.md`
 28. **`n_scat=0` silently disables ALL scattering.** `photon.h:209` `if( n_scat > 0 && dtau_s > tau_remain )` gates scattering on the remaining-scatter budget. With `n_scat=0` (e.g. copied from a pure-absorption par), no scattering ever triggers - Kratos runs pure absorption. Always set `n_scat` ≥ 1 for scattering runs; the par templates use `n_scat=5000000` (`a0_test.par`) or `n_scat=10000` (`line_rt_pipeline.par`). See `docs/debug/debug.md` Bug 10.
 
 29. **Memory: /dev/shm is tmpfs = RAM; results hold every cycle's arrays.** Per-cycle binaries (`fields_cycleN.bin`, `photons_cycleN.bin`, `cycleN_00000.bin`, `cycleN.par`, `cycleN.txt`) accumulate in the run dir under `/dev/shm/line_rt/` and are NEVER cleaned up by default — plus the returned `results` list keeps every cycle's full arrays. For long runs use `keep_intermediate=False` (`LineRt(keep_intermediate=False)` / `iterate(...)` / `run_pipeline(...)` / `--no-keep-intermediate`): each cycle's files are deleted as soon as their data is read back into RAM (fixed fields + final cycle kept); `LineRt.run()` with an auto-created run dir removes the whole directory afterwards (an explicit `path=` is never touched). Use `retain_cycles=N` (`LineRt(retain_cycles=N)` / `--retain-cycles`) to keep only the last N cycle dicts in `out['results']`. Stored output fields (`flx`, `exc_flux_flat`) are float32 (Kratos already produces float32 binaries; nothing is lost vs float64).
+
+30. **Imaging: `emiss` field must be scaled by `proper_scale` (NOT `/ proper_scale`).** `core/iterator.py` rescales the emiss field by `× proper_scale` on write so the thermal seed (`st_cam = emiss/mfp_i_sca_0`) lives in the same scaled-proper units as the scattering st_cam (photon propers in the binary are already multiplied by `proper_scale`). The old `/ proper_scale` double-rescaling overflowed FP32 → `inf` emiss → NaN/inf imaging cube → spurious corner peak. Readback divides the cube by `scale_factor`. See `docs/PHYSICS.md` §12.
+
+31. **Imaging: pass `x_min`/`x_max` in CODE units to `LineRt`.** `_cell_centers_cgs` multiplies the mesh coords by `unit_l0`, so passing CGS (e.g. `-5*AU`) makes all callable inputs ~1e13× too large — field callables return their fallback everywhere (constant mfp, zero emiss) → zero image. Use plain code units (`x_min=(-5,-5,-5)`) and give `unit_l0=AU` separately.

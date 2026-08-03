@@ -198,6 +198,33 @@ panels.  After a run, `rt.plot_results( )` plots the run output via
 so the `out` argument is optional (`rt.plot_results( out )` still
 works if you want to plot a specific results dict).
 
+**Imaging (two-step)** — pass `imaging=` to the `LineRt` constructor to
+produce a position–velocity cube on the final MC cycle (scattering
+source function sampling + non-scattering ray tracing; physics in
+`docs/PHYSICS.md` §12):
+
+```python
+rt = LineRt(
+    transition_info = ti,
+    n_species       = 1e4,  temperature = 100.0,
+    n_cycles        = 3,
+    kratos_root     = '/path/to/kratos_line_rt',
+    imaging = {
+        'dir_cam': ( 0.5, 0.0 ),   # (theta, phi) [rad], LOS INTO the domain
+        'n_chan':  64,             # velocity channels
+        'v_chan':  ( -1e6, 1e6 ),  # [cm/s]
+    },
+)
+out = rt.run()
+out['image']              # {'cube': (n_pix, n_chan) CGS, 'i2d', 'v_chan', ...}
+rt.plot_channel_maps()    # shared-log-scale single-channel spatial maps
+```
+
+The image cube is `out['image']['cube']` (erg cm⁻² s⁻¹ sr⁻¹ per pixel
+per channel); `rt.plot_channel_maps()` renders a grid of channel maps
+with a shared logarithmic scale (≤ 4 dex, values below the lower limit
+saturated).  See `docs/examples/imaging_hl.py` for a runnable example.
+
 `LineRt` handles all I/O automatically: field binaries, par-file
 templating, and subprocess calls to Kratos.  See
 [docs/examples/](docs/examples/) for runnable example scripts.
@@ -274,6 +301,9 @@ Additional species are auto-downloaded on first use to
 - **Unit safety** - all quantities in CGS, validated at I/O boundaries.
 - **Self-consistent MC iteration** - no approximate escape probability;
   full optical-depth treatment with MC -> population -> MC cycles.
+- **Two-step imaging** - position-velocity cubes via scattering-source-
+  function sampling + non-scattering ray tracing (Kratos-polrad method);
+  see `LineRt(imaging=...)` and `docs/PHYSICS.md` §12.
 - **Multi-level species** - LAMDA-based level populations with optional
   collisional rates.
 - **GPU acceleration** - Kratos CUDA/HIP/MUSA backend
