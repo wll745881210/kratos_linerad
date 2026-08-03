@@ -1,6 +1,6 @@
 import os
 from numpy import ones, zeros, asarray, broadcast_to, nan_to_num, \
-                  mean, hstack, vstack, float32, float64;
+                  mean, hstack, vstack, float32, float64, int32;
 
 from .pipeline import run_kratos_cycle, \
                     DEFAULT_RUN_ROOT, \
@@ -39,7 +39,20 @@ def iterate( source_photons, species, fields_init, mesh, \
              n_species = None, transition_idx = 0, n_emission_max = 10, \
              colliders = None, proper_scale = 1.0, \
              keep_intermediate = True, retain_cycles = None, \
-             unit_l0 = 1.49598e13, unit_t0 = 1.0, kratos_root = None ):
+             unit_l0 = 1.49598e13, unit_t0 = 1.0, kratos_root = None, \
+             imaging = None ):
+    """
+    imaging : dict or None
+        When provided, enables imaging on the FINAL cycle.  Keys:
+        'dir_cam'   : (theta, phi) camera direction [rad], or a 3-vector
+                      (direction INTO the domain).
+        'n_chan'    : number of velocity channels.
+        'v_chan'    : (v_min, v_max) channel velocity range [cm/s, CGS].
+        'img_xmin'  : (x0, y0) image-plane lower corner [code units] (opt).
+        'img_xmax'  : (x1, y1) image-plane upper corner [code units] (opt).
+        'img_resol' : (nx, ny) image resolution in pixels (opt).
+        Returns the image cube in results[-1]['image'].
+    """
     if work_dir is None:
         work_dir = os.path.join( DEFAULT_RUN_ROOT, 'iterate_output' );
     os.makedirs( work_dir, exist_ok = True );
@@ -74,6 +87,44 @@ def iterate( source_photons, species, fields_init, mesh, \
     if n_photon is not None:
         base_overrides[ 'n_photon' ] = str( int( n_photon ) );
     base_overrides.update( par_overrides );
+
+    # ---- Imaging configuration ----
+    # Imaging par keys are injected ONLY on the final cycle (see
+    # below), so base_overrides stays clean for non-imaging cycles.
+    imaging_pars = None;
+    if imaging is not None:
+        from numpy import sqrt as _sqrt, arctan2 as _atan2;
+        dc = imaging.get( 'dir_cam', ( 0.7853981633974483, 0.0 ) );
+        if len( dc ) == 3:
+            # Cartesian -> spherical (theta, phi)
+            dx, dy, dz = float( dc[ 0 ] ), float( dc[ 1 ] ), \
+                         float( dc[ 2 ] );
+            theta = _atan2( _sqrt( dx * dx + dy * dy ), dz );
+            phi   = _atan2( dy, dx );
+        else:
+            theta, phi = float( dc[ 0 ] ), float( dc[ 1 ] );
+        v_lo, v_hi = imaging.get( 'v_chan', ( -1e5, 1e5 ) );
+        # Convert channel velocities from CGS (cm/s) to code units
+        # (code-v = v_cgs * unit_t0 / unit_l0) so they match b_sca,
+        # vel, and the photon vel convention used inside Kratos.
+        _v2c = float( unit_t0 ) / float( unit_l0 );
+        imaging_pars = {
+            'enabled'         : '1',
+            'n_chan'          : str( int( imaging.get( 'n_chan', 32 ) ) ),
+            'dir_cam_theta'   : str( float( theta ) ),
+            'dir_cam_phi'     : str( float( phi ) ),
+            'v_chan_min'      : str( float( v_lo ) * _v2c ),
+            'v_chan_max'      : str( float( v_hi ) * _v2c ),
+        };
+        if 'img_xmin' in imaging:
+            imaging_pars[ 'img_xmin' ] = ' '.join(
+                str( float( v ) ) for v in imaging[ 'img_xmin' ] );
+        if 'img_xmax' in imaging:
+            imaging_pars[ 'img_xmax' ] = ' '.join(
+                str( float( v ) ) for v in imaging[ 'img_xmax' ] );
+        if 'img_resol' in imaging:
+            imaging_pars[ 'img_resol' ] = ' '.join(
+                str( int( v ) ) for v in imaging[ 'img_resol' ] );
 
     n_tot = mesh[ 'n_tot' ];
     results = [ ];
@@ -131,6 +182,7 @@ def iterate( source_photons, species, fields_init, mesh, \
     if species is not None and hasattr( species, 'make_fields' ):
         fields = species.make_fields( populations, 'pre', -1, \
                                       base_fields = base_fields_cgs, \
+                                      transition_idx = transition_idx, \
                                       unit_l0 = unit_l0, unit_t0 = unit_t0 );
         # make_fields may not return mfp_i_abs_0 (absorption is
         # user-provided, not species-derived).  Preserve it from
@@ -151,10 +203,11 @@ def iterate( source_photons, species, fields_init, mesh, \
     base_overrides[ 'field_fixed_file' ] = 'fields_fixed.bin';
 
     for cycle in range( n_cycles ):
-        # Line-dependent fields (mfp_i_sca_0, mfp_i_abs_0) are
-        # written per cycle (populations evolve).
+        # Line-dependent fields (mfp_i_sca_0, mfp_i_abs_0,
+        # emiss) are written per cycle (populations evolve).
         line_fields = { k: v for k, v in fields.items( ) \
-                        if k in ( 'mfp_i_sca_0', 'mfp_i_abs_0' ) };
+                        if k in ( 'mfp_i_sca_0', 'mfp_i_abs_0',
+                                  'emiss' ) };
         field_file = os.path.join( work_dir, 'fields_cycle%d.bin' % cycle );
         write_field_data( field_file, line_fields, mesh, \
                           unit_l0 = unit_l0, group = 'line' );
@@ -192,9 +245,16 @@ scale = %.3e" % ( proper_scale, \
         del ph_arr;
 
         prefix = 'cycle%d' % cycle;
+        # Inject imaging par keys ONLY on the final cycle so
+        # non-imaging cycles run with imaging disabled (the
+        # rad_img_t module defaults enabled=false).
+        cycle_overrides = base_overrides;
+        if imaging_pars is not None and cycle == n_cycles - 1:
+            cycle_overrides = dict( base_overrides );
+            cycle_overrides.update( imaging_pars );
         output, log_text, elapsed = run_kratos_cycle( \
             work_dir, cycle, field_file, photon_file, \
-            prefix, _PAR_TEMPLATE, base_overrides, \
+            prefix, _PAR_TEMPLATE, cycle_overrides, \
             kratos_bin = resolve_kratos_bin( kratos_root ) );
 
         if output is None:
@@ -222,6 +282,35 @@ scale = %.3e" % ( proper_scale, \
                     phot[ key ] = arr;
             if 'l' in phot:
                 phot[ 'l' ] = phot.get( 'proper', phot[ 'l' ] );
+
+        # ---- Imaging readback ----
+        # The image cube: _l_img is a flat array of
+        # n_par * n_chan floats (pixel-major).  Reshape into
+        # (n_pix, n_chan) and index by (iy, ix).  Off-image
+        # pixels (i_rank == -2) are filtered out by pol_img_t
+        # at write time, so only valid pixels remain.
+        if 'image' in output:
+            img = output[ 'image' ];
+            if 'l' in img and 'i2d' in img:
+                l_flat = asarray( img[ 'l' ], dtype = float64 );
+                i2d    = asarray( img[ 'i2d' ], dtype = int32 );
+                # i2d is flat: 2 ints per pixel (ix, iy).
+                n_pix  = i2d.shape[ 0 ] // 2;
+                n_chan = l_flat.size // max( n_pix, 1 );
+                if n_chan > 0 and \
+                   l_flat.size == n_pix * n_chan:
+                    cube = l_flat.reshape( n_pix, n_chan );
+                    img[ 'cube' ] = cube;  # (n_pix, n_chan) code units
+                    img[ 'n_chan' ] = n_chan;
+                    img[ 'i2d' ] = i2d.reshape( n_pix, 2 );
+                    # Convert code-unit intensity to CGS
+                    # [erg cm^-2 s^-1 sr^-1].  The thermal seed
+                    # (emiss/mfp_s, emiss in code units) gives
+                    # code-unit intensity; divide by unit_l0^2 *
+                    # unit_t0 to recover CGS intensity.
+                    i_conv = 1.0 / ( unit_l0 ** 2 * unit_t0 );
+                    img[ 'cube_cgs' ] = ( cube * i_conv ) \
+                                         .astype( float32 );
 
         results.append( output );
 

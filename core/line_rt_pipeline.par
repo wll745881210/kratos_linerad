@@ -40,3 +40,18 @@ a_voigt         = 0       ; Voigt damping parameter (0 = pure Gaussian)
 
 [boundary]
 kinds = fre fre fre fre fre fre
+
+[imaging]
+; Line imaging: a non-scattering ray-tracing pass that
+; integrates the transfer equation along camera rays using
+; the scattering source function (st_cam) accumulated by the
+; MC pass.  Runs only when enabled=1 (default off).
+enabled         = 0
+n_chan          = 32           ; number of velocity channels
+dir_cam_theta   = 0.7853982    ; camera direction (polar angle [rad])
+dir_cam_phi     = 0.0          ; camera azimuth [rad]
+v_chan_min      = -1e5         ; channel velocity range [cm/s, CGS]
+v_chan_max      = 1e5
+; img_xmin       = 0 0          ; image-plane corner [code units]
+; img_xmax       = 1 1
+; img_resol      = 64 64        ; pixel resolution

@@ -13,7 +13,8 @@ from numpy import asarray, array, int32, float32, float64
 # Field prefixes
 ############################################################
 
-_LINE_FIELD_PREFIXES  = [ 'mfp_i_sca_0_', 'mfp_i_abs_0_', 'temp_' ];
+_LINE_FIELD_PREFIXES  = [ 'mfp_i_sca_0_', 'mfp_i_abs_0_', 'temp_',
+                           'emiss_' ];
 _FIXED_FIELD_PREFIXES = [ 'b_sca_', 'vel_0_', 'vel_1_', 'vel_2_' ];
 
 
@@ -278,6 +279,25 @@ def read_output( filename ):
     #
     if  phot:
         result[ 'photons' ] = phot;
+    #
+
+    # Imaging output: per-pixel intensity cube (written by
+    # pol_img_t when imaging is enabled).  Keys _i2d_img,
+    # _l_img, _dir_img, _x_img.  _l_img is a flat float32
+    # array of length n_par * n_chan (pixel-major).
+    img = dict( );
+    for raw_key in bio.hmap:
+        if  raw_key.endswith( '_i2d_img' ):
+            img[ 'i2d' ] = bio.as_array( raw_key, 'i' );
+        elif raw_key.endswith( '_l_img' ):
+            img[ 'l' ] = bio.as_array( raw_key, 'f' );
+        elif raw_key.endswith( '_dir_img' ):
+            img[ 'dir' ] = bio.as_array( raw_key, 'f' );
+        elif raw_key.endswith( '_x_img' ):
+            img[ 'x' ] = bio.as_array( raw_key, 'f' );
+    #
+    if  'i2d' in img and 'l' in img:
+        result[ 'image' ] = img;
     #
 
     bio.close(  );
