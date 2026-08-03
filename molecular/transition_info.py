@@ -231,8 +231,7 @@ class TransitionInfo:
         print( '========================================' );
         print( 'Species     : %s' % sp_name );
         if self._transition_name:
-            print( 'Transition  : %s  (%d -> %d)' \
-                   % ( self._transition_name, tr.upper, tr.lower ) );
+            print( 'Transition  : %s' % self._transition_name );
         else:
             print( 'Transition  : idx=%d  %d -> %d' \
                    % ( self._transition_idx, tr.upper, tr.lower ) );
