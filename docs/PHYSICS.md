@@ -481,6 +481,150 @@ Python-side cell volumes used for internal source luminosity must match Kratos c
 
 ---
 
+## 12. Imaging (Two-Step: Scattering Source Function + Ray Tracing)
+
+Imaging produces a position–velocity cube `I(pixel, channel)` = the
+specific intensity reaching a distant observer, using the Kratos-polrad
+two-step method (Yang & Wang 2025, §2.3 + Appendix A; adapted from the
+polarization-specific `usr_ext/pol_rad` to scalar line RT).
+
+### 12.1 Principle
+
+Direct MC imaging is hopelessly expensive: the camera subtends a tiny
+solid angle and multiple scattering randomises directions. Because RT is
+linear, the contribution of scattered photons to a *fixed* viewing
+direction can instead be accumulated **on the grid during the scattering
+MC**, then a separate **non-scattering ray tracing** integrates the
+transfer equation along camera rays — a post-processing step that can be
+repeated for any viewing angle/camera at negligible cost.
+
+The imaging is enabled by setting `imaging` in the `LineRt` constructor
+(`core/line_rt.py`) or the `[imaging]` par section. It runs only on the
+**final** MC cycle. When disabled, the st_cam field is not initialised,
+allocated, or written — existing (non-imaging) runs are unaffected.
+
+### 12.2 Step 1 — Scattering source function `st_cam`
+
+The per-cell, per-channel field `st_cam` (Kratos `rad_t.st_cam`,
+`n_int = n_chan`) carries the **total source function toward the camera
+direction** — the thermal emission and the scattering contribution are
+folded together (populations enter only through the emission/absorption
+profile weights, not as a separate `n_u·A_ul` term).
+
+**Thermal seed** (`radiation.h:init_rad_fields_kernel`).  On GPU init
+the field is seeded with the line source function from the local emissivity:
+
+```
+S_th = emiss / mfp_i_sca_0        (emiss from the field binary, code units)
+```
+
+This is frequency-independent and applied to **every channel equally**.
+The per-channel selectivity comes only from the opacity profile in the
+imaging pass (§12.4).  `emiss` is the volume emissivity
+`n_u·A_ul·h·ν/(4π)` computed by `molecular/lamda_format.py:compute_emissivity()`
+and written to the line field file (`fields_cycleN.bin`, key `emiss_`) by
+`make_fields()`.
+
+**Scattering accumulation** (`photon.h:proc_phys`).  During the MC, each
+path segment in cell `i` also adds the packet's contribution to the
+scattering source function toward the camera:
+
+```
+base = flx · (1 − e^−dτ_e) / dτ_e · (1/4π)         (flx = proper·dl/V)
+for channel k:
+    dv_cam  = v_chan[k] + dir_cam·v_bulk(i)          (gas-frame offset
+                                                     toward the camera)
+    prof_cam = φ(dv_cam / b_sca)                    (Gaussian or Voigt)
+    st_cam[i,k] += base · prof_cam / (√π · b_sca)
+```
+
+Here `dτ_e = dl·(mfp_i_sca_0·φ_pp + mfp_i_abs_0)` is the extinction along
+the segment using the packet's *own* frequency offset (φ_pp), and the
+`(1−e^−dτ_e)/dτ_e` factor is the escape-probability-per-unit-length that
+weights the segment by the chance the packet scatters within the cell.
+This implements the CRD-like approximation of the R_IIA kernel toward
+the fixed camera direction (only the emission-profile factor `φ(dv_cam)`
+is angle-selective; the full angle–frequency correlation of R_IIA is not
+reproduced).  The `√π·b_sca` normalisation makes `∫φ dv = √π·b`, matching
+the Hjerting convention used elsewhere in the code.
+
+### 12.3 Camera and channel grid
+
+**Camera** (Kratos `intg.h`, par section `[imaging]`):
+`dir_cam_theta` / `dir_cam_phi` [rad] define the line of sight **pointing
+into the domain** (imaging photons march along `+dir_cam`):
+
+```
+dir_cam = (sinθ·cosφ, sinθ·sinφ, cosθ)
+```
+
+The camera-frame image plane (LOS = +z, pixel centres at z=0) is rotated
+into the domain frame by the quaternion `q_cam` (minimal rotation from
++z to `dir_cam`).  `LineRt(imaging={'dir_cam': (θ, φ)})` accepts the
+spherical pair, or a 3-vector (Cartesian, normalised internally).
+
+**Image plane** (Kratos `intg.h`, `img_x0`/`img_dx`/`img_n`): a flat grid
+of `img_resol = (n_x, n_y)` pixels covering the first two mesh dimensions
+(`x_min`..`x_max`), centred on cell centres, at camera-frame z=0.  One
+thread per pixel; each pixel emits a parallel ray along `dir_cam`.
+
+**Velocity channels** (`n_chan`, `v_chan_min`/`v_chan_max` [cm/s, CGS]):
+the channel grid uses **cell edges**, `v_chan[k] = v_min + k·dv` with
+`dv = (v_max − v_min)/(n_chan − 1)`.  Python converts CGS→code
+(`× unit_t0/unit_l0`) before writing the par file.
+
+### 12.4 Step 2 — Non-scattering ray tracing (imaging pass)
+
+A second module (`rad_img_t` + `photon_img.h:line_img_t`, enrolled as a
+parasite of `radiation_t` in `usr.cpp`) integrates the transfer equation
+along each camera ray, cell by cell, with the **analytic** solution of
+`dI/dτ = −I + S` per cell (`S` assumed constant over the cell):
+
+```
+per channel k, per path segment:
+    dv_cam  = v_chan[k] + dir_cam·v_bulk(i)
+    prof    = φ(dv_cam / b_sca)                       (Gaussian or Voigt)
+    α_s     = mfp_i_sca_0 · prof                      (line opacity)
+    α_t     = α_s + mfp_i_abs_0                       (total extinction)
+    dτ      = α_t · dl_seg
+    e^−dτ   = exp(−dτ)
+    S       = (α_s / α_t) · st_cam[i,k]               (source fn toward camera)
+    I[k]    = I[k]·e^−dτ + S·(1 − e^−dτ)              (analytic cell update)
+```
+
+The imaging photon has `n_scat = 1` (never scatters); `proc_geo` is the
+pure geometric move.  Rays start at the far box boundary along `−dir_cam`
+(`x = x0 − dl_min·dir·0.9999`) and march through the domain to the camera
+plane.  Output (binary keys `_dir_img`, `_x_img`, `_i2d_img`, `_l_img`)
+is read back by `kratos_io.read_output()` into `result['image']`.
+
+**Units**: the imaging output inherits the scaled-proper convention.
+Both the scattering part (accumulated from the scaled photon propers) and
+the thermal seed must live in the same scaled units, so the `emiss` field
+is rescaled by `proper_scale` on write (`core/iterator.py`) and the cube
+is divided by `scale_factor` on readback, then converted to CGS
+intensity (`÷ unit_l0²·unit_t0`).  The cube in the results dict is
+`image['cube']` in erg cm⁻² s⁻¹ sr⁻¹.
+
+### 12.5 Python API
+
+```python
+rt = LineRt(..., imaging = {
+    'dir_cam': (0.5, 0.0),       # (theta, phi) rad, or 3-vector
+    'n_chan': 64,
+    'v_chan': (-1e6, 1e6),       # [cm/s] channel range
+    'img_resol': (nx, ny),       # optional image resolution
+    'img_xmin': ... ,            # optional (code units)
+    'img_xmax': ... ,
+})
+out = rt.run(...)
+out['image']                     # {'cube': (n_pix, n_chan) CGS,
+                                 #  'i2d': (n_pix, 2), 'v_chan': (v_lo, v_hi), ...}
+rt.plot_channel_maps()           # shared-log-scale channel maps
+```
+
+---
+
 ## Appendix A: Common Implementation Bugs
 
 1. **Confusing excitation_flux with dust absorption**: excitation_flux MUST be I × F (overlap-weighted fluence), NOT dfab (dust-absorbed energy)
@@ -496,6 +640,12 @@ Python-side cell volumes used for internal source luminosity must match Kratos c
  11. **Treating escaped-photon `proper` as a path length**: Kratos writes the photon weight (`proper`) under the binary key `_l`; the reader must NOT multiply it by `unit_l0`. Escaped weights are divided by `scale_factor` only, and exposed as `'proper'` (with `'l'` as a deprecated alias)
  12. **Boundary kinds with 3 faces**: Kratos expects 6 boundary kinds (−x,+x,−y,+y,−z,+z). Specifying only 3 leaves the remaining faces undefined, defaulting to periodic and causing photon wrap-around artifacts
  13. **Periodic boundary corner bug**: the framework's `geo_loc_t::fix` can produce zero-width cells when photons cross periodic boundaries in two dimensions simultaneously; fixed by adding a convergence loop and cell-index updates in `particle_base.h`
+ 14. **Imaging: emiss field units (thermal seed)**: `emiss` must be in the SAME scaled-proper units as the scattering st_cam. Photon propers in the binary are already multiplied by `proper_scale`, so the `emiss` field must also be multiplied by `proper_scale` on write (`core/iterator.py`) — NOT divided. The old `/ proper_scale` double-rescaling overflowed FP32 (emiss ~1e52 → `inf` → NaN/inf imaging cube → spurious corner peak). Both parts are then divided by `scale_factor` on readback.
+ 15. **Imaging: v_chan must be CGS→code converted**: the channel grid is written to the par file in code units (`× unit_t0/unit_l0`). Writing CGS cm/s leaves `dv_cam/b` ~1e14 → profile exactly 0 → zero image.
+ 16. **Imaging: st_cam zeroing when disabled**: non-imaging runs must NOT initialise/allocate st_cam. The allocation is gated on `rad.imaging && rad.n_chan>0` in `block_data_t::setup()`; `pre_proc` zeroing is gated on `rad.imaging`. When imaging is disabled, `rad_img_t` skips `save()` (else it segfaults on the uninitialised pool).
+ 17. **Imaging: thermal seed must survive MC zeroing**: the scattering integrator's `pre_proc` zeroes `st_cam` each step; the thermal seed is applied in `init_rad_fields_kernel` and must be preserved across MC steps — the scattering `intg_t` sets `zero_st_cam=false` when imaging is enabled.
+ 18. **Imaging: duplicate intg_t kernels**: both `radiation_t` and `rad_img_t` enroll `intg_t`; the framework warns 'Duplicate entry kernels'. Harmless (runtime uses the first registered). The imaging integrator sets `build_tables=false` to avoid re-building the USampler/Voigt tables into const memory (pool overflow).
+ 19. **Imaging: pool init ordering**: `pol_img_t::init` runs before `intg_t::init` in the module init sequence, so it cannot read `n_chan` from the integrator — it reads it directly from the par (`args.get('imaging','n_chan',0)`).
 
 ---
 

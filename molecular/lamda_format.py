@@ -389,6 +389,17 @@ class SpeciesData:
         #  populations, even if base_fields carried an earlier value.
         fields[ 'mfp_i_sca_0' ] = asarray( mfp_i_sca, \
                                            dtype = float64 ) * unit_l0;
+        #  Line-centre emissivity j0 = n_u*A_ul*h*nu/(4*pi) [erg/(cm^3 s sr)],
+        #  used by the imaging pass for the thermal source term.
+        #  Converted to code units (× unit_l0³ × unit_t0) so it is
+        #  consistent with mfp_i_sca_0 (code units) when Kratos forms
+        #  the source function S = emiss / mfp_i_sca_0 on the GPU.
+        #  The resulting code-unit intensity is converted back to CGS
+        #  on readback (÷ unit_l0² × unit_t0).
+        if transition_idx is not None:
+            fields[ 'emiss' ] = self.compute_emissivity( populations, \
+                                   transition_idx, None ) \
+                                * ( unit_l0 ** 3 ) * unit_t0;
         if 'b_sca' not in fields:
             fields[ 'b_sca' ] = full( shape, 1e5 * v_factor, \
                                       dtype = float64 );

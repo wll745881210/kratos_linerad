@@ -137,7 +137,22 @@ class LineRt:
                   path = None, visualize = True, n_emission_max = 10, \
                   colliders = None, snapshot = None, \
                   proper_scale = 1.0, keep_intermediate = True, \
-                  retain_cycles = None, kratos_root = None ):
+                  retain_cycles = None, kratos_root = None, \
+                  imaging = None ):
+        """
+        imaging : dict or None
+            Camera configuration for line imaging.  When set, the
+            final cycle runs an extra non-scattering ray-tracing
+            pass that produces a per-channel image cube.  Keys:
+            'dir_cam'   : (theta, phi) [rad] or 3-vector (direction
+                          into the domain).
+            'n_chan'    : number of velocity channels (default 32).
+            'v_chan'    : (v_min, v_max) [cm/s, CGS] channel range.
+            'img_xmin'  : (x0, y0) image-plane corner [code units].
+            'img_xmax'  : (x1, y1) image-plane corner [code units].
+            'img_resol' : (nx, ny) pixel resolution.
+            The image cube is returned in out['image'].
+        """
         self._n_cell         = tuple( n_cell );
         self._x_min          = tuple( x_min );
         self._x_max          = tuple( x_max );
@@ -168,6 +183,7 @@ class LineRt:
         self._keep_intermediate = keep_intermediate;
         self._retain_cycles  = retain_cycles;
         self._kratos_root    = kratos_root;
+        self._imaging        = imaging;
         self._sources        = [ ];
         self._boundary_kinds = 'fre fre fre fre fre fre';
         self._results        = None;
@@ -562,6 +578,48 @@ class LineRt:
                              dyn_range = dyn_range, \
                              transition_info = self._transition_info );
 
+    def plot_channel_maps( self, out = None, channels = None, \
+                           n_cols = 6, n_channels = None, \
+                           dyn_range = True, ax = None, \
+                           figsize = None, output_path = None, \
+                           cmap = 'magma' ):
+        """Plot a grid of single-channel spatial maps from the
+        imaging cube.  All panels share a logarithmic colour
+        scale with dynamic range clipped to <= 4 dex; values
+        below the lower limit saturate to the bottom colour.
+
+        Parameters
+        ----------
+        out : dict, optional  the dict returned by LineRt.run().
+            When omitted, uses the cached results of the most
+            recent run().
+        channels : list[int] or None  channel indices to plot.
+            If None, selects ``n_channels`` channels centred on
+            the spectral peak.
+        n_cols : int  number of columns in the panel grid.
+        n_channels : int or None  total channels to plot
+            (default ``n_cols``, i.e. one row).
+        dyn_range : bool  apply 4-dex log clipping (default True).
+        cmap : str  colormap (default 'magma').
+        """
+        from .visualize import plot_channel_maps
+        data = out if out is not None else self._results;
+        if data is None:
+            raise ValueError( \
+                "plot_channel_maps(): no results to plot - call " \
+                "run() first or pass out=" );
+        return plot_channel_maps( data, \
+                                  channels = channels, \
+                                  n_cols = n_cols, \
+                                  n_channels = n_channels, \
+                                  dyn_range = dyn_range, \
+                                  ax = ax, \
+                                  figsize = figsize, \
+                                  output_path = output_path, \
+                                  cmap = cmap, \
+                                  transition_info = \
+                                      self._transition_info );
+
     ########################################################
     # Run
 
@@ -663,7 +721,8 @@ class LineRt:
             keep_intermediate = self._keep_intermediate, \
             retain_cycles = self._retain_cycles, \
             callback = self._snapshot, par_overrides = par_overrides, \
-            kratos_root = self._kratos_root );
+            kratos_root = self._kratos_root, \
+            imaging = self._imaging );
 
         spectrum = { 'vel' : array( [ ] ), 'n' : array( [ ] ) };
         if results and results[ -1 ].get( 'photons' ):
@@ -687,6 +746,8 @@ class LineRt:
                                    if results else None ), \
                 'spectrum'     : spectrum, \
                 'sources'      : list( self._sources ), };
+        if results and 'image' in results[ -1 ]:
+            out[ 'image' ] = results[ -1 ][ 'image' ];
 
         if self._visualize:
             self._plot_results( out );
@@ -869,7 +930,7 @@ class LineRt:
         for src in self._sources:
             parts.append( self._generate_one_source( src, mesh, b_sca_val ) );
         if not parts:
-            return zeros( ( 0, 10 ), dtype = float64 );
+            return zeros( ( 0, 9 ), dtype = float64 );
         return vstack( parts );
 
     def _generate_one_source( self, src, mesh, b_sca_val ):

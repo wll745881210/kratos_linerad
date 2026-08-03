@@ -1,7 +1,9 @@
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from numpy import asarray, zeros_like, ones_like, ones, array, ceil, \
-                  log10, clip, abs, float64, atleast_2d, average
+                  log10, clip, abs, float64, atleast_2d, average, \
+                  zeros, arange, int32, isfinite
 
 from .fields import slice_plot_2d
 
@@ -140,7 +142,7 @@ def default_plot( results, fields = None, slice_plane = 'z', \
         (upper = 10^ceil(log10(max)); lower = 10^(upper_dex - clip(span,1,6))).
         If False (default), use unconstrained log scale.
     transition_info : TransitionInfo or None  when given, labels the
-        spectrum panel with the species and J levels (e.g. "CO J=1->0").
+        spectrum panel with the transition name (e.g. "CO J=1->0").
     """
     if fields is None:
         fields = list( _DEFAULT_FIELDS );
@@ -173,9 +175,7 @@ def default_plot( results, fields = None, slice_plane = 'z', \
             _draw_spectrum( ax_i, results );
             if transition_info is not None:
                 tr = transition_info.transition;
-                title = '%s J=%d->%d' \
-                        % ( transition_info.species_data.name, \
-                            tr.upper, tr.lower );
+                title = transition_info.transition_name;
             ax_i.set_title( title );
             continue;
 
@@ -530,4 +530,175 @@ def plot_convergence( ax, pop_history, cycles ):
     ax.set_xlabel( 'Cycle' );
     ax.set_ylabel( r'$\max\overline{|\Delta n|}$' );
     ax.set_title( 'Population convergence' );
+#
+
+################################################################################
+# Channel-map grid for imaging cubes
+
+def plot_channel_maps( results, channels = None, n_cols = 6, \
+                       n_channels = None, dyn_range = True, ax = None, \
+                       figsize = None, output_path = None, cmap = 'magma', \
+                       transition_info = None ):
+    """Plot a grid of single-channel spatial maps from the
+    imaging cube.
+
+    All panels share a single colour scale.  When
+    ``dyn_range=True`` (default) the scale is logarithmic with
+    the dynamic range clipped to <= 4 dex (upper = 10^ceil of
+    the global max, lower = 10^(upper_dex - 4)).  Values below
+    the lower limit are saturated (clipped) to the bottom of
+    the colour scale rather than masked out.
+
+    Parameters
+    ----------
+    results : dict  from LineRt.run() containing 'image'.
+    channels : list[int] or None  channel indices to plot.  If
+        None, selects ``n_cols`` channels centred on the
+        spectral peak.
+    n_cols : int  number of columns in the panel grid.
+    n_channels : int or None  total number of channels to plot
+        (selected around the spectral peak).  If None, defaults
+        to ``n_cols`` (one row).  Ignored when ``channels``
+        is given explicitly.
+    dyn_range : bool  apply 4-dex log clipping (default True).
+    ax : array of Axes or None  (created if None).
+    figsize : tuple or None.
+    output_path : str or None  save figure if given.
+    cmap : str  colormap (default 'magma').
+    transition_info : TransitionInfo or None  labels the figure
+        suptitle with the transition name.
+    """
+    img = results.get( 'image', None );
+    if img is None:
+        # look in the last cycle
+        res_list = results.get( 'results', [ ] );
+        if res_list:
+            img = res_list[ -1 ].get( 'image', None );
+    if img is None or 'cube' not in img:
+        print( 'plot_channel_maps: no image cube in results' );
+        return None, None;
+
+    cube  = asarray( img[ 'cube' ], dtype = float64 );  # (n_pix,nch)
+    i2d   = asarray( img[ 'i2d' ], dtype = int32 );
+    nch   = int( img.get( 'n_chan', cube.shape[ 1 ] ) );
+
+    # Rebuild the 2-D spatial grid from the flat pixel list.
+    nx = int( i2d[ :, 0 ].max( ) ) + 1 if i2d.size else 1;
+    ny = int( i2d[ :, 1 ].max( ) ) + 1 if i2d.size else 1;
+    img2d = zeros( ( nx, ny, nch ) );
+    for p in range( i2d.shape[ 0 ] ):
+        img2d[ i2d[ p, 0 ], i2d[ p, 1 ], : ] = cube[ p, : ];
+
+    # Velocity axis (cell-edges convention: v_k = v_min + k*dv)
+    vcfg = img.get( 'v_chan', None );
+    if isinstance( vcfg, ( tuple, list ) ) and len( vcfg ) == 2:
+        v_lo, v_hi = float( vcfg[ 0 ] ), float( vcfg[ 1 ] );
+    else:
+        v_lo, v_hi = -1.0, 1.0;
+    dv = ( v_hi - v_lo ) / max( nch - 1, 1 );
+    v_axis = v_lo + arange( nch ) * dv;
+    v_kms  = v_axis * 1e-5;
+
+    # Channel selection
+    if channels is None:
+        if n_channels is None:
+            n_channels = n_cols;
+        n_channels = min( n_channels, nch );
+        spectrum = img2d.sum( axis = ( 0, 1 ) );
+        peak = int( spectrum.argmax( ) );
+        half = n_channels // 2;
+        lo = max( 0, peak - half );
+        hi = min( nch, lo + n_channels );
+        lo = max( 0, hi - n_channels );   # shift up if clipped
+        channels = list( range( lo, hi ) );
+    channels = [ int( c ) for c in channels ];
+    n_pan = len( channels );
+    if n_pan == 0:
+        return None, None;
+
+    # Shared colour limits across all selected channels.
+    stacked = img2d[ :, :, channels ];
+    pos = stacked[ ( stacked > 0 ) & isfinite( stacked ) ];
+    if pos.size == 0:
+        print( 'plot_channel_maps: no positive finite values in cube' );
+        return None, None;
+    if dyn_range:
+        pmax = float( pos.max( ) );
+        pmin = float( pos.min( ) );
+        if not isfinite( pmax ) or pmax <= 0:
+            pmax = 1.0;
+        if not isfinite( pmin ) or pmin <= 0:
+            pmin = pmax * 1e-4;
+        upper_dex = int( ceil( log10( pmax ) ) );
+        vmax = 10.0 ** upper_dex;
+        span = upper_dex - log10( pmin );
+        span = int( clip( span, 1, 4 ) );
+        vmin = 10.0 ** ( upper_dex - span );
+        if vmin >= vmax:
+            vmin = vmax * 1e-3;
+        # clip=True saturates values below vmin (incl. <=0) to
+        # the bottom colour instead of masking them to white.
+        norm = LogNorm( vmin = vmin, vmax = vmax, clip = True );
+    else:
+        norm = LogNorm( );
+
+    # Layout
+    ncols = min( n_pan, n_cols );
+    nrows = ( n_pan + ncols - 1 ) // ncols;
+    if ax is None:
+        fig, axes = plt.subplots( nrows, ncols, \
+                                  figsize = figsize or \
+                                  ( 3.2 * ncols, 3.0 * nrows ), \
+                                  squeeze = False );
+    else:
+        axes = atleast_2d( ax );
+        fig = axes[ 0, 0 ].figure;
+
+    # Spatial extent from mesh (AU)
+    mesh = results.get( 'mesh', { } );
+    xmin = mesh.get( 'x_min', [ 0, 0, 0 ] );
+    xmax = mesh.get( 'x_max', [ 1, 1, 1 ] );
+    ext  = ( xmin[ 0 ], xmax[ 0 ], xmin[ 1 ], xmax[ 1 ] );
+
+    dv_kms = dv * 1e-5;
+    for i, c in enumerate( channels ):
+        row, col = divmod( i, ncols );
+        ax_i = axes[ row, col ];
+        data = img2d[ :, :, c ].T;   # (ny, nx) for imshow
+        im = ax_i.imshow( data, origin = 'lower', aspect = 'equal',
+                          extent = ext, cmap = cmap, norm = norm,
+                          interpolation = 'bilinear' );
+        ax_i.set_title( r'$v = %.2f$ km/s' % v_kms[ c ],
+                        fontsize = 9 );
+        ax_i.set_xlabel( 'x [AU]', fontsize = 8 );
+        if col == 0:
+            ax_i.set_ylabel( 'y [AU]', fontsize = 8 );
+        ax_i.tick_params( labelsize = 7 );
+        if i == 0:
+            ax_i.text( 0.02, 0.02,
+                       r'$\Delta v = %.3f$ km/s' % dv_kms,
+                       transform = ax_i.transAxes, va = 'bottom',
+                       fontsize = 7, color = 'w' );
+
+    # Hide unused panels
+    for i in range( n_pan, nrows * ncols ):
+        row, col = divmod( i, ncols );
+        axes[ row, col ].set_visible( False );
+
+    # Dedicated colourbar axis beside the last used panel, so it
+    # never invades the panel grid.
+    last_row, last_col = divmod( n_pan - 1, ncols );
+    divider = make_axes_locatable( axes[ last_row, last_col ] );
+    cax = divider.append_axes( 'right', size = '4%', pad = 0.08 );
+    fig.colorbar( im, cax = cax, label = 'intensity [CGS]',
+                  extend = 'min' );
+
+    if transition_info is not None:
+        fig.suptitle( transition_info.transition_name, y = 0.995,
+                      fontsize = 11 );
+
+    fig.tight_layout( );
+    if output_path:
+        fig.savefig( output_path, dpi = 150, bbox_inches = 'tight' );
+    return fig, axes;
 #
