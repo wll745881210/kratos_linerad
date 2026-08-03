@@ -102,7 +102,7 @@ class TransitionInfo:
 
     def __init__( self, species, transition_idx = 0, *, \
                   value = None, unit = None, freq_GHz = None, \
-                  mol_mass = None ):
+                  mol_mass = None, transition_name = '' ):
         #  Load species data: embedded -> cache -> user path, or accept
         #  a pre-loaded SpeciesData object directly.
         if isinstance( species, SpeciesData ):
@@ -165,6 +165,16 @@ class TransitionInfo:
         #  photon generation uses the correct thermal Doppler width.
         self._species_data.mol_mass = self.mol_mass;
 
+        #  Optional human-readable label for the transition (used by
+        #  show_transition); set by user_defined, blank otherwise.
+        self._transition_name = str( transition_name ) if transition_name \
+                                else '';
+
+    @property
+    def transition_name( self ):
+        """Human-readable transition label (blank for LAMDA species)."""
+        return self._transition_name;
+
     @property
     def transition_idx( self ):
         """0-based index into species_data.transitions."""
@@ -216,10 +226,16 @@ class TransitionInfo:
     def show_transition( self ):
         """Print the resolved transition in detail."""
         tr = self.transition;
+        sp_name = self.species if isinstance( self.species, str ) \
+                  else getattr( self._species_data, 'name', '?' );
         print( '========================================' );
-        print( 'Species     : %s' % self.species );
-        print( 'Transition  : idx=%d  %d -> %d' \
-               % ( self._transition_idx, tr.upper, tr.lower ) );
+        print( 'Species     : %s' % sp_name );
+        if self._transition_name:
+            print( 'Transition  : %s  (%d -> %d)' \
+                   % ( self._transition_name, tr.upper, tr.lower ) );
+        else:
+            print( 'Transition  : idx=%d  %d -> %d' \
+                   % ( self._transition_idx, tr.upper, tr.lower ) );
         print( '  A_ul      : %.3e s^-1' % tr.A_ul );
         print( '  freq      : %.4f GHz' % tr.freq_GHz );
         print( '  lambda    : %.4f um' % tr.wavelength_um );
@@ -237,7 +253,7 @@ class TransitionInfo:
     def user_defined( cls, *, A_ul, freq_GHz = None, value = None, \
                       unit = None, g_u = 1.0, g_l = 1.0, \
                       E_u_K = None, mol_mass = None, \
-                      species_name = 'user_defined' ):
+                      species_name = 'user_defined', transition_name = '' ):
         """Build a TransitionInfo for a user-defined 2-level transition.
 
         Use this when the transition of interest is not in the LAMDA
@@ -266,6 +282,9 @@ class TransitionInfo:
         species_name : str
             Name stored on the synthetic species; used for the built-in
             molecular-mass lookup.
+        transition_name : str
+            Optional human-readable label for the transition (e.g.
+            ``'P(8)'``), shown by ``show_transition`` / ``show``.
 
         Returns
         -------
@@ -312,7 +331,8 @@ class TransitionInfo:
                                 str( species_name ).upper( ), 28.0 ),
         );
 
-        return cls( species, transition_idx = 0, mol_mass = mol_mass );
+        return cls( species, transition_idx = 0, mol_mass = mol_mass,
+                    transition_name = transition_name );
 
     def show( self ):
         """show_transition( ) then show_transitions( )."""
