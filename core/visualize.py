@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from numpy import asarray, zeros_like, ones_like, ones, array, ceil, \
                   log10, clip, abs, float64, atleast_2d, average, \
-                  zeros, arange, int32
+                  zeros, arange, int32, isfinite
 
 from .fields import slice_plot_2d
 
@@ -615,16 +615,24 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
 
     # Shared colour limits across all selected channels.
     stacked = img2d[ :, :, channels ];
-    pos = stacked[ stacked > 0 ];
+    pos = stacked[ ( stacked > 0 ) & isfinite( stacked ) ];
     if pos.size == 0:
-        print( 'plot_channel_maps: no positive values in cube' );
+        print( 'plot_channel_maps: no positive finite values in cube' );
         return None, None;
     if dyn_range:
-        upper_dex = int( ceil( log10( float( pos.max( ) ) ) ) );
+        pmax = float( pos.max( ) );
+        pmin = float( pos.min( ) );
+        if not isfinite( pmax ) or pmax <= 0:
+            pmax = 1.0;
+        if not isfinite( pmin ) or pmin <= 0:
+            pmin = pmax * 1e-6;
+        upper_dex = int( ceil( log10( pmax ) ) );
         vmax = 10.0 ** upper_dex;
-        span = upper_dex - log10( float( pos.min( ) ) );
+        span = upper_dex - log10( pmin );
         span = int( clip( span, 1, 6 ) );
         vmin = 10.0 ** ( upper_dex - span );
+        if vmin >= vmax:
+            vmin = vmax * 1e-3;
         norm = LogNorm( vmin = vmin, vmax = vmax );
     else:
         norm = LogNorm( );
