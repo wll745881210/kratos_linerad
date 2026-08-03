@@ -535,8 +535,8 @@ def plot_convergence( ax, pop_history, cycles ):
 # Channel-map grid for imaging cubes
 
 def plot_channel_maps( results, channels = None, n_cols = 6, \
-                       dyn_range = True, ax = None, figsize = None, \
-                       output_path = None, cmap = 'magma', \
+                       n_channels = None, dyn_range = True, ax = None, \
+                       figsize = None, output_path = None, cmap = 'magma', \
                        transition_info = None ):
     """Plot a grid of single-channel spatial maps from the
     imaging cube.
@@ -552,8 +552,11 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
     channels : list[int] or None  channel indices to plot.  If
         None, selects ``n_cols`` channels centred on the
         spectral peak.
-    n_cols : int  number of columns (= number of channels when
-        ``channels`` is None).
+    n_cols : int  number of columns in the panel grid.
+    n_channels : int or None  total number of channels to plot
+        (selected around the spectral peak).  If None, defaults
+        to ``n_cols`` (one row).  Ignored when ``channels``
+        is given explicitly.
     dyn_range : bool  apply 6-dex log clipping (default True).
     ax : array of Axes or None  (created if None).
     figsize : tuple or None.
@@ -595,12 +598,16 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
 
     # Channel selection
     if channels is None:
+        if n_channels is None:
+            n_channels = n_cols;
+        n_channels = min( n_channels, nch );
         spectrum = img2d.sum( axis = ( 0, 1 ) );
         peak = int( spectrum.argmax( ) );
-        half = n_cols // 2;
-        channels = list( clip( arange( peak - half,
-                                       peak + n_cols - half ),
-                               0, nch - 1 ) );
+        half = n_channels // 2;
+        lo = max( 0, peak - half );
+        hi = min( nch, lo + n_channels );
+        lo = max( 0, hi - n_channels );   # shift up if clipped
+        channels = list( range( lo, hi ) );
     channels = [ int( c ) for c in channels ];
     n_pan = len( channels );
     if n_pan == 0:

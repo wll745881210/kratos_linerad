@@ -579,7 +579,8 @@ class LineRt:
                              transition_info = self._transition_info );
 
     def plot_channel_maps( self, out = None, channels = None, \
-                           n_cols = 6, dyn_range = True, ax = None, \
+                           n_cols = 6, n_channels = None, \
+                           dyn_range = True, ax = None, \
                            figsize = None, output_path = None, \
                            cmap = 'magma' ):
         """Plot a grid of single-channel spatial maps from the
@@ -592,10 +593,11 @@ class LineRt:
             When omitted, uses the cached results of the most
             recent run().
         channels : list[int] or None  channel indices to plot.
-            If None, selects ``n_cols`` channels centred on the
-            spectral peak.
-        n_cols : int  number of columns (and channels when
-            ``channels`` is None).
+            If None, selects ``n_channels`` channels centred on
+            the spectral peak.
+        n_cols : int  number of columns in the panel grid.
+        n_channels : int or None  total channels to plot
+            (default ``n_cols``, i.e. one row).
         dyn_range : bool  apply 6-dex log clipping (default True).
         cmap : str  colormap (default 'magma').
         """
@@ -608,6 +610,7 @@ class LineRt:
         return plot_channel_maps( data, \
                                   channels = channels, \
                                   n_cols = n_cols, \
+                                  n_channels = n_channels, \
                                   dyn_range = dyn_range, \
                                   ax = ax, \
                                   figsize = figsize, \
@@ -926,7 +929,7 @@ class LineRt:
         for src in self._sources:
             parts.append( self._generate_one_source( src, mesh, b_sca_val ) );
         if not parts:
-            return zeros( ( 0, 10 ), dtype = float64 );
+            return zeros( ( 0, 9 ), dtype = float64 );
         return vstack( parts );
 
     def _generate_one_source( self, src, mesh, b_sca_val ):
