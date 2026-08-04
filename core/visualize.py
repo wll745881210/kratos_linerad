@@ -31,7 +31,7 @@ _FIELD_LABELS = { 'flx'             : r'flux [photons cm$^{-2}$ s$^{-1}$]', \
                   'vel_2'           : r'$v_z$ [km s$^{-1}$]', \
                   'excited_fraction': r'n$_{\rm exc}$ / n$_{\rm tot}$', \
                   'emissivity'      : \
-                      r'$\epsilon$ [erg s$^{-1}$ cm$^{-3}$ sr$^{-1}$]', };
+                      r'$\epsilon$ [photons s$^{-1}$ cm$^{-3}$ sr$^{-1}$]', };
 
 _FIELD_TITLES = { 'spectrum'        : 'Emergent Spectrum', \
                   'flx'             : 'Flux Map', \
