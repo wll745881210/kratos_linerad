@@ -274,25 +274,58 @@ class SpeciesData:
 
     def compute_emissivity( self, populations, transition_idx, \
                             temperature ):
+        """Photon-number volume emissivity (per steradian).
+
+        Returns n_u * A_ul / (4*pi)  [photons cm^-3 s^-1 sr^-1], i.e. the
+        number of line photons radiated per unit volume, per unit time,
+        per unit solid angle.  This is photon-number based (no h*nu
+        factor) to be consistent with the photon-number framework of the
+        pipeline: photon propers are photons/s, the flx is photon flux,
+        and Gamma = F_ext * sigma_0 requires a photon flux F_ext.
+        """
         t = self.transitions[ transition_idx ];
         upper = int( t[ 0 ] );
         A_ul = float( t[ 2 ] );
-        nu = float( t[ 3 ] ) * 1e9;
         n_u = asarray( populations.get( 'n%d' % upper, \
                         ones( 1 ) ), dtype = float64 );
-        emissivity = n_u * A_ul * h_cgs * nu / ( 4.0 * pi );
+        emissivity = n_u * A_ul / ( 4.0 * pi );
         return maximum( emissivity, 0.0 );
 
     def generate_emission_photons( self, populations, \
                                    transition_idx, temperature, mesh, \
                                    n_per_cell_max = 10, b_sca = 1e5, \
-                                   rng = None ):
+                                   rng = None, unit_l0 = 1.0, \
+                                   vel_fields = None ):
+        """Generate spontaneous-emission photon packets.
+
+        Each photon's proper weight (col 6) equals the per-cell
+        photon-number emission rate divided by the number of packets
+        drawn from that cell:
+
+            proper = n_u * A_ul * V_cgs / n_ph_cell   [photons/s]
+
+        where V_cgs = V_code * unit_l0^3 is the CGS cell volume.
+        `emissivity` (per sr, n_u*A_ul/(4*pi)) is multiplied by 4*pi to
+        recover the total (isotropic) photon production rate per cell.
+        This is photon-number based so it is consistent with external
+        sources and with Gamma = F_ext * sigma_0 in the population solver.
+
+        The photon's stored ``vel`` (col 7) is set so that
+        ``dv = vel + vel_obs`` (with ``vel_obs = dir . v_cc``) recovers
+        the gas-frame frequency offset at the emission site.  For a
+        photon emitted at line centre in the gas rest frame, ``dv`` =
+        thermal draw, hence ``vel = thermal_draw - v_bulk . dir``.
+        ``vel_fields`` (if given) is a dict of 3D CGS velocity arrays
+        {'vel_0','vel_1','vel_2'}; without it the bulk term is skipped
+        (stationary gas, backward compatible).
+        """
         if rng is None:
             rng = random.default_rng( );
         n_cell = mesh[ 'n_cell' ];
         x_min = mesh[ 'x_min' ];
         dx = mesh[ 'dx' ];
-        volume = float( prod( dx ) );
+        #  CGS cell volume: dx is in code units; convert to cm.
+        volume_cgs = float( prod( dx ) ) * ( unit_l0 ** 3 );
 
         emissivity = self.compute_emissivity( populations, \
                                               transition_idx, \
@@ -309,14 +342,16 @@ class SpeciesData:
 
         #  Brightness-proportional photon budget: the brightest cell gets
         #  up to n_per_cell_max photons, dimmer cells scale down (min 1).
-        #  Weighting by the per-cell luminosity keeps energy conserved:
-        #  weight = lum_cell / n_ph  per photon.
+        #  rate_per_cell = total photon emission rate (photons/s), used
+        #  both for the budget and for the per-packet weight so photon
+        #  number is conserved: weight = rate_per_cell / n_ph.
         active = ( em > 0.0 ).ravel( );
         em_act = em.ravel( )[ active ];
-        lum_act = em_act * volume;
-        lum_max = lum_act.max( );
+        #  total (4*pi) photon production rate per cell [photons/s]
+        rate_act = em_act * ( 4.0 * pi ) * volume_cgs;
+        rate_max = rate_act.max( );
         n_ph_cell = maximum( 1, ceil( n_per_cell_max * \
-                                      lum_act / lum_max ) ).astype( int );
+                                      rate_act / rate_max ) ).astype( int );
         n_ph_cell = minimum( n_ph_cell, n_per_cell_max );
         n_total = int( n_ph_cell.sum( ) );
 
@@ -345,10 +380,28 @@ class SpeciesData:
         sigma_ph = b_thermal / sqrt( 2.0 );
         vel_draw = rng.normal( 0.0, sigma_ph, n_total );
 
-        weight_per_ph = lum_act[ cell_of ] / n_ph_cell[ cell_of ];
+        #  Bulk Doppler shift of the emission site: the photon is
+        #  emitted at line centre in the gas rest frame, so its stored
+        #  ``vel`` must subtract  v_bulk . dir  so that
+        #  ``dv = vel + vel_obs`` = thermal draw in the emitting cell.
+        #  vel_fields values are 3D (nz,ny,nx) CGS arrays [cm/s].
+        if vel_fields is not None:
+            vx = asarray( vel_fields.get( 'vel_0', 0 ),
+                          dtype = float64 ).ravel( )[ flat_ph ];
+            vy = asarray( vel_fields.get( 'vel_1', 0 ),
+                          dtype = float64 ).ravel( )[ flat_ph ];
+            vz = asarray( vel_fields.get( 'vel_2', 0 ),
+                          dtype = float64 ).ravel( )[ flat_ph ];
+            vdot = vx * dir_x + vy * dir_y + vz * dir_z;
+            vel = vel_draw - vdot;
+        else:
+            vel = vel_draw;
+
+        #  proper = photon-number production rate / n_packets  [photons/s]
+        weight_per_ph = rate_act[ cell_of ] / n_ph_cell[ cell_of ];
 
         return column_stack( ( x, y, z, dir_x, dir_y, dir_z, \
-                               weight_per_ph, vel_draw, sigma_ph ) );
+                               weight_per_ph, vel, sigma_ph ) );
 
     ############################################################
     # Field construction
@@ -389,13 +442,14 @@ class SpeciesData:
         #  populations, even if base_fields carried an earlier value.
         fields[ 'mfp_i_sca_0' ] = asarray( mfp_i_sca, \
                                            dtype = float64 ) * unit_l0;
-        #  Line-centre emissivity j0 = n_u*A_ul*h*nu/(4*pi) [erg/(cm^3 s sr)],
-        #  used by the imaging pass for the thermal source term.
-        #  Converted to code units (× unit_l0³ × unit_t0) so it is
-        #  consistent with mfp_i_sca_0 (code units) when Kratos forms
-        #  the source function S = emiss / mfp_i_sca_0 on the GPU.
-        #  The resulting code-unit intensity is converted back to CGS
-        #  on readback (÷ unit_l0² × unit_t0).
+        #  Photon-number emissivity j0 = n_u*A_ul/(4*pi)
+        #  [photons cm^-3 s^-1 sr^-1], used by the imaging pass for the
+        #  thermal source term.  Converted to code units (x unit_l0^3 *
+        #  unit_t0) so it is consistent with mfp_i_sca_0 (code units)
+        #  when Kratos forms the source function S = emiss / mfp_i_sca_0
+        #  on the GPU.  The resulting code-unit intensity is converted
+        #  back to CGS on readback (÷ unit_l0^2 * unit_t0), giving a
+        #  photon-number surface brightness [photons cm^-2 s^-1 sr^-1].
         if transition_idx is not None:
             fields[ 'emiss' ] = self.compute_emissivity( populations, \
                                    transition_idx, None ) \

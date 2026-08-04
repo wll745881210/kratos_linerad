@@ -1,5 +1,5 @@
 from numpy import asarray, zeros, ones, full, arange, maximum, minimum, \
-                  abs, exp, clip, copy, linalg, float64, interp;
+                  abs, exp, clip, copy, linalg, float64, interp, where;
 
 
 h_cgs = 6.62607015e-27;        # Planck constant [ erg s ]
@@ -63,10 +63,14 @@ def solve_populations( species_data, exc_flux, n_total, T = None, \
             R_abs = ( g_u / g_l ) * x_planck * A_ul;
             R_stim = x_planck * A_ul;
             n_exc_frac = ( Gamma + R_abs ) / \
-                         ( A_ul + R_stim + Gamma + R_abs );
+                          ( A_ul + R_stim + Gamma + R_abs );
         else:
             n_exc_frac = Gamma / ( A_ul + Gamma );
         n_exc_frac = clip( n_exc_frac, 0, 0.9999 );
+        #  Floor denormal excitation fractions (e.g. T -> 0 gives
+        #  n_exc_frac ~ 1e-300 from the clipped Planck term) to exact
+        #  zero so they do not produce spurious emission photons.
+        n_exc_frac = where( n_exc_frac < 1e-30, 0.0, n_exc_frac );
 
         n[ upper ] = n_exc_frac * n_total_c;
         n[ 1 - upper ] = n_total_c - n[ upper ];
@@ -112,6 +116,7 @@ def solve_populations( species_data, exc_flux, n_total, T = None, \
         else:
             n_exc_frac = Gamma / ( A_ul + Gamma );
         n_exc_frac = clip( n_exc_frac, 0, 0.9999 );
+        n_exc_frac = where( n_exc_frac < 1e-30, 0.0, n_exc_frac );
 
         active = ones( n_cells, dtype = bool );
         if colliders is None:

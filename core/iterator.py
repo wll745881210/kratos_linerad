@@ -170,9 +170,13 @@ def iterate( source_photons, species, fields_init, mesh, \
        hasattr( species, 'generate_emission_photons' ):
         temp_field_0 = base_fields_cgs.get( 'temp', \
                          zeros( mesh[ 'n_tot' ], dtype = float64 ) );
+        vel_fields_0 = { k: base_fields_cgs[ k ] for k in \
+                         ( 'vel_0', 'vel_1', 'vel_2' ) \
+                         if k in base_fields_cgs } or None;
         emission_ph = species.generate_emission_photons( \
             populations, transition_idx, temp_field_0, mesh, \
-            n_per_cell_max = n_emission_max );
+            n_per_cell_max = n_emission_max, unit_l0 = unit_l0, \
+            vel_fields = vel_fields_0 );
         if len( emission_ph ) == 0:
             emission_ph = None;
         else:
@@ -333,10 +337,11 @@ scale = %.3e" % ( proper_scale, \
                        '_v_chan_cgs' in imaging_pars:
                         img[ 'v_chan' ] = imaging_pars[ '_v_chan_cgs' ];
                     # Convert code-unit intensity to CGS
-                    # [erg cm^-2 s^-1 sr^-1].  The thermal seed
-                    # (emiss/mfp_s, emiss in code units) gives
-                    # code-unit intensity; divide by unit_l0^2 *
-                    # unit_t0 to recover CGS intensity.
+                    # [photons cm^-2 s^-1 sr^-1].  The thermal seed
+                    # (emiss/mfp_s, emiss in code units, photon-number)
+                    # gives code-unit intensity; divide by unit_l0^2 *
+                    # unit_t0 to recover CGS photon-number surface
+                    # brightness.
                     i_conv = 1.0 / ( unit_l0 ** 2 * unit_t0 );
                     img[ 'cube_cgs' ] = ( cube * i_conv ) \
                                          .astype( float32 );
@@ -406,9 +411,13 @@ scale = %.3e" % ( proper_scale, \
         if species is not None and \
            hasattr( species, 'generate_emission_photons' ) and \
            cycle < n_cycles - 1:
+            vel_fields_c = { k: base_fields_cgs[ k ] for k in \
+                            ( 'vel_0', 'vel_1', 'vel_2' ) \
+                            if k in base_fields_cgs } or None;
             emission_ph = species.generate_emission_photons( \
                 populations, transition_idx, temp_field, mesh, \
-                n_per_cell_max = n_emission_max );
+                n_per_cell_max = n_emission_max, unit_l0 = unit_l0, \
+                vel_fields = vel_fields_c );
             if len( emission_ph ) > 0:
                 if ext_source.shape[ 1 ] < emission_ph.shape[ 1 ]:
                     pad = zeros( ( ext_source.shape[ 0 ], \
