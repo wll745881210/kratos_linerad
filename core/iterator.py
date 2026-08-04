@@ -157,16 +157,20 @@ def iterate( source_photons, species, fields_init, mesh, \
                         'n_total' : ones( shape3d, dtype = float32 ) };
 
     # External source photons are FIXED across cycles.  Internal emission
-    # photons are recomputed each cycle from the updated populations and
-    # combined here, so the photon count does not accumulate.
+    # photons are also generated ONCE from the LTE (cycle-0) populations
+    # and re-used for every cycle (no regeneration).  This prevents
+    # double-counting: scattered photons already carry the radiative
+    # excitation, so new emission from radiation-inflated n_u would
+    # count it twice.
     ext_source = asarray( source_photons, dtype = float64 ).copy( );
     emission_ph = None;
 
-    # Emission-only mode: if there are no external photons, seed cycle 0
-    # with internal emission generated from the (LTE) populations so
-    # Kratos still has photons to propagate.  The per-cycle block below
-    # regenerates emission from the updated populations for cycles 1+.
-    if ext_source.shape[ 0 ] == 0 and species is not None and \
+    # Generate emission photons ONCE from LTE populations.  This is the
+    # thermal pump - it represents spontaneous emission from the
+    # thermally-populated upper level and is independent of the
+    # radiation field.  Both emission-only and mixed
+    # (external + emission) modes use these frozen photons.
+    if species is not None and \
        hasattr( species, 'generate_emission_photons' ):
         temp_field_0 = base_fields_cgs.get( 'temp', \
                          zeros( mesh[ 'n_tot' ], dtype = float64 ) );
@@ -180,9 +184,19 @@ def iterate( source_photons, species, fields_init, mesh, \
         if len( emission_ph ) == 0:
             emission_ph = None;
         else:
-            print( "[iterate] No external sources: seeding cycle 0 from "
-                   "internal emission (%d photons)" % \
-                   len( emission_ph ) );
+            print( "[iterate] Internal emission (LTE): %d photons "
+                   "(frozen across cycles)" % len( emission_ph ) );
+
+    # Pad emission photons to match external source column count so
+    # vstack succeeds when both are present.
+    if emission_ph is not None and ext_source.shape[ 0 ] > 0:
+        n_col_ext = ext_source.shape[ 1 ];
+        n_col_em = emission_ph.shape[ 1 ];
+        if n_col_em < n_col_ext:
+            pad = zeros( ( emission_ph.shape[ 0 ],
+                           n_col_ext - n_col_em ),
+                         dtype = float64 );
+            emission_ph = hstack( [ emission_ph, pad ] );
 
     if species is not None and hasattr( species, 'make_fields' ):
         fields = species.make_fields( populations, 'pre', -1, \
@@ -196,6 +210,34 @@ def iterate( source_photons, species, fields_init, mesh, \
             v_factor = unit_l0;
             fields[ 'mfp_i_abs_0' ] = asarray( \
                 base_fields_cgs[ 'mfp_i_abs_0' ], dtype = float64 ) * v_factor;
+
+    #  Collisional destruction: add the line absorption that is
+    #  destroyed by collisional de-excitation (probability epsilon)
+    #  to the user-provided mfp_i_abs_0.  This converts a fraction
+    #  epsilon of the line opacity from scattering to true absorption,
+    #  so that photons absorbed by the line are thermalised rather
+    #  than re-emitted.  Computed once from LTE populations and frozen
+    #  (emission is frozen, so the destruction opacity is frozen too).
+    if species is not None and \
+       hasattr( species, 'destruction_opacity' ) and \
+       colliders is not None:
+        T_field0 = base_fields_cgs.get( 'temp', None );
+        b_field0 = base_fields_cgs.get( 'b_sca', None );
+        b_scalar = float( mean( b_field0 ) ) \
+                   if b_field0 is not None and \
+                      hasattr( b_field0, '__len__' ) else b_field0;
+        destr = species.destruction_opacity( \
+            populations, transition_idx = transition_idx, \
+            b_sca = b_scalar, T = T_field0, colliders = colliders );
+        destr_code = asarray( destr, dtype = float64 ) * unit_l0;
+        if 'mfp_i_abs_0' in fields:
+            fields[ 'mfp_i_abs_0' ] = asarray( \
+                fields[ 'mfp_i_abs_0' ], dtype = float64 ) + destr_code;
+        else:
+            fields[ 'mfp_i_abs_0' ] = destr_code;
+        print( "[iterate] Collisional destruction opacity: "
+               "max epsilon*mfp_sca = %.3e cm^-1" % \
+               ( float( destr.max( ) ) if destr.size else 0.0 ) );
 
     # Write line-independent fields (b_sca, vel) ONCE - these
     # depend only on the gas (bulk motion, thermal temperature,
@@ -402,47 +444,46 @@ scale = %.3e" % ( proper_scale, \
                     base_fields_cgs[ 'mfp_i_abs_0' ], \
                     dtype = float64 ) * unit_l0;
 
+        #  Collisional destruction (per-cycle): recompute from the
+        #  updated populations and add to mfp_i_abs_0.
+        if species is not None and \
+           hasattr( species, 'destruction_opacity' ) and \
+           colliders is not None:
+            T_field = base_fields_cgs.get( 'temp', None );
+            b_field = base_fields_cgs.get( 'b_sca', None );
+            b_scalar = float( mean( b_field ) ) \
+                       if b_field is not None and \
+                          hasattr( b_field, '__len__' ) else b_field;
+            destr = species.destruction_opacity( \
+                populations, transition_idx = transition_idx, \
+                b_sca = b_scalar, T = T_field, colliders = colliders );
+            destr_code = asarray( destr, dtype = float64 ) * unit_l0;
+            #  Reset mfp_i_abs_0 to user value + fresh destruction.
+            if 'mfp_i_abs_0' in base_fields_cgs:
+                fields[ 'mfp_i_abs_0' ] = asarray( \
+                    base_fields_cgs[ 'mfp_i_abs_0' ], \
+                    dtype = float64 ) * unit_l0 + destr_code;
+            else:
+                fields[ 'mfp_i_abs_0' ] = destr_code;
+
         if species is not None and hasattr( species, 'compute_emissivity' ):
             temp_field = fields.get( 'temp', zeros( mesh[ 'n_tot' ], \
                                                     dtype = float64 ) );
             output[ 'emissivity' ] = species.compute_emissivity( \
                 populations, transition_idx, temp_field );
 
-        if species is not None and \
-           hasattr( species, 'generate_emission_photons' ) and \
-           cycle < n_cycles - 1:
-            vel_fields_c = { k: base_fields_cgs[ k ] for k in \
-                            ( 'vel_0', 'vel_1', 'vel_2' ) \
-                            if k in base_fields_cgs } or None;
-            emission_ph = species.generate_emission_photons( \
-                populations, transition_idx, temp_field, mesh, \
-                n_per_cell_max = n_emission_max, unit_l0 = unit_l0, \
-                vel_fields = vel_fields_c );
-            if len( emission_ph ) > 0:
-                if ext_source.shape[ 1 ] < emission_ph.shape[ 1 ]:
-                    pad = zeros( ( ext_source.shape[ 0 ], \
-                                   emission_ph.shape[ 1 ] - \
-                                   ext_source.shape[ 1 ] ) );
-                    ext_source = hstack( [ ext_source, pad ] );
-                elif emission_ph.shape[ 1 ] < ext_source.shape[ 1 ]:
-                    pad = zeros( ( emission_ph.shape[ 0 ], \
-                                   ext_source.shape[ 1 ] - \
-                                   emission_ph.shape[ 1 ] ) );
-                    emission_ph = hstack( [ emission_ph, pad ] );
-            else:
-                emission_ph = None;
-        else:
-            for key in fields:
-                if key.startswith( 'mfp' ):
-                    exc_flux_norm = zeros( n_tot, dtype = float32 );
-                    exc_flux_ptr = output.get( 'excitation_flux', \
-                                     output.get( 'exc_flux_flat', \
-                                       output.get( 'fab_flat', \
-                                         output.get( 'fab', None ) ) ) );
-                    if exc_flux_ptr is not None:
-                        exc_flux_norm = exc_flux_ptr.astype( float32 ) / \
-                                        ( exc_flux_ptr.max( ) + 1e-35 );
-                    fields[ key ] = exc_flux_norm;
+        #  --- Emission photon policy (anti-double-counting) ---
+        #  Emission photons are generated ONCE from the LTE (cycle-0)
+        #  populations and re-used for every subsequent cycle.  Only the
+        #  scattering opacity (mfp_i_sca_0, derived from the lower-level
+        #  population n_lower) is updated each cycle.  This avoids
+        #  double-counting: the radiative excitation is already carried
+        #  by the scattered photons (absorption + instant re-emission),
+        #  so regenerating new emission from the radiation-inflated n_u
+        #  would count it twice.
+        #
+        #  The emission_ph array set up before the loop (from LTE pops)
+        #  is immutable across cycles - no regeneration here.
 
         if callback is not None:
             callback( cycle, \

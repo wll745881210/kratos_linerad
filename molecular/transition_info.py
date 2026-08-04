@@ -13,7 +13,7 @@
 import os;
 from math import sqrt;
 
-from numpy import array, float64;
+from numpy import array, float64, int64;
 
 from .lamda_format import SpeciesData, load_lamda, specify_transition;
 from .lamda_fetcher import CACHE_DIR, get_cached_species;
@@ -82,11 +82,17 @@ def _available_species( ):
     return sorted( names );
 
 def _find_species_path( name ):
-    if name.lower( ) in _embedded_names( ):
-        return os.path.join( _EMBEDDED_DIR, name.lower( ) + '.dat' );
+    """Resolve a species name to a file path.
+
+    Prefers the full LAMDA cache (written by ``fetch_species`` with
+    collision rates) over the stripped embedded copy.  Falls back to
+    embedded for offline use.
+    """
     cached = os.path.join( CACHE_DIR, name.lower( ) + '.dat' );
     if os.path.exists( cached ):
         return cached;
+    if name.lower( ) in _embedded_names( ):
+        return os.path.join( _EMBEDDED_DIR, name.lower( ) + '.dat' );
     if os.path.exists( name ):
         return name;
     raise FileNotFoundError( \
@@ -252,6 +258,7 @@ class TransitionInfo:
     def user_defined( cls, *, A_ul, freq_GHz = None, value = None, \
                       unit = None, g_u = 1.0, g_l = 1.0, \
                       E_u_K = None, mol_mass = None, \
+                      collision_rates = None, \
                       species_name = 'user_defined', transition_name = '' ):
         """Build a TransitionInfo for a user-defined 2-level transition.
 
@@ -278,6 +285,20 @@ class TransitionInfo:
         mol_mass : float, optional
             Molecular mass [amu].  Optional if ``species_name`` is in the
             built-in mass table (e.g. ``'CO'``), required otherwise.
+        collision_rates : dict or None
+            Collisional de-excitation rates for one or more partners.
+            Each entry is keyed by the partner name (e.g. ``'H2'``) and
+            contains a ``'rate'`` field that is either a float
+            (temperature-independent C_ul [cm³ s⁻¹]) or a callable
+            ``f(T) -> float`` returning C_ul at temperature T [K].
+            Optionally a ``'density'`` field (float or callable, [cm⁻³])
+            may be given; if absent the density is supplied later via
+            ``LineRt(colliders=...)``.  Example::
+
+                collision_rates = {
+                    'H2': {'rate': 1e-12, 'density': 1e6},
+                    'e':  {'rate': lambda T: 1e-9 * sqrt(T/300)},
+                }
         species_name : str
             Name stored on the synthetic species; used for the built-in
             molecular-mass lookup.
@@ -288,8 +309,7 @@ class TransitionInfo:
         Returns
         -------
         TransitionInfo
-            A species-based Group 1 configuration.  Only 2-level species
-            are supported for now (collision-partner data is absent).
+            A species-based Group 1 configuration.
 
         Examples
         --------
@@ -316,6 +336,45 @@ class TransitionInfo:
         if E_u_K is None:
             E_u_K = _H_CGS * ( freq * 1.0e9 ) / _K_B;
 
+        coll_partners = [ ];
+        if collision_rates is not None:
+            if not isinstance( collision_rates, dict ):
+                raise TypeError( "collision_rates must be a dict keyed by "
+                                 "partner name (e.g. {'H2': {'rate': ...}})" );
+            #  A small temperature grid for the tabulated form expected
+            #  by the SpeciesData rate-matrix solver.  The callable is
+            #  sampled at these temperatures and linear-interpolated at
+            #  runtime (equilibrium.py interp).
+            _T_GRID = array( [ 10., 20., 50., 100., 200., 300., 500.,
+                               750., 1000., 1500., 2000., 3000., 5000. ],
+                             dtype = float64 );
+            for pname, cfg in collision_rates.items( ):
+                if not isinstance( cfg, dict ) or 'rate' not in cfg:
+                    raise ValueError(
+                        "collision_rates['%s'] must be a dict with a "
+                        "'rate' key (float or callable f(T))" % pname );
+                rate_spec = cfg[ 'rate' ];
+                if callable( rate_spec ):
+                    rates_arr = array(
+                        [ [ max( float( rate_spec( float( T ) ) ), 0.0 )
+                            for T in _T_GRID ] ], dtype = float64 );
+                else:
+                    c = float( rate_spec );
+                    if c < 0:
+                        raise ValueError( "collision rate for '%s' must be "
+                                          "non-negative (got %g)" % (pname, c) );
+                    rates_arr = array(
+                        [ [ c for _ in _T_GRID ] ], dtype = float64 );
+                #  trans_indices: [[upper, lower]] (0-based), 1 transition
+                coll_partners.append( {
+                    'species'      : str( pname ),
+                    'n_trans'      : 1,
+                    'n_temps'      : len( _T_GRID ),
+                    'temps'        : _T_GRID.copy( ),
+                    'rates'        : rates_arr,
+                    'trans_indices': array( [ [ 1, 0 ] ], dtype = int64 ),
+                } );
+
         species = SpeciesData(
             name          = str( species_name ),
             n_levels      = 2,
@@ -325,13 +384,24 @@ class TransitionInfo:
                                    dtype = float64 ),
             transitions   = array( [ [ 1, 0, float( A_ul ), freq ] ], \
                                    dtype = float64 ),
+            collision_partners = coll_partners,
             mol_mass      = float( mol_mass ) if mol_mass is not None \
                             else _MOL_MASS.get( \
                                 str( species_name ).upper( ), 28.0 ),
         );
 
-        return cls( species, transition_idx = 0, mol_mass = mol_mass,
-                    transition_name = transition_name );
+        ti = cls( species, transition_idx = 0, mol_mass = mol_mass,
+                  transition_name = transition_name );
+
+        #  Stash inline collider densities (if any) so the pipeline can
+        #  pick them up without a separate colliders= kwarg.
+        if collision_rates is not None:
+            ti._inline_colliders = {
+                pname: cfg.get( 'density', None )
+                for pname, cfg in collision_rates.items( )
+                if cfg.get( 'density', None ) is not None
+            };
+        return ti;
 
     def show( self ):
         """show_transition( ) then show_transitions( )."""

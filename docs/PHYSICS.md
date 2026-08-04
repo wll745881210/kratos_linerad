@@ -302,6 +302,32 @@ C_lu = (g_u/g_l) × exp(−hν/k_B T) × C_ul by detailed balance):
 n_e / n_total = (Γ + R_abs + C_lu) / (A_ul + R_stim + C_ul + Γ + R_abs)
 ```
 
+### 6.2b Collisional Destruction Probability
+
+When collisional de-excitation is active, a fraction of the absorbed line
+photons are **destroyed** (thermalised) rather than re-emitted.  The
+destruction probability is:
+
+```
+ε = C_ul × n_coll / (A_ul + C_ul × n_coll)
+```
+
+where `C_ul` [cm³ s⁻¹] is the collisional de-excitation rate coefficient
+(interpolated from LAMDA tables or user-supplied) and `n_coll` [cm⁻³] is
+the collider number density.  This adds an effective absorption opacity:
+
+```
+mfp_i_abs_line = n_lower × σ₀ × ε       [cm⁻¹]
+```
+
+to the user-provided `mfp_i_abs_0`.  The total effective absorption MFP
+inverse is `mfp_i_abs_eff = mfp_i_abs_user + mfp_i_abs_line`, computed
+per-cell from the local temperature and collider density
+(`SpeciesData.destruction_opacity()` in `molecular/lamda_format.py`).
+At high collider density (n_coll ≫ n_cr = A_ul/C_ul), ε → 1 and the line
+becomes pure absorption (thermalised).  At low density (n_coll ≪ n_cr),
+ε → 0 and the line is pure scattering.
+
 ### 6.3 Multi-Level Statistical Equilibrium
 
 Linear system for N levels:
@@ -321,6 +347,7 @@ Linear system for N levels:
 │                      PYTHON SIDE                             │
 │                                                              │
 │  Cycle 0: initial populations (LTE if species data exists)  │
+│         -> generate emission photons (FROZEN across cycles) │
 │         → compute λ_sca,0⁻¹ (CGS)                            │
 │         → convert CGS → code units (×unit_l0, ×t0/l0)        │
 │         → write binary field + photon files (code units)     │
@@ -440,13 +467,42 @@ transition to be configured.
 
 ### 10.2 Internal Sources (cell emission)
 
-Each cell with upper-level particle density n_u [l]⁻³ produces:
+Each cell with upper-level particle density n_u [l]⁻³ produces photon-number
+emissivity (per steradian):
 
 ```
-L_cell = n_u × A_ul × V_cell                  [n][t]⁻¹ (photon number luminosity)
-N_packets_per_cell = proportional to L_cell, between 1 and N_max
-proper_per_packet = L_cell / N_packets_cell
+j = n_u × A_ul / (4π)              [n][l]⁻³[t]⁻¹[sr]⁻¹  (photon-number)
 ```
+
+The total photon production rate per cell is `4π × j × V_cell`, and the
+proper weight per packet is:
+
+```
+L_cell   = n_u × A_ul × V_cell_cgs          [n][t]⁻¹ (photon number luminosity)
+proper   = L_cell / N_packets_cell          [n][t]⁻¹ (photons per unit time)
+```
+
+where `V_cell_cgs = dx·dy·dz × unit_l0³` is the **CGS** cell volume (the
+mesh `dx` is in code units).  This is consistent with external sources,
+whose proper weights are also in [n][t]⁻¹ (photon number per unit time).
+
+**Anti-double-counting policy.**  Emission photons are generated **once**
+from the LTE (cycle-0) populations and **frozen** across all subsequent
+cycles.  Only the scattering opacity `mfp_i_sca_0` (derived from the
+lower-level population n_lower) is updated each cycle.  This avoids
+double-counting the radiative excitation: scattered photons already carry
+the absorption + re-emission of the radiation field, so regenerating new
+emission from the radiation-inflated n_u would count it twice.
+
+**Velocity shift.**  Each emission photon is created at line centre in the
+gas rest frame.  The stored `vel` includes the bulk Doppler shift:
+
+```
+vel = vel_thermal_draw − v_bulk · dir      (thermal draw minus projected bulk velocity)
+```
+
+so that `dv = vel + vel_obs = vel + dir·v_bulk` recovers the thermal draw
+in the emitting cell's rest frame.
 
 ---
 
@@ -520,10 +576,10 @@ S_th = emiss / mfp_i_sca_0        (emiss from the field binary, code units)
 
 This is frequency-independent and applied to **every channel equally**.
 The per-channel selectivity comes only from the opacity profile in the
-imaging pass (§12.4).  `emiss` is the volume emissivity
-`n_u·A_ul·h·ν/(4π)` computed by `molecular/lamda_format.py:compute_emissivity()`
-and written to the line field file (`fields_cycleN.bin`, key `emiss_`) by
-`make_fields()`.
+imaging pass (§12.4).  `emiss` is the **photon-number** volume emissivity
+`n_u·A_ul/(4π)` [n][l]⁻³[t]⁻¹[sr]⁻¹ computed by
+`molecular/lamda_format.py:compute_emissivity()` and written to the line
+field file (`fields_cycleN.bin`, key `emiss_`) by `make_fields()`.
 
 **Scattering accumulation** (`photon.h:proc_phys`).  During the MC, each
 path segment in cell `i` also adds the packet's contribution to the
@@ -604,7 +660,8 @@ the thermal seed must live in the same scaled units, so the `emiss` field
 is rescaled by `proper_scale` on write (`core/iterator.py`) and the cube
 is divided by `scale_factor` on readback, then converted to CGS
 intensity (`÷ unit_l0²·unit_t0`).  The cube in the results dict is
-`image['cube']` in erg cm⁻² s⁻¹ sr⁻¹.
+`image['cube']` in **photon-number** surface brightness
+[photons cm⁻² s⁻¹ sr⁻¹].
 
 ### 12.5 Python API
 
@@ -622,6 +679,74 @@ out['image']                     # {'cube': (n_pix, n_chan) CGS,
                                  #  'i2d': (n_pix, 2), 'v_chan': (v_lo, v_hi), ...}
 rt.plot_channel_maps()           # shared-log-scale channel maps
 ```
+
+---
+
+## 13. Collisional Rates and Destruction Probability
+
+### 13.1 LAMDA collision data
+
+LAMDA files contain collisional de-excitation rate coefficients C_ul(T)
+[cm³ s⁻¹] for each collision partner (e.g. pH2, oH2, e, H, He).  The full
+LAMDA files are downloaded on demand by `molecular/lamda_fetcher.py`
+(cache -> download -> embedded fallback).  The embedded species files
+are **stripped** (no collision partners) and serve only as a last-resort
+fallback when the network is unavailable.
+
+For a 2-level `TransitionInfo.user_defined()` species, the user can supply
+collision rates via the `collision_rates` parameter:
+
+```python
+ti = TransitionInfo.user_defined(
+    A_ul = 18.17, freq_GHz = 63302.467,
+    g_u = 15, g_l = 17, species_name = 'CO',
+    collision_rates = {
+        'H2': {
+            'rate': 3e-12,           # float [cm^3 s^-1] or callable f(T)
+            'density': 1e6,          # float [cm^-3] or callable f(X,Y,Z)
+        }
+    },
+)
+```
+
+- **`rate`**: a number (constant) or a callable `f(T) -> float` giving the
+  de-excitation rate coefficient at temperature T [K].  Callables are
+  sampled on a 13-point grid (10-5000 K) and linearly interpolated at
+  runtime.
+- **`density`**: collider number density [cm⁻³], as a float or a callable
+  `f(X, Y, Z)` over the 3D mesh (same interface as `n_species`).
+
+### 13.2 Collisional destruction (§6.2b)
+
+The destruction probability ε = C_ul·n_coll / (A_ul + C_ul·n_coll)
+converts a fraction ε of the line scattering opacity into true absorption.
+This is computed per-cell by `SpeciesData.destruction_opacity()` and added
+to the user-provided `mfp_i_abs_0` in `core/iterator.py`.  The effective
+absorption MFP inverse is:
+
+```
+mfp_i_abs_eff = mfp_i_abs_user + n_lower × σ₀ × ε
+```
+
+### 13.3 Ro-vibrational lines (not in LAMDA)
+
+LAMDA contains only pure rotational data (v=0).  For ro-vibrational
+transitions (e.g. CO P(8) v=1->0 at 4.736 µm), collisional de-excitation
+rates must be obtained from external sources:
+- **ExoMol** (`exomol.com`): line lists + state files
+- **BASECOL** (`basecol.vamdc.org`): collisional rate database
+- **Literature**: Song et al. 2015, Thi et al. 2013
+
+Supply them via the `collision_rates` parameter of
+`TransitionInfo.user_defined()`.
+
+### 13.4 Critical density
+
+The critical density n_cr = A_ul / C_ul separates LTE (n_coll ≫ n_cr,
+ε -> 1, line thermalised) from subthermal (n_coll ≪ n_cr, ε -> 0, pure
+scattering).  For high-J or ro-vibrational transitions, n_cr is typically
+10⁹-10¹² cm⁻³, so PPD surface layers (n ~ 10⁶-10⁸) are subthermally
+excited and collisions must be included for accurate populations.
 
 ---
 
@@ -646,6 +771,13 @@ rt.plot_channel_maps()           # shared-log-scale channel maps
  17. **Imaging: thermal seed must survive MC zeroing**: the scattering integrator's `pre_proc` zeroes `st_cam` each step; the thermal seed is applied in `init_rad_fields_kernel` and must be preserved across MC steps — the scattering `intg_t` sets `zero_st_cam=false` when imaging is enabled.
  18. **Imaging: duplicate intg_t kernels**: both `radiation_t` and `rad_img_t` enroll `intg_t`; the framework warns 'Duplicate entry kernels'. Harmless (runtime uses the first registered). The imaging integrator sets `build_tables=false` to avoid re-building the USampler/Voigt tables into const memory (pool overflow).
  19. **Imaging: pool init ordering**: `pol_img_t::init` runs before `intg_t::init` in the module init sequence, so it cannot read `n_chan` from the integrator — it reads it directly from the par (`args.get('imaging','n_chan',0)`).
+ 20. **Emission photons must be photon-number, not energy**: `compute_emissivity()` returns `n_u·A_ul/(4π)` [photons cm⁻³ s⁻¹ sr⁻¹], NOT `n_u·A_ul·h·ν/(4π)` [erg]. The pipeline works entirely in photon-number units; including the `h·ν` factor makes emission photon weights ~10⁵⁶× too small and inconsistent with external sources.
+ 21. **Emission photons must be frozen across cycles (anti-double-counting)**: emission photons are generated ONCE from LTE populations and re-used every cycle. Only `mfp_i_sca_0` (from n_lower) is updated. Regenerating emission from radiation-inflated n_u would double-count the radiative excitation already carried by scattered photons.
+ 22. **Emission photon vel must include bulk Doppler shift**: `vel = thermal_draw − v_bulk·dir` (not just `thermal_draw`), so that `dv = vel + vel_obs` recovers the thermal draw in the gas rest frame.
+ 23. **LAMDA embedded files are stripped**: the embedded species files in `molecular/embedded/` have NO collision partners (stripped for size). `fetch_species()` prefers the downloaded full LAMDA file (cache -> download -> embedded fallback).
+ 24. **LAMDA collision rates array shape**: after parsing, `collision_partners[i]['rates']` has shape `(n_trans, n_temps)` - rate-only columns (trans#/upper/lower are stripped). The `trans_indices` array holds the 0-based `[upper, lower]` pairs separately.
+ 25. **Collisional destruction opacity**: when colliders are configured, `mfp_i_abs_0` must include the line destruction term `n_lower·σ₀·ε` where `ε = C_ul·n_coll/(A_ul+C_ul·n_coll)`. Without it, subthermally excited lines are treated as pure scattering (no thermalisation).
+ 26. **Imaging: scattering st_cam vs thermal seed normalization mismatch** (KNOWN, pending fix): the scattering accumulation uses the NORMALIZED profile `φ_norm = exp(−u²)/(√π·b)` (with `inv_norm = 1/(√π·b)`), while the thermal seed uses the UNNORMALIZED profile (peak=1). This makes the scattering contribution ~1/(√π·b)× larger than the thermal, so in the optically-thin limit the scattering st_cam dominates and the imaging cube deviates from the analytic `I = j·φ·L`. The convention must be unified.
 
 ---
 

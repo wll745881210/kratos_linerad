@@ -209,6 +209,59 @@ class SpeciesData:
             mfp_sca += n_l * sigma_s;
         return mfp_sca;
 
+    def destruction_opacity( self, populations, transition_idx = 0, \
+                             b_sca = 1e5, T = None, colliders = None ):
+        """Collisional destruction contribution to the absorption MFP.
+
+        For a two-level atom the destruction probability is
+
+            epsilon = C_ul * n_coll / (A_ul + C_ul * n_coll)
+
+        where C_ul is the collisional de-excitation rate coefficient
+        [cm^3 s^-1] and n_coll the collider number density [cm^-3].
+        The line photons absorbed by the lower level are destroyed
+        (thermalised) with probability epsilon rather than re-emitted.
+        This adds an effective absorption opacity
+
+            mfp_i_abs_line = n_lower * sigma_0 * epsilon   [cm^-1]
+
+        Returns the per-cell inverse absorption MFP [cm^-1] (CGS).
+        Returns zeros when no collision partners are configured.
+        """
+        t = self.transitions[ transition_idx ];
+        upper, lower = int( t[ 0 ] ), int( t[ 1 ] );
+        A_ul = float( t[ 2 ] );
+        sigma_0 = self.cross_section( transition_idx, b_param = b_sca );
+        n_l = asarray( populations.get( 'n%d' % lower, \
+                      zeros( 1, dtype = float64 ) ), dtype = float64 );
+        shape = n_l.shape;
+        eps = zeros( shape, dtype = float64 );
+        if colliders and self.collision_partners and T is not None:
+            T_arr = asarray( T, dtype = float64 );
+            if T_arr.ndim == 0:
+                T_arr = full( shape, float( T_arr ), dtype = float64 );
+            T_arr = T_arr + zeros( shape, dtype = float64 );
+            for cp in self.collision_partners:
+                pname = cp[ 'species' ];
+                if pname not in colliders:
+                    continue;
+                n_coll = colliders[ pname ][ 'density' ];
+                n_coll_arr = asarray( n_coll, dtype = float64 );
+                if n_coll_arr.ndim == 0:
+                    n_coll_arr = full( shape, float( n_coll_arr ),
+                                       dtype = float64 );
+                idxs = where( ( cp[ 'trans_indices' ][ :, 0 ] == \
+                                upper ) & \
+                              ( cp[ 'trans_indices' ][ :, 1 ] == \
+                                lower ) )[ 0 ];
+                if len( idxs ) == 0:
+                    continue;
+                rate = interp( T_arr.ravel( ), cp[ 'temps' ], \
+                               cp[ 'rates' ][ idxs[ 0 ] ] ).reshape( shape );
+                C_ul_n = rate * n_coll_arr;
+                eps += C_ul_n / ( A_ul + C_ul_n + 1e-300 );
+        return n_l * sigma_0 * eps;
+
     ############################################################
     # Excitation update
 
@@ -605,6 +658,8 @@ def load_lamda( content ):
                     [ int( rates[ n, 1 ] ) - 1, \
                       int( rates[ n, 2 ] ) - 1 ] );
             trans_indices = array( trans_indices, dtype = int64 );
+            #  Keep only the rate columns (drop trans#, upper, lower).
+            rates = rates[ :, 3: ];
 
             coll_partners.append( { \
                 'species'      : partner_name, \

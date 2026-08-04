@@ -23,16 +23,22 @@ def _load_embedded(species):
 
 
 def fetch_species(species, force_download=False):
+    """Load a LAMDA species, preferring the full online data (with
+    collisional rates) over the stripped embedded copy.
+
+    Precedence: cache -> download -> embedded (offline fallback).
+    The embedded files are stripped (no collision partners, fewer
+    levels) and serve only as an offline last resort.  Set
+    ``force_download=True`` to always re-download.
+    """
     cache_path = _get_cache_path(species)
 
+    # 1. Cache (written by a prior download)
     if not force_download and os.path.exists(cache_path):
         with open(cache_path) as f:
             return load_lamda(f.read())
 
-    result = _load_embedded(species)
-    if result is not None:
-        return result
-
+    # 2. Download the full LAMDA file (has collision rates)
     url = f'{LAMDA_URL}{species.lower()}.dat'
     try:
         #  requests honours HTTP_PROXY / HTTPS_PROXY env vars
@@ -41,6 +47,10 @@ def fetch_species(species, force_download=False):
         resp.raise_for_status()
         content = resp.text
     except Exception:
+        #  3. Offline fallback: embedded (stripped, no collisions)
+        result = _load_embedded(species)
+        if result is not None:
+            return result
         raise RuntimeError(
             f'Failed to download LAMDA data for {species}. '
             f'Available at: {LAMDA_URL}'

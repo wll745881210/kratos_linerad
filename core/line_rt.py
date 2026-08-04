@@ -712,11 +712,20 @@ class LineRt:
         photons = self._generate_photons( n_tot, mesh, b_sca_val );
 
         # Resolve collider densities (float or callable) to per-cell
-        # arrays before handing them to the iterator.
-        colliders_val = None;
+        # arrays before handing them to the iterator.  Merge any inline
+        # collider densities from TransitionInfo.user_defined.
+        merged_colliders = { };
         if self._colliders:
+            merged_colliders.update( self._colliders );
+        if self._transition_info is not None and \
+           hasattr( self._transition_info, '_inline_colliders' ):
+            for pn, dens in self._transition_info._inline_colliders.items( ):
+                if pn not in merged_colliders:
+                    merged_colliders[ pn ] = { 'density': dens };
+        colliders_val = None;
+        if merged_colliders:
             colliders_val = { };
-            for pname, pcfg in self._colliders.items( ):
+            for pname, pcfg in merged_colliders.items( ):
                 colliders_val[ pname ] = { 'density' : \
                     self._resolve_field( pcfg[ 'density' ], XYZ ) };
 
