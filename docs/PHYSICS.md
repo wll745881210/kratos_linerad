@@ -571,10 +571,14 @@ profile weights, not as a separate `n_u·A_ul` term).
 the field is seeded with the line source function from the local emissivity:
 
 ```
-S_th = emiss / mfp_i_sca_0        (emiss from the field binary, code units)
+S_th = emiss / (mfp_i_sca_0 · √π · b_sca)   (emiss from the field binary, code units)
 ```
 
-This is frequency-independent and applied to **every channel equally**.
+The `√π · b_sca` factor converts the frequency-integrated source function
+(`emiss/mfp_i_sca_0`, integrated over the line profile) to the
+frequency-dependent source function `S(v) = j(v)/α(v)`, which is
+frequency-independent for a two-level atom with CRD.
+This is applied to **every channel equally**.
 The per-channel selectivity comes only from the opacity profile in the
 imaging pass (§12.4).  `emiss` is the **photon-number** volume emissivity
 `n_u·A_ul/(4π)` [n][l]⁻³[t]⁻¹[sr]⁻¹ computed by
@@ -659,9 +663,11 @@ Both the scattering part (accumulated from the scaled photon propers) and
 the thermal seed must live in the same scaled units, so the `emiss` field
 is rescaled by `proper_scale` on write (`core/iterator.py`) and the cube
 is divided by `scale_factor` on readback, then converted to CGS
-intensity (`÷ unit_l0²·unit_t0`).  The cube in the results dict is
+intensity (`÷ unit_l0³·unit_t0`).  The cube in the results dict is
 `image['cube']` in **photon-number** surface brightness
-[photons cm⁻² s⁻¹ sr⁻¹].
+[photons cm⁻² s⁻¹ sr⁻¹].  The `l³` (not `l²`) reflects that the imaging
+intensity `I(v)` has units [ph cm⁻³ sr⁻¹] = [ph cm⁻² s⁻¹ sr⁻¹ per (cm/s)],
+i.e. the velocity-channel width is in cm/s.
 
 ### 12.5 Python API
 
