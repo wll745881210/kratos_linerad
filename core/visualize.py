@@ -323,7 +323,12 @@ def default_plot( results, fields = None, slice_plane = 'z', \
                             cmap = 'turbo', norm = norm );
         if pc is not None:
             cbar = plt.colorbar( pc, ax = ax_i );
-            cbar.set_label( _FIELD_LABELS.get( field, field ) );
+            if field.startswith( 'n_coll_' ):
+                pname = field[ 7: ];
+                label = r'n$_{\rm %s}$ [cm$^{-3}$]' % pname;
+            else:
+                label = _FIELD_LABELS.get( field, field );
+            cbar.set_label( label );
         ax_i.set_title( title );
 
     # hide unused subplots

@@ -545,6 +545,10 @@ class LineRt:
             for i, k in enumerate( ( 'vel_0', 'vel_1', 'vel_2' ) ):
                 data[ k ] = vel_vals[ i ];
 
+        if self._colliders:
+            for pname, dens in self._colliders.items( ):
+                data[ 'n_coll_%s' % pname ] = self._resolve_field( dens, XYZ );
+
         return data;
 
     def _input_default_fields( self ):
@@ -555,6 +559,9 @@ class LineRt:
         fields += [ 'mfp_i_sca_0', 'b_sca', 'mfp_i_abs_0' ];
         if self._vel is not None:
             fields += [ 'vel_0', 'vel_1', 'vel_2' ];
+        if self._colliders:
+            for pname in self._colliders:
+                fields.append( 'n_coll_%s' % pname );
         return fields;
 
     def plot_results( self, out = None, fields = None, slice_plane = 'z', \
