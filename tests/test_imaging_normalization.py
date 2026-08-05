@@ -10,7 +10,7 @@ Three tests, all using 1 channel at line centre:
    (single-scattering: source beam at 90 deg to camera LOS)
 
 3. Absorbing slab (Group 1, strong absorption, thin scattering):
-   I(0) = (mfp_sca/(mfp_sca+mfp_abs)) * S_th * (1-exp(-(mfp_sca+mfp_abs)*L))
+   I(0) = (mfp_sca/(mfp_sca+mfp_abs)) * S_emiss * (1-exp(-(mfp_sca+mfp_abs)*L))
    (absorption is a pure sink — no B_nu emission)
 
 Kratos-integration tests: invoke the real binary.  Skip if absent.
@@ -232,8 +232,8 @@ def test_imaging_absorbing_slab( ):
     """Absorbing slab: absorption is a pure sink (no B_nu emission).
 
     With thin scattering (tau_sca << 1) and thick absorption
-    (tau_abs >> 1), the thermal seed dominates and:
-      I(0) = (alpha_s/alpha_t) * S_th * (1 - exp(-alpha_t * L))
+    (tau_abs >> 1), the emissivity seed dominates and:
+      I(0) = (alpha_s/alpha_t) * S_emiss * (1 - exp(-alpha_t * L))
     """
     _run_or_skip( );
     n_species = 1e-4;  T = 20.0;
@@ -242,15 +242,15 @@ def test_imaging_absorbing_slab( ):
 
     a = _slab_analytic( n_species, T, L_z );
     mfp_sca = a[ 'mfp_cgs' ];
-    S_th = a[ 'S_cgs' ];
+    S_emiss = a[ 'S_cgs' ];
     L_z_cgs = a[ 'L_z_cgs' ];
 
     # Set absorption so tau_abs ~ 10 (thick), tau_sca ~ 1e-6 (thin)
     mfp_abs = 10.0 / L_z_cgs;
     alpha_t = mfp_sca + mfp_abs;
-    expected = ( mfp_sca / alpha_t ) * S_th * ( 1.0 - exp( -alpha_t * L_z_cgs ) );
-    print( "  absorbing: tau_sca=%.4e, tau_abs=%.3f, S_th=%.4e" \
-           % ( mfp_sca * L_z_cgs, mfp_abs * L_z_cgs, S_th ) );
+    expected = ( mfp_sca / alpha_t ) * S_emiss * ( 1.0 - exp( -alpha_t * L_z_cgs ) );
+    print( "  absorbing: tau_sca=%.4e, tau_abs=%.3f, S_emiss=%.4e" \
+           % ( mfp_sca * L_z_cgs, mfp_abs * L_z_cgs, S_emiss ) );
     print( "  expected I(0) = %.6e" % expected );
 
     cube, i2d = _run_slab_imaging( \
