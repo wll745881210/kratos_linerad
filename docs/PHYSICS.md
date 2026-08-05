@@ -717,8 +717,9 @@ rt = LineRt(
 
 - **`collision_rates`** (in `user_defined`): a flat dict mapping partner
   name to a rate coefficient - a number (constant C_ul [cm³ s⁻¹]) or a
-  callable `f(T) -> float`.  Callables are sampled on a 13-point grid
-  (10-5000 K) and linearly interpolated at runtime.
+  callable `f(T) -> float`.  Callables are evaluated directly at the
+  local gas temperature at runtime (no fixed grid; the user controls
+  the valid T range).
 - **`colliders`** (in `LineRt`): a flat dict mapping partner name to a
   number density [cm⁻³] - a float or a callable `f(X, Y, Z)` over the 3D
   mesh (same interface as `n_species`).
