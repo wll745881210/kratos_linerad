@@ -336,8 +336,11 @@ scale = %.3e" % ( proper_scale, \
         output[ 'cycle' ] = cycle;
 
         if 'mfp_i_sca_0' in fields:
+            #  fields holds CODE units (x unit_l0 from make_fields) for the
+            #  Kratos binary; convert back to CGS cm^-1 for the results dict
+            #  so plotting matches plot_input and the [cm^-1] labels.
             output[ 'mfp_i_sca_0' ] = asarray( \
-                fields[ 'mfp_i_sca_0' ], dtype = float64 );
+                fields[ 'mfp_i_sca_0' ], dtype = float64 ) / unit_l0;
 
         if 'photons' in output:
             v_factor = unit_t0 / unit_l0;
