@@ -392,12 +392,18 @@ scale = %.3e" % ( proper_scale, \
                        '_v_chan_cgs' in imaging_pars:
                         img[ 'v_chan' ] = imaging_pars[ '_v_chan_cgs' ];
                     # Convert code-unit intensity to CGS
-                    # [photons cm^-2 s^-1 sr^-1].  The thermal seed
-                    # (emiss/mfp_s, emiss in code units, photon-number)
-                    # gives code-unit intensity; divide by unit_l0^2 *
-                    # unit_t0 to recover CGS photon-number surface
-                    # brightness.
-                    i_conv = 1.0 / ( unit_l0 ** 2 * unit_t0 );
+                    # Imaging intensity I(v) has units
+                    # [photons cm^-2 s^-1 sr^-1 per (cm/s)] =
+                    # [photons cm^-3 sr^-1] (per unit velocity).
+                    # In code units this is
+                    # [photons code_l^-3 sr^-1] (code_t cancels:
+                    # emiss has l^3*t, mfp has l^-1, b has t/l,
+                    # so S = emiss/(mfp*b) has l^3*t/(l^-1*t/l) =
+                    # l^3; dI = S*dtau = l^3 * l^-1*l = l^3).  The
+                    # conversion factor is 1/(unit_l0^3 * unit_t0)
+                    # — NOT 1/(unit_l0^2*unit_t0) which was used
+                    # for the fluence (flx) convention.
+                    i_conv = 1.0 / ( unit_l0 ** 3 * unit_t0 );
                     img[ 'cube_cgs' ] = ( cube * i_conv ) \
                                          .astype( float32 );
 
