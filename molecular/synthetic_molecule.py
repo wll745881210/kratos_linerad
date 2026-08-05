@@ -62,13 +62,14 @@ def make_synthetic_2level( b, nu, a, *, transition_idx = 0, \
     A_ul       = a * 4.0 * pi * delta_nu_D;
     nu_GHz     = nu / 1.0e9;
     E_u_K      = h_cgs * nu / k_B;
+    E_u_cm     = nu / ( c_cgs * 100.0 );   # cm^-1 (LAMDA convention)
     g_u, g_l   = 3.0, 1.0;
 
     species = SpeciesData(
         name          = species_name,
         n_levels      = 2,
         n_transitions = 1,
-        levels        = array( [ [ 0.0, g_l ], [ E_u_K, g_u ] ], \
+        levels        = array( [ [ 0.0, g_l ], [ E_u_cm, g_u ] ], \
                                dtype = float64 ),
         transitions   = array( [ [ 1, 0, A_ul, nu_GHz ] ], \
                                dtype = float64 ),

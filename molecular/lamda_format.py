@@ -21,7 +21,7 @@ class Transition( NamedTuple ):
     lower: int
     A_ul: float
     freq_GHz: float
-    E_u_K: float
+    E_u_cm: float            # upper-level energy in cm^-1 (LAMDA convention)
     wavelength_um: float
 
     @classmethod
@@ -31,17 +31,17 @@ class Transition( NamedTuple ):
         freq_GHz = float( row[ 3 ] );
         wavelength_um = 299792.458 / freq_GHz if freq_GHz > 0 \
                         else float( 'inf' );
-        E_u_K = float( levels[ upper, 0 ] ) \
-                if levels is not None else float( 'nan' );
+        E_u_cm = float( levels[ upper, 0 ] ) \
+                 if levels is not None else float( 'nan' );
         return cls( upper = upper, lower = lower, A_ul = A_ul, \
-                    freq_GHz = freq_GHz, E_u_K = E_u_K, \
+                    freq_GHz = freq_GHz, E_u_cm = E_u_cm, \
                     wavelength_um = wavelength_um );
 
     def __repr__( self ):
         return ( "Transition(upper=%d, lower=%d, A_ul=%.2e, freq=%.3f GHz, " \
-                 "lambda=%.3f um, E_u/K=%.1f K)" % \
+                 "lambda=%.3f um, E_u=%.4f cm^-1)" % \
                  ( self.upper, self.lower, self.A_ul, self.freq_GHz, \
-                   self.wavelength_um, self.E_u_K ) );
+                   self.wavelength_um, self.E_u_cm ) );
 
 
 ############################################################
@@ -86,12 +86,12 @@ class SpeciesData:
                   ( self.name, self.n_levels, self.n_transitions ) ];
         lines.append( "%4s  %6s  %6s  %12s  %10s  %10s  %12s" % \
                       ( 'Idx', 'Upper', 'Lower', 'A_ul/s⁻¹', \
-                        'freq/GHz', 'λ/µm', 'E_u/K' ) );
+                        'freq/GHz', 'λ/µm', 'E_u/cm⁻¹' ) );
         lines.append( "─" * 70 );
         for idx, tr in enumerate( self.transitions_list ):
-            lines.append( "%4d  %6d  %6d  %12.3e  %10.4f  %10.3f  %12.1f" \
+            lines.append( "%4d  %6d  %6d  %12.3e  %10.4f  %10.3f  %12.4f" \
                           % ( idx, tr.upper, tr.lower, tr.A_ul, \
-                              tr.freq_GHz, tr.wavelength_um, tr.E_u_K ) );
+                              tr.freq_GHz, tr.wavelength_um, tr.E_u_cm ) );
         return "\n".join( lines );
 
     def get_Einstein_A( self, upper, lower ):
@@ -168,10 +168,13 @@ class SpeciesData:
 
         By default (no temperature) everything sits in the ground state,
         which gives zero emissivity.  When a temperature is provided,
-        the populations are thermalised to LTE via ``solve_populations``
-        at zero external flux (with colliders when given), so that
-        cycle-0 opacity and emissivity are physically consistent even
-        without external sources.
+        the populations are set to the collisional equilibrium via
+        ``solve_populations`` at zero external flux (with colliders when
+        given), so that cycle-0 opacity and emissivity are physically
+        consistent even without external sources.  Colliders (when given)
+        are passed through so cycle-0 uses the SAME collisional
+        equilibrium as subsequent cycles - this keeps the frozen emission
+        photons consistent with the per-cycle emissivity field.
         """
         n_species = asarray( n_species, dtype = float64 );
         shape = n_species.shape;
@@ -245,7 +248,11 @@ class SpeciesData:
                 pname = cp[ 'species' ];
                 if pname not in colliders:
                     continue;
-                n_coll = colliders[ pname ][ 'density' ];
+                raw_coll = colliders[ pname ];
+                #  Accept both the flat form {'H2': density} and the
+                #  internal form {'H2': {'density': density}}.
+                n_coll = raw_coll[ 'density' ] if isinstance(
+                    raw_coll, dict ) else raw_coll;
                 n_coll_arr = asarray( n_coll, dtype = float64 );
                 if n_coll_arr.ndim == 0:
                     n_coll_arr = full( shape, float( n_coll_arr ),
@@ -293,13 +300,8 @@ class SpeciesData:
             Doppler b-parameter [cm/s] for the scattering cross-section
             sigma_0.  Must be a scalar (not per-cell array).
         T : ndarray or float or None
-            Gas temperature [K].  When provided, the Planck radiation
-            background at T is included in the statistical equilibrium
-            (induced absorption R_abs + stimulated emission R_stim via
-            the Bose-Einstein occupation number).  At zero external flux
-            this thermalises the populations to the Boltzmann
-            distribution.  When None, only spontaneous decay + external
-            excitation Gamma are considered.
+            Gas temperature [K] - drives collisional rates and detailed
+            balance.
         colliders : dict or None
             Collider densities for collisional (de-)excitation.
         transition_idx : int

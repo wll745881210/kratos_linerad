@@ -291,7 +291,16 @@ def iterate( source_photons, species, fields_init, mesh, \
         elif emission_ph is None:
             ph_arr = ext_source;
         else:
-            ph_arr = vstack( [ ext_source, emission_ph ] );
+            #  Pad the shorter array (typically the external source, which
+            #  lacks the sv column) with zeros so both have the same width.
+            n_cols = max( ext_source.shape[ 1 ], emission_ph.shape[ 1 ] );
+            def _pad( arr ):
+                if arr.shape[ 1 ] == n_cols:
+                    return arr;
+                pad = zeros( ( arr.shape[ 0 ], n_cols - arr.shape[ 1 ] ),
+                             dtype = float64 );
+                return hstack( [ arr, pad ] );
+            ph_arr = vstack( [ _pad( ext_source ), _pad( emission_ph ) ] );
         ph_arr = asarray( ph_arr, dtype = float64 ).copy( );
         if ph_arr.shape[ 1 ] >= 8:
             v_factor = unit_t0 / unit_l0;

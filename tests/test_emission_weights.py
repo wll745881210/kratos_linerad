@@ -27,10 +27,11 @@ AU = 1.49598e13;   # cm
 
 
 def _make_species( ):
-    """CO J=1->0: A_ul = 7.203e-8 s^-1, nu = 115.271 GHz."""
+    """CO J=1->0: A_ul = 7.203e-8 s^-1, nu = 115.271 GHz, with H2 collider."""
     return TransitionInfo.user_defined( \
         A_ul = 7.203e-8, freq_GHz = 115.271, \
-        species_name = 'CO' ).species_data;
+        species_name = 'CO',
+        collision_rates = { 'H2': 1e-10 } ).species_data;
 
 
 def _make_fields( mesh, n_species, T ):
@@ -68,7 +69,7 @@ def test_emission_proper_sum_equals_volume_times_emissivity( ):
                 int( n_cell[ 0 ] ) );
     n_arr = broadcast_to( asarray( n_species, dtype = float64 ), \
                           shape3d ).copy( );
-    pops = species.initial_populations( n_arr, T = fields[ 'temp' ] );
+    pops = species.initial_populations( n_arr, T = fields[ "temp" ], colliders = { "H2": 1e6 } );
 
     # Photon-number emissivity per sr = n_u * A_ul / (4*pi).
     em = species.compute_emissivity( pops, 0, fields[ 'temp' ] );
@@ -114,7 +115,7 @@ def test_emission_proper_no_h_nu_factor( ):
     n_cell = ( 2, 2, 2 );
     n_arr = full( ( 2, 2, 2 ), 1e4, dtype = float64 );
     T = full( ( 2, 2, 2 ), 20.0, dtype = float64 );
-    pops = species.initial_populations( n_arr, T = T );
+    pops = species.initial_populations( n_arr, T = T, colliders = { "H2": 1e6 } );
     em = species.compute_emissivity( pops, 0, T );
     n_u = float( asarray( pops[ 'n1' ] ).ravel( )[ 0 ] );
     A_ul = float( species.transitions[ 0, 2 ] );
@@ -151,7 +152,7 @@ def test_emission_vel_includes_bulk_doppler( ):
         'vel_1' : zeros( shape, dtype = float64 ), \
         'vel_2' : zeros( shape, dtype = float64 ) };
     n_arr = full( shape, 1e4, dtype = float64 );
-    pops = species.initial_populations( n_arr, T = fields[ 'temp' ] );
+    pops = species.initial_populations( n_arr, T = fields[ "temp" ], colliders = { "H2": 1e6 } );
 
     ph = species.generate_emission_photons( \
         pops, 0, fields[ 'temp' ], mesh, \

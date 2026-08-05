@@ -28,7 +28,8 @@ def _make_rt_species( ):
     """A real SpeciesData via TransitionInfo.user_defined."""
     return TransitionInfo.user_defined( \
         A_ul = 1.0e-6, freq_GHz = 115.271, \
-        species_name = 'CO' ).species_data;
+        species_name = 'CO', \
+        collision_rates = { 'H2': 1e-10 } ).species_data;
 
 
 def _make_fields( mesh, n_species ):
@@ -227,8 +228,9 @@ def test_line_rt_run_removes_auto_dir_when_no_keep( ):
             x_max = ( 4, 1, 1 ), \
             transition_info = TransitionInfo.user_defined( \
                 A_ul = 1.0e-6, freq_GHz = 115.271, \
-                species_name = 'CO' ), \
-            n_species = 1e4, temperature = 2.7, \
+                species_name = 'CO', \
+                collision_rates = { 'H2': 1e-10 } ), \
+            n_species = 1e4, temperature = 2.7, colliders = { "H2": 1e8 }, \
             visualize = False, n_cycles = 1, \
             keep_intermediate = False, kratos_root = '/' );
 
@@ -275,8 +277,9 @@ def test_line_rt_run_keeps_explicit_path( ):
         x_max = ( 4, 1, 1 ), \
         transition_info = TransitionInfo.user_defined( \
             A_ul = 1.0e-6, freq_GHz = 115.271, \
-            species_name = 'CO' ), \
-        n_species = 1e4, temperature = 2.7, \
+            species_name = 'CO', \
+            collision_rates = { 'H2': 1e-10 } ), \
+        n_species = 1e4, temperature = 2.7, colliders = { "H2": 1e8 }, \
         visualize = False, n_cycles = 1, path = explicit, \
         keep_intermediate = False, kratos_root = '/' );
 
@@ -358,8 +361,9 @@ def test_line_rt_run_prunes_and_cleans_on_failure( ):
             x_max = ( 4, 1, 1 ), \
             transition_info = TransitionInfo.user_defined( \
                 A_ul = 1.0e-6, freq_GHz = 115.271, \
-                species_name = 'CO' ), \
-            n_species = 1e4, temperature = 2.7, \
+                species_name = 'CO', \
+                collision_rates = { 'H2': 1e-10 } ), \
+            n_species = 1e4, temperature = 2.7, colliders = { "H2": 1e8 }, \
             visualize = False, n_cycles = 1, kratos_root = '/', \
             max_run_age = 3 * 3600.0, size_cap = None );
 

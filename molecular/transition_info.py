@@ -244,7 +244,8 @@ class TransitionInfo:
         print( '  A_ul      : %.3e s^-1' % tr.A_ul );
         print( '  freq      : %.4f GHz' % tr.freq_GHz );
         print( '  lambda    : %.4f um' % tr.wavelength_um );
-        print( '  E_u/K     : %.2f K' % tr.E_u_K );
+        print( '  E_u       : %.4f cm^-1 (%.1f K)' \
+               % ( tr.E_u_cm, tr.E_u_cm * _H_CGS * _C_CGS * 100.0 / _K_B ) );
         print( '  mol_mass  : %.1f amu (%s)' \
                % ( self.mol_mass, self._mol_mass_source ) );
         cps = getattr( self._species_data, 'collision_partners', [ ] );
@@ -374,8 +375,14 @@ class TransitionInfo:
             raise ValueError( \
                 "Specify the line frequency via freq_GHz or (value, unit)" );
 
+        #  levels[:,0] follows the LAMDA convention: energy in cm^-1
+        #  (so partition_function / detailed-balance formulae that do
+        #  ``E_cm * h*c*100`` work uniformly for LAMDA and user species).
         if E_u_K is None:
-            E_u_K = _H_CGS * ( freq * 1.0e9 ) / _K_B;
+            E_u_cm = ( freq * 1.0e9 ) / ( _C_CGS * 100.0 );
+        else:
+            #  E_u_K [K] -> E_u_cm via E[erg] = k_B * E_u_K = h * c * 100 * E_u_cm
+            E_u_cm = E_u_K * _K_B / ( _H_CGS * _C_CGS * 100.0 );
 
         coll_partners = [ ];
         if collision_rates is not None:
@@ -418,7 +425,7 @@ class TransitionInfo:
             n_levels      = 2,
             n_transitions = 1,
             levels        = array( [ [ 0.0, float( g_l ) ], \
-                                     [ float( E_u_K ), float( g_u ) ] ], \
+                                     [ float( E_u_cm ), float( g_u ) ] ], \
                                    dtype = float64 ),
             transitions   = array( [ [ 1, 0, float( A_ul ), freq ] ], \
                                    dtype = float64 ),

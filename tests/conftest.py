@@ -14,6 +14,11 @@ import pytest;
 sys.path.insert( 0, os.path.dirname( os.path.dirname( \
     os.path.abspath( __file__ ) ) ) );
 
+#  `archived_tests/` holds standalone historical scripts that share module
+#  basenames with active tests (e.g. test_transition_info.py).  Exclude them
+#  from collection to avoid pytest's import-mismatch error.
+collect_ignore = [ 'archived_tests' ];
+
 import core.iterator as _it_mod;  # noqa: E402
 
 

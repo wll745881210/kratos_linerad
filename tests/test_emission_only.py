@@ -26,7 +26,8 @@ def _make_rt_species( ):
     """A real SpeciesData via TransitionInfo.user_defined."""
     return TransitionInfo.user_defined( \
         A_ul = 1.0e-6, freq_GHz = 115.271, \
-        species_name = 'CO' ).species_data;
+        species_name = 'CO',
+        collision_rates = { 'H2': 1e-10 } ).species_data;
 
 
 def _make_fields( mesh, n_species ):
@@ -119,7 +120,7 @@ def test_iterate_seeds_cycle0_emission( ):
         zeros( ( 0, 10 ), dtype = float64 ), species, fields, mesh, \
         n_cycles = 1, n_emission_max = 4, work_dir = work_dir, \
         transition_idx = 0, unit_l0 = 1.49598e13, unit_t0 = 1.0, \
-        kratos_root = '/' );
+        kratos_root = '/', colliders = { 'H2': 1e6 } );
 
     assert len( fake.photon_files ) == 1, "expected one Kratos cycle";
     n_par, n_col, _ = _read_photon_file( fake.photon_files[ 0 ] );
