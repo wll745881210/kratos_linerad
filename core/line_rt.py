@@ -447,7 +447,7 @@ class LineRt:
 
     def plot_input( self, fields = None, slice_plane = 'z', \
                     slice_idx = None, ax = None, figsize = None, \
-                    output_path = None, dyn_range = False ):
+                    output_path = None, dyn_range = False, n_cols = 2 ):
         """Plot slices of the configured input fields (no Kratos run).
 
         Resolves the user-supplied field definitions — n_species,
@@ -495,7 +495,7 @@ class LineRt:
                              slice_idx = slice_idx, ax = ax, \
                              figsize = figsize, \
                              output_path = output_path, \
-                             dyn_range = dyn_range );
+                             dyn_range = dyn_range, n_cols = n_cols );
 
     def _plot_input_data( self, mesh = None, XYZ = None ):
         """Resolve configured input fields to CGS 3D arrays.
@@ -566,7 +566,7 @@ class LineRt:
 
     def plot_results( self, out = None, fields = None, slice_plane = 'z', \
                       slice_idx = None, ax = None, figsize = None, \
-                      output_path = None, dyn_range = False ):
+                      output_path = None, dyn_range = False, n_cols = 2 ):
         """Plot run() results via default_plot.
 
         Parameters
@@ -598,7 +598,8 @@ class LineRt:
                              figsize = figsize, \
                              output_path = output_path, \
                              dyn_range = dyn_range, \
-                             transition_info = self._transition_info );
+                             transition_info = self._transition_info, \
+                             n_cols = n_cols );
 
     def plot_channel_maps( self, out = None, channels = None, \
                            n_cols = 6, n_channels = None, \

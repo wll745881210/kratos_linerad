@@ -236,10 +236,8 @@ def _extract_field( results, field, unit_l0 = 1.0, unit_t0 = 1.0 ):
 def default_plot( results, fields = None, slice_plane = 'z', \
                   slice_idx = None, ax = None, figsize = None, \
                   output_path = None, dyn_range = False, \
-                  transition_info = None ):
+                  transition_info = None, n_cols = 2 ):
     """Multi-panel default plot for LineRt results.
-
-    2-column layout; number of rows = ceil(len(fields)/2).
 
     Parameters
     ----------
@@ -263,13 +261,14 @@ def default_plot( results, fields = None, slice_plane = 'z', \
         vmin/vmax equal to the slice's actual min/max.
     transition_info : TransitionInfo or None  when given, labels the
         spectrum panel with the transition name (e.g. "CO J=1->0").
+    n_cols : int  number of columns in the panel grid (default 2).
     """
     if fields is None:
         fields = list( _DEFAULT_FIELDS );
 
     n = len( fields );
-    nrows = ( n + 1 ) // 2;
-    ncols = 2;
+    nrows = ( n + n_cols - 1 ) // n_cols;
+    ncols = n_cols;
 
     if ax is None:
         fig, axes = plt.subplots( nrows, ncols, \
