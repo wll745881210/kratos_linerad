@@ -694,27 +694,38 @@ are **stripped** (no collision partners) and serve only as a last-resort
 fallback when the network is unavailable.
 
 For a 2-level `TransitionInfo.user_defined()` species, the user can supply
-collision rates via the `collision_rates` parameter:
+collision **rate coefficients** via the `collision_rates` parameter, and
+the collider **number density** via `LineRt(colliders=...)`:
 
 ```python
+#  Rate coefficients (molecular property) in user_defined:
 ti = TransitionInfo.user_defined(
     A_ul = 18.17, freq_GHz = 63302.467,
     g_u = 15, g_l = 17, species_name = 'CO',
     collision_rates = {
-        'H2': {
-            'rate': 3e-12,           # float [cm^3 s^-1] or callable f(T)
-            'density': 1e6,          # float [cm^-3] or callable f(X,Y,Z)
-        }
+        'H2': { 'rate': 3e-12 },           # float [cm^3 s^-1] or callable f(T)
     },
+)
+
+#  Number density (spatial field) in LineRt:
+rt = LineRt(
+    transition_info = ti,
+    colliders = { 'H2': { 'density': 1e6 } },   # float [cm^-3] or callable f(X,Y,Z)
+    ...,
 )
 ```
 
-- **`rate`**: a number (constant) or a callable `f(T) -> float` giving the
-  de-excitation rate coefficient at temperature T [K].  Callables are
-  sampled on a 13-point grid (10-5000 K) and linearly interpolated at
-  runtime.
-- **`density`**: collider number density [cm⁻³], as a float or a callable
-  `f(X, Y, Z)` over the 3D mesh (same interface as `n_species`).
+- **`rate`** (in `user_defined`): a number (constant) or a callable
+  `f(T) -> float` giving the de-excitation rate coefficient at
+  temperature T [K].  Callables are sampled on a 13-point grid (10-5000 K)
+  and linearly interpolated at runtime.
+- **`density`** (in `LineRt`): collider number density [cm⁻³], as a float
+  or a callable `f(X, Y, Z)` over the 3D mesh (same interface as
+  `n_species`).
+
+This separation keeps molecular data (rates) in `TransitionInfo` and
+spatial fields (densities) in `LineRt`, matching the existing pattern
+where `n_species` and `temperature` are also `LineRt` spatial fields.
 
 ### 13.2 Collisional destruction (§6.2b)
 

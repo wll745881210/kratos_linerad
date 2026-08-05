@@ -286,17 +286,17 @@ class TransitionInfo:
             Molecular mass [amu].  Optional if ``species_name`` is in the
             built-in mass table (e.g. ``'CO'``), required otherwise.
         collision_rates : dict or None
-            Collisional de-excitation rates for one or more partners.
-            Each entry is keyed by the partner name (e.g. ``'H2'``) and
-            contains a ``'rate'`` field that is either a float
-            (temperature-independent C_ul [cm³ s⁻¹]) or a callable
+            Collisional de-excitation rate coefficients for one or more
+            partners.  Each entry is keyed by the partner name (e.g.
+            ``'H2'``) and contains a ``'rate'`` field that is either a
+            float (temperature-independent C_ul [cm³ s⁻¹]) or a callable
             ``f(T) -> float`` returning C_ul at temperature T [K].
-            Optionally a ``'density'`` field (float or callable, [cm⁻³])
-            may be given; if absent the density is supplied later via
+            The collider **number density** is NOT specified here - it
+            is a spatial field and must be supplied via
             ``LineRt(colliders=...)``.  Example::
 
                 collision_rates = {
-                    'H2': {'rate': 1e-12, 'density': 1e6},
+                    'H2': {'rate': 1e-12},
                     'e':  {'rate': lambda T: 1e-9 * sqrt(T/300)},
                 }
         species_name : str
@@ -392,15 +392,6 @@ class TransitionInfo:
 
         ti = cls( species, transition_idx = 0, mol_mass = mol_mass,
                   transition_name = transition_name );
-
-        #  Stash inline collider densities (if any) so the pipeline can
-        #  pick them up without a separate colliders= kwarg.
-        if collision_rates is not None:
-            ti._inline_colliders = {
-                pname: cfg.get( 'density', None )
-                for pname, cfg in collision_rates.items( )
-                if cfg.get( 'density', None ) is not None
-            };
         return ti;
 
     def show( self ):
