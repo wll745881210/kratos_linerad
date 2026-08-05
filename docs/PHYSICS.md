@@ -567,11 +567,11 @@ direction** — the thermal emission and the scattering contribution are
 folded together (populations enter only through the emission/absorption
 profile weights, not as a separate `n_u·A_ul` term).
 
-**Thermal seed** (`radiation.h:init_rad_fields_kernel`).  On GPU init
+**Emissivity seed** (`radiation.h:init_rad_fields_kernel`).  On GPU init
 the field is seeded with the line source function from the local emissivity:
 
 ```
-S_th = emiss / (mfp_i_sca_0 · √π · b_sca)   (emiss from the field binary, code units)
+S_emiss = emiss / (mfp_i_sca_0 · √π · b_sca)   (emiss from the field binary, code units)
 ```
 
 The `√π · b_sca` factor converts the frequency-integrated source function
@@ -660,7 +660,7 @@ is read back by `kratos_io.read_output()` into `result['image']`.
 
 **Units**: the imaging output inherits the scaled-proper convention.
 Both the scattering part (accumulated from the scaled photon propers) and
-the thermal seed must live in the same scaled units, so the `emiss` field
+the emissivity seed must live in the same scaled units, so the `emiss` field
 is rescaled by `proper_scale` on write (`core/iterator.py`) and the cube
 is divided by `scale_factor` on readback, then converted to CGS
 intensity (`÷ unit_l0³·unit_t0`).  The cube in the results dict is
@@ -783,10 +783,10 @@ excited and collisions must be included for accurate populations.
  11. **Treating escaped-photon `proper` as a path length**: Kratos writes the photon weight (`proper`) under the binary key `_l`; the reader must NOT multiply it by `unit_l0`. Escaped weights are divided by `scale_factor` only, and exposed as `'proper'` (with `'l'` as a deprecated alias)
  12. **Boundary kinds with 3 faces**: Kratos expects 6 boundary kinds (−x,+x,−y,+y,−z,+z). Specifying only 3 leaves the remaining faces undefined, defaulting to periodic and causing photon wrap-around artifacts
  13. **Periodic boundary corner bug**: the framework's `geo_loc_t::fix` can produce zero-width cells when photons cross periodic boundaries in two dimensions simultaneously; fixed by adding a convergence loop and cell-index updates in `particle_base.h`
- 14. **Imaging: emiss field units (thermal seed)**: `emiss` must be in the SAME scaled-proper units as the scattering st_cam. Photon propers in the binary are already multiplied by `proper_scale`, so the `emiss` field must also be multiplied by `proper_scale` on write (`core/iterator.py`) — NOT divided. The old `/ proper_scale` double-rescaling overflowed FP32 (emiss ~1e52 → `inf` → NaN/inf imaging cube → spurious corner peak). Both parts are then divided by `scale_factor` on readback.
+ 14. **Imaging: emiss field units (emissivity seed)**: `emiss` must be in the SAME scaled-proper units as the scattering st_cam. Photon propers in the binary are already multiplied by `proper_scale`, so the `emiss` field must also be multiplied by `proper_scale` on write (`core/iterator.py`) — NOT divided. The old `/ proper_scale` double-rescaling overflowed FP32 (emiss ~1e52 → `inf` → NaN/inf imaging cube → spurious corner peak). Both parts are then divided by `scale_factor` on readback.
  15. **Imaging: v_chan must be CGS→code converted**: the channel grid is written to the par file in code units (`× unit_t0/unit_l0`). Writing CGS cm/s leaves `dv_cam/b` ~1e14 → profile exactly 0 → zero image.
  16. **Imaging: st_cam zeroing when disabled**: non-imaging runs must NOT initialise/allocate st_cam. The allocation is gated on `rad.imaging && rad.n_chan>0` in `block_data_t::setup()`; `pre_proc` zeroing is gated on `rad.imaging`. When imaging is disabled, `rad_img_t` skips `save()` (else it segfaults on the uninitialised pool).
- 17. **Imaging: thermal seed must survive MC zeroing**: the scattering integrator's `pre_proc` zeroes `st_cam` each step; the thermal seed is applied in `init_rad_fields_kernel` and must be preserved across MC steps — the scattering `intg_t` sets `zero_st_cam=false` when imaging is enabled.
+ 17. **Imaging: emissivity seed must survive MC zeroing**: the scattering integrator's `pre_proc` zeroes `st_cam` each step; the emissivity seed is applied in `init_rad_fields_kernel` and must be preserved across MC steps — the scattering `intg_t` sets `zero_st_cam=false` when imaging is enabled.
  18. **Imaging: duplicate intg_t kernels**: both `radiation_t` and `rad_img_t` enroll `intg_t`; the framework warns 'Duplicate entry kernels'. Harmless (runtime uses the first registered). The imaging integrator sets `build_tables=false` to avoid re-building the USampler/Voigt tables into const memory (pool overflow).
  19. **Imaging: pool init ordering**: `pol_img_t::init` runs before `intg_t::init` in the module init sequence, so it cannot read `n_chan` from the integrator — it reads it directly from the par (`args.get('imaging','n_chan',0)`).
  20. **Emission photons must be photon-number, not energy**: `compute_emissivity()` returns `n_u·A_ul/(4π)` [photons cm⁻³ s⁻¹ sr⁻¹], NOT `n_u·A_ul·h·ν/(4π)` [erg]. The pipeline works entirely in photon-number units; including the `h·ν` factor makes emission photon weights ~10⁵⁶× too small and inconsistent with external sources.
@@ -795,7 +795,7 @@ excited and collisions must be included for accurate populations.
  23. **LAMDA embedded files are stripped**: the embedded species files in `molecular/embedded/` have NO collision partners (stripped for size). `fetch_species()` prefers the downloaded full LAMDA file (cache -> download -> embedded fallback).
  24. **LAMDA collision rates array shape**: after parsing, `collision_partners[i]['rates']` has shape `(n_trans, n_temps)` - rate-only columns (trans#/upper/lower are stripped). The `trans_indices` array holds the 0-based `[upper, lower]` pairs separately.
  25. **Collisional destruction opacity**: when colliders are configured, `mfp_i_abs_0` must include the line destruction term `n_lower·σ₀·ε` where `ε = C_ul·n_coll/(A_ul+C_ul·n_coll)`. Without it, subthermally excited lines are treated as pure scattering (no thermalisation).
- 26. **Imaging: scattering st_cam vs thermal seed normalization mismatch** (KNOWN, pending fix): the scattering accumulation uses the NORMALIZED profile `φ_norm = exp(−u²)/(√π·b)` (with `inv_norm = 1/(√π·b)`), while the thermal seed uses the UNNORMALIZED profile (peak=1). This makes the scattering contribution ~1/(√π·b)× larger than the thermal, so in the optically-thin limit the scattering st_cam dominates and the imaging cube deviates from the analytic `I = j·φ·L`. The convention must be unified.
+ 26. **Imaging: scattering st_cam vs emissivity seed normalization mismatch** (KNOWN, pending fix): the scattering accumulation uses the NORMALIZED profile `φ_norm = exp(−u²)/(√π·b)` (with `inv_norm = 1/(√π·b)`), while the emissivity seed uses the UNNORMALIZED profile (peak=1). This makes the scattering contribution ~1/(√π·b)× larger than the emissivity seed, so in the optically-thin limit the scattering st_cam dominates and the imaging cube deviates from the analytic `I = j·φ·L`. The convention must be unified.
 
 ---
 
