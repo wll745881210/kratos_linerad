@@ -256,8 +256,16 @@ class SpeciesData:
                                 lower ) )[ 0 ];
                 if len( idxs ) == 0:
                     continue;
-                rate = interp( T_arr.ravel( ), cp[ 'temps' ], \
-                               cp[ 'rates' ][ idxs[ 0 ] ] ).reshape( shape );
+                if 'callable' in cp:
+                    rate = asarray(
+                        [ max( float( cp[ 'callable' ]( float( t ) ) ), 0.0 )
+                          for t in T_arr.ravel( ) ],
+                        dtype = float64 ).reshape( shape );
+                elif 'const' in cp:
+                    rate = full( shape, cp[ 'const' ], dtype = float64 );
+                else:
+                    rate = interp( T_arr.ravel( ), cp[ 'temps' ], \
+                                   cp[ 'rates' ][ idxs[ 0 ] ] ).reshape( shape );
                 C_ul_n = rate * n_coll_arr;
                 eps += C_ul_n / ( A_ul + C_ul_n + 1e-300 );
         return n_l * sigma_0 * eps;

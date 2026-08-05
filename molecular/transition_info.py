@@ -261,17 +261,26 @@ class TransitionInfo:
                                ( idxs[ :, 1 ] == lower ) )[ 0 ];
                 src = cp.get( 'source', 'LAMDA' );
                 if len( match ) > 0:
-                    rates = cp.get( 'rates', array( [ [ ] ] ) );
-                    r = rates[ match[ 0 ] ];
-                    r_lo = float( r.min( ) );
-                    r_hi = float( r.max( ) );
-                    print( '    %-20s : C_ul=%.3e..%.3e cm^3/s, '
-                           'T=[%.0f..%.0f] K (%s)' \
-                           % ( cp.get( 'species', '?' ),
-                               r_lo, r_hi,
-                               float( temps[ 0 ] ) if temps.size else 0,
-                               float( temps[ -1 ] ) if temps.size else 0,
-                               src ) );
+                    src = cp.get( 'source', 'LAMDA' );
+                    if 'callable' in cp:
+                        print( '    %-20s : C_ul=f(T) (callable), %s' \
+                               % ( cp.get( 'species', '?' ), src ) );
+                    elif 'const' in cp:
+                        print( '    %-20s : C_ul=%.3e cm^3/s (const), %s' \
+                               % ( cp.get( 'species', '?' ),
+                                   cp[ 'const' ], src ) );
+                    else:
+                        rates = cp.get( 'rates', array( [ [ ] ] ) );
+                        r = rates[ match[ 0 ] ];
+                        r_lo = float( r.min( ) );
+                        r_hi = float( r.max( ) );
+                        print( '    %-20s : C_ul=%.3e..%.3e cm^3/s, '
+                               'T=[%.0f..%.0f] K (%s)' \
+                               % ( cp.get( 'species', '?' ),
+                                   r_lo, r_hi,
+                                   float( temps[ 0 ] ) if temps.size else 0,
+                                   float( temps[ -1 ] ) if temps.size else 0,
+                                   src ) );
                 else:
                     print( '    %-20s : (no rate for %d->%d) '
                            '(%d trans total, %s)' \
@@ -373,35 +382,36 @@ class TransitionInfo:
             if not isinstance( collision_rates, dict ):
                 raise TypeError( "collision_rates must be a dict keyed by "
                                  "partner name (e.g. {'H2': 1e-12})" );
-            #  A small temperature grid for the tabulated form expected
-            #  by the SpeciesData rate-matrix solver.  The callable is
-            #  sampled at these temperatures and linear-interpolated at
-            #  runtime (equilibrium.py interp).
-            _T_GRID = array( [ 10., 20., 50., 100., 200., 300., 500.,
-                               750., 1000., 1500., 2000., 3000., 5000. ],
-                             dtype = float64 );
             for pname, rate_spec in collision_rates.items( ):
                 if callable( rate_spec ):
-                    rates_arr = array(
-                        [ [ max( float( rate_spec( float( T ) ) ), 0.0 )
-                            for T in _T_GRID ] ], dtype = float64 );
+                    #  Store the callable directly - evaluated at the
+                    #  local gas temperature at runtime (no grid
+                    #  restriction, user controls the range).
+                    coll_partners.append( {
+                        'species'      : str( pname ),
+                        'n_trans'      : 1,
+                        'n_temps'      : 0,
+                        'temps'        : array( [ ], dtype = float64 ),
+                        'rates'        : array( [ [ ] ], dtype = float64 ),
+                        'trans_indices': array( [ [ 1, 0 ] ], dtype = int64 ),
+                        'source'       : 'user',
+                        'callable'     : rate_spec,
+                    } );
                 else:
                     c = float( rate_spec );
                     if c < 0:
                         raise ValueError( "collision rate for '%s' must be "
                                           "non-negative (got %g)" % (pname, c) );
-                    rates_arr = array(
-                        [ [ c for _ in _T_GRID ] ], dtype = float64 );
-                #  trans_indices: [[upper, lower]] (0-based), 1 transition
-                coll_partners.append( {
-                    'species'      : str( pname ),
-                    'n_trans'      : 1,
-                    'n_temps'      : len( _T_GRID ),
-                    'temps'        : _T_GRID.copy( ),
-                    'rates'        : rates_arr,
-                    'trans_indices': array( [ [ 1, 0 ] ], dtype = int64 ),
-                    'source'       : 'user',
-                } );
+                    coll_partners.append( {
+                        'species'      : str( pname ),
+                        'n_trans'      : 1,
+                        'n_temps'      : 0,
+                        'temps'        : array( [ ], dtype = float64 ),
+                        'rates'        : array( [ [ ] ], dtype = float64 ),
+                        'trans_indices': array( [ [ 1, 0 ] ], dtype = int64 ),
+                        'source'       : 'user',
+                        'const'        : c,
+                    } );
 
         species = SpeciesData(
             name          = str( species_name ),

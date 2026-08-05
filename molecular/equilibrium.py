@@ -160,7 +160,14 @@ def solve_populations( species_data, exc_flux, n_total, T = None, \
         idxs = cp[ 'trans_indices' ];
         for k in range( idxs.shape[ 0 ] ):
             j, i = int( idxs[ k, 0 ] ), int( idxs[ k, 1 ] );
-            rate = interp( T_flat, cp[ 'temps' ], cp[ 'rates' ][ k ] );
+            if 'callable' in cp:
+                rate = asarray(
+                    [ max( float( cp[ 'callable' ]( float( t ) ) ), 0.0 )
+                      for t in T_flat ], dtype = float64 );
+            elif 'const' in cp:
+                rate = full( n_cells, cp[ 'const' ], dtype = float64 );
+            else:
+                rate = interp( T_flat, cp[ 'temps' ], cp[ 'rates' ][ k ] );
             M[ :, i, j ] += rate * n_coll_arr;
             #  Detailed balance: collisional excitation (lower -> upper)
             #  from the tabulated de-excitation rate so the gas relaxes to

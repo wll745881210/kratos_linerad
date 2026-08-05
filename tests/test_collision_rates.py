@@ -28,16 +28,15 @@ def test_user_defined_number_rate( ):
     cp = sd.collision_partners[ 0 ];
     assert cp[ 'species' ] == 'H2';
     assert cp[ 'n_trans' ] == 1;
-    #  rates should be shape (n_trans=1, n_temps) - rate-only columns
-    assert cp[ 'rates' ].shape[ 1 ] == cp[ 'n_temps' ];
-    assert isclose( cp[ 'rates' ][ 0, 0 ], 1e-12 );
+    assert cp[ 'source' ] == 'user';
+    assert isclose( cp[ 'const' ], 1e-12 );
     #  trans_indices: [[upper, lower]] = [[1, 0]]
     assert cp[ 'trans_indices' ][ 0, 0 ] == 1;
     assert cp[ 'trans_indices' ][ 0, 1 ] == 0;
 
 
 def test_user_defined_callable_rate( ):
-    """A callable rate is sampled on the temperature grid."""
+    """A callable rate is stored directly and evaluated at runtime."""
     def rate_fn( T ):
         return 1e-12 * ( T / 100.0 ) ** 0.5;
 
@@ -48,13 +47,11 @@ def test_user_defined_callable_rate( ):
     );
     sd = ti.species;
     cp = sd.collision_partners[ 0 ];
-    #  Check that the rate at T=100K matches the callable
-    from numpy import interp;
-    r100 = interp( 100.0, cp[ 'temps' ], cp[ 'rates' ][ 0, : ] );
-    assert isclose( r100, 1e-12, rtol = 1e-6 );
-    #  And at T=400K
-    r400 = interp( 400.0, cp[ 'temps' ], cp[ 'rates' ][ 0, : ] );
-    assert isclose( r400, 2e-12, rtol = 1e-6 );
+    assert cp[ 'source' ] == 'user';
+    assert callable( cp[ 'callable' ] );
+    #  Check that the callable is evaluated correctly at runtime
+    assert isclose( cp[ 'callable' ]( 100.0 ), 1e-12, rtol = 1e-6 );
+    assert isclose( cp[ 'callable' ]( 400.0 ), 2e-12, rtol = 1e-6 );
 
 
 def test_destruction_opacity_epsilon( ):
