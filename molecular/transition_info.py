@@ -13,7 +13,7 @@
 import os;
 from math import sqrt;
 
-from numpy import array, float64, int64;
+from numpy import array, float64, int64, where;
 
 from .lamda_format import SpeciesData, load_lamda, specify_transition;
 from .lamda_fetcher import CACHE_DIR, get_cached_species;
@@ -249,15 +249,35 @@ class TransitionInfo:
                % ( self.mol_mass, self._mol_mass_source ) );
         cps = getattr( self._species_data, 'collision_partners', [ ] );
         if cps:
-            print( '  Coll. partners:' );
+            upper = tr.upper;
+            lower = tr.lower;
+            print( '  Coll. partners (for transition %d -> %d):' \
+                   % ( upper, lower ) );
             for cp in cps:
                 temps = cp.get( 'temps', array( [ ] ) );
-                print( '    %-8s : %d trans, T=[%.0f..%.0f] K (%d pts)' \
-                       % ( cp.get( 'species', '?' ),
-                           cp.get( 'n_trans', 0 ),
-                           float( temps[ 0 ] ) if temps.size else 0,
-                           float( temps[ -1 ] ) if temps.size else 0,
-                           temps.size ) );
+                idxs = cp.get( 'trans_indices', array( [ [ ] ] ) );
+                #  Find the collision transition matching our (upper,lower)
+                match = where( ( idxs[ :, 0 ] == upper ) & \
+                               ( idxs[ :, 1 ] == lower ) )[ 0 ];
+                src = cp.get( 'source', 'LAMDA' );
+                if len( match ) > 0:
+                    rates = cp.get( 'rates', array( [ [ ] ] ) );
+                    r = rates[ match[ 0 ] ];
+                    r_lo = float( r.min( ) );
+                    r_hi = float( r.max( ) );
+                    print( '    %-20s : C_ul=%.3e..%.3e cm^3/s, '
+                           'T=[%.0f..%.0f] K (%s)' \
+                           % ( cp.get( 'species', '?' ),
+                               r_lo, r_hi,
+                               float( temps[ 0 ] ) if temps.size else 0,
+                               float( temps[ -1 ] ) if temps.size else 0,
+                               src ) );
+                else:
+                    print( '    %-20s : (no rate for %d->%d) '
+                           '(%d trans total, %s)' \
+                           % ( cp.get( 'species', '?' ),
+                               upper, lower,
+                               cp.get( 'n_trans', 0 ), src ) );
         else:
             print( '  Coll. partners: (none)' );
         print( '========================================' );        
@@ -380,6 +400,7 @@ class TransitionInfo:
                     'temps'        : _T_GRID.copy( ),
                     'rates'        : rates_arr,
                     'trans_indices': array( [ [ 1, 0 ] ], dtype = int64 ),
+                    'source'       : 'user',
                 } );
 
         species = SpeciesData(

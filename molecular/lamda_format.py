@@ -668,6 +668,7 @@ def load_lamda( content ):
                 'temps'        : coll_temps, \
                 'rates'        : rates, \
                 'trans_indices': trans_indices, \
+                'source'       : 'LAMDA', \
             } );
 
     return SpeciesData( \
