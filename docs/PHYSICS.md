@@ -703,25 +703,25 @@ ti = TransitionInfo.user_defined(
     A_ul = 18.17, freq_GHz = 63302.467,
     g_u = 15, g_l = 17, species_name = 'CO',
     collision_rates = {
-        'H2': { 'rate': 3e-12 },           # float [cm^3 s^-1] or callable f(T)
+        'H2': 3e-12,                        # float [cm^3 s^-1] or callable f(T)
     },
 )
 
 #  Number density (spatial field) in LineRt:
 rt = LineRt(
     transition_info = ti,
-    colliders = { 'H2': { 'density': 1e6 } },   # float [cm^-3] or callable f(X,Y,Z)
+    colliders = { 'H2': 1e6 },              # float [cm^-3] or callable f(X,Y,Z)
     ...,
 )
 ```
 
-- **`rate`** (in `user_defined`): a number (constant) or a callable
-  `f(T) -> float` giving the de-excitation rate coefficient at
-  temperature T [K].  Callables are sampled on a 13-point grid (10-5000 K)
-  and linearly interpolated at runtime.
-- **`density`** (in `LineRt`): collider number density [cm⁻³], as a float
-  or a callable `f(X, Y, Z)` over the 3D mesh (same interface as
-  `n_species`).
+- **`collision_rates`** (in `user_defined`): a flat dict mapping partner
+  name to a rate coefficient - a number (constant C_ul [cm³ s⁻¹]) or a
+  callable `f(T) -> float`.  Callables are sampled on a 13-point grid
+  (10-5000 K) and linearly interpolated at runtime.
+- **`colliders`** (in `LineRt`): a flat dict mapping partner name to a
+  number density [cm⁻³] - a float or a callable `f(X, Y, Z)` over the 3D
+  mesh (same interface as `n_species`).
 
 This separation keeps molecular data (rates) in `TransitionInfo` and
 spatial fields (densities) in `LineRt`, matching the existing pattern

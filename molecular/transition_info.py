@@ -247,6 +247,19 @@ class TransitionInfo:
         print( '  E_u/K     : %.2f K' % tr.E_u_K );
         print( '  mol_mass  : %.1f amu (%s)' \
                % ( self.mol_mass, self._mol_mass_source ) );
+        cps = getattr( self._species_data, 'collision_partners', [ ] );
+        if cps:
+            print( '  Coll. partners:' );
+            for cp in cps:
+                temps = cp.get( 'temps', array( [ ] ) );
+                print( '    %-8s : %d trans, T=[%.0f..%.0f] K (%d pts)' \
+                       % ( cp.get( 'species', '?' ),
+                           cp.get( 'n_trans', 0 ),
+                           float( temps[ 0 ] ) if temps.size else 0,
+                           float( temps[ -1 ] ) if temps.size else 0,
+                           temps.size ) );
+        else:
+            print( '  Coll. partners: (none)' );
         print( '========================================' );        
 
     def show_transitions( self ):
@@ -287,8 +300,7 @@ class TransitionInfo:
             built-in mass table (e.g. ``'CO'``), required otherwise.
         collision_rates : dict or None
             Collisional de-excitation rate coefficients for one or more
-            partners.  Each entry is keyed by the partner name (e.g.
-            ``'H2'``) and contains a ``'rate'`` field that is either a
+            partners, keyed by partner name.  Each value is either a
             float (temperature-independent C_ul [cm³ s⁻¹]) or a callable
             ``f(T) -> float`` returning C_ul at temperature T [K].
             The collider **number density** is NOT specified here - it
@@ -296,8 +308,8 @@ class TransitionInfo:
             ``LineRt(colliders=...)``.  Example::
 
                 collision_rates = {
-                    'H2': {'rate': 1e-12},
-                    'e':  {'rate': lambda T: 1e-9 * sqrt(T/300)},
+                    'H2': 1e-12,
+                    'e':  lambda T: 1e-9 * sqrt(T/300),
                 }
         species_name : str
             Name stored on the synthetic species; used for the built-in
@@ -340,7 +352,7 @@ class TransitionInfo:
         if collision_rates is not None:
             if not isinstance( collision_rates, dict ):
                 raise TypeError( "collision_rates must be a dict keyed by "
-                                 "partner name (e.g. {'H2': {'rate': ...}})" );
+                                 "partner name (e.g. {'H2': 1e-12})" );
             #  A small temperature grid for the tabulated form expected
             #  by the SpeciesData rate-matrix solver.  The callable is
             #  sampled at these temperatures and linear-interpolated at
@@ -348,12 +360,7 @@ class TransitionInfo:
             _T_GRID = array( [ 10., 20., 50., 100., 200., 300., 500.,
                                750., 1000., 1500., 2000., 3000., 5000. ],
                              dtype = float64 );
-            for pname, cfg in collision_rates.items( ):
-                if not isinstance( cfg, dict ) or 'rate' not in cfg:
-                    raise ValueError(
-                        "collision_rates['%s'] must be a dict with a "
-                        "'rate' key (float or callable f(T))" % pname );
-                rate_spec = cfg[ 'rate' ];
+            for pname, rate_spec in collision_rates.items( ):
                 if callable( rate_spec ):
                     rates_arr = array(
                         [ [ max( float( rate_spec( float( T ) ) ), 0.0 )

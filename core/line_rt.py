@@ -716,13 +716,14 @@ class LineRt:
         #  Resolve collider densities on the mesh.  The collision RATE
         #  coefficients (C_ul(T)) come from the species data (LAMDA or
         #  user_defined); the collider DENSITY is a spatial field
-        #  supplied by the user via colliders=.
+        #  supplied by the user via colliders=, as a flat dict
+        #  {'H2': density} where density is a float or callable.
         colliders_val = None;
         if self._colliders:
             colliders_val = { };
-            for pname, pcfg in self._colliders.items( ):
+            for pname, dens in self._colliders.items( ):
                 colliders_val[ pname ] = { 'density' : \
-                    self._resolve_field( pcfg[ 'density' ], XYZ ) };
+                    self._resolve_field( dens, XYZ ) };
 
         work_dir = self._resolve_path( );
 

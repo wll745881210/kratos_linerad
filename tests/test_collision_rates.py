@@ -21,7 +21,7 @@ def test_user_defined_number_rate( ):
     ti = TransitionInfo.user_defined(
         A_ul = 1e-6, freq_GHz = 115.271,
         g_u = 3.0, g_l = 1.0, species_name = 'CO',
-        collision_rates = { 'H2': { 'rate': 1e-12 } },
+        collision_rates = { 'H2': 1e-12 },
     );
     sd = ti.species;
     assert len( sd.collision_partners ) == 1;
@@ -44,7 +44,7 @@ def test_user_defined_callable_rate( ):
     ti = TransitionInfo.user_defined(
         A_ul = 1e-6, freq_GHz = 115.271,
         g_u = 3.0, g_l = 1.0, species_name = 'CO',
-        collision_rates = { 'H2': { 'rate': rate_fn } },
+        collision_rates = { 'H2': rate_fn },
     );
     sd = ti.species;
     cp = sd.collision_partners[ 0 ];
@@ -63,7 +63,7 @@ def test_destruction_opacity_epsilon( ):
     ti = TransitionInfo.user_defined(
         A_ul = A_ul, freq_GHz = 115.271,
         g_u = 3.0, g_l = 1.0, species_name = 'CO',
-        collision_rates = { 'H2': { 'rate': 3e-12 } },
+        collision_rates = { 'H2': 3e-12 },
     );
     sd = ti.species;
     #  Populations: n_total = 1e4, all in ground state (n0=1e4, n1=0)
