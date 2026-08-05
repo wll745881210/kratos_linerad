@@ -182,11 +182,14 @@ prints a summary of all registered sources.
 
 **Emission-only runs** — a species (Group 1) works without any
 `add_source()`: cycle 0 is seeded with internal emission photons
-generated from the initial LTE populations, and later cycles regenerate
-emission from the updated populations.  Initial populations are ALWAYS
-thermalised to LTE at the gas temperature (`SpeciesData.initial_populations(n_species, T=...)`),
-even when external sources are present, so cycle-0 opacity and
-emissivity are physically consistent.
+generated from the initial populations, and later cycles regenerate
+emission from the updated populations.  Initial populations relax to
+collisional equilibrium at the gas temperature when colliders are
+provided (`SpeciesData.initial_populations(n_species, T=..., colliders=...)`),
+so cycle-0 opacity and emissivity are physically consistent; without
+colliders there is no excitation mechanism and the upper level stays
+empty (zero emissivity).  There is no blackbody (T_rad) term —
+thermalization is purely collisional.
 
 `rt.plot_input()` (interface mirrors `default_plot`) plots slices of
 the configured input fields — `n_species`, `temperature` (Group 1),

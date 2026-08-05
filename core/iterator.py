@@ -138,11 +138,12 @@ def iterate( source_photons, species, fields_init, mesh, \
     base_fields_cgs = { k: asarray( v, dtype = float64 ).copy( ) \
                         for k, v in fields.items( ) };
 
-    # Initial populations are ALWAYS thermalised to LTE at the gas
-    # temperature (with colliders when available) — even when external
-    # sources are present — so that cycle-0 opacity and emissivity are
-    # physically consistent.  Without a temperature, they fall back to
-    # all-in-ground-state.
+    # Initial populations are set via solve_populations at zero external
+    # flux: with colliders the gas relaxes to collisional equilibrium at
+    # the gas temperature (cycle-0 opacity and emissivity consistent);
+    # WITHOUT colliders there is no excitation mechanism, so the upper
+    # level stays empty (all-in-ground-state, zero emissivity).  Without
+    # a temperature they fall back to all-in-ground-state.
     if species is not None and hasattr( species, 'initial_populations' ):
         if n_species is None:
             n_species_arr = ones( shape3d, dtype = float64 );

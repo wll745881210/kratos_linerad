@@ -93,8 +93,21 @@ def solve_populations( species_data, exc_flux, n_total, T = None, \
         #    n_u ( A_ul + C_ul*n ) = n_l ( C_lu*n + Gamma )
         #  => n_u/n_total = ( C_lu*n + Gamma ) /
         #                   ( A_ul + C_ul*n + C_lu*n + Gamma )
-        den = A_ul + C_ul_tot + C_lu_tot + Gamma;
-        n_exc_frac = ( C_lu_tot + Gamma ) / den;
+        has_coll = bool( ( asarray( C_ul_tot ) > 0 ).any( ) ) or \
+                   bool( ( asarray( C_lu_tot ) > 0 ).any( ) );
+        if has_coll:
+            den = A_ul + C_ul_tot + C_lu_tot + Gamma;
+            n_exc_frac = ( C_lu_tot + Gamma ) / den;
+        elif T is not None:
+            #  LTE fallback (no colliders): Boltzmann at the gas
+            #  temperature + radiative pumping on top.
+            T_safe = maximum( asarray( T, dtype = float64 ), 1e-10 );
+            x_arg = clip( dE / ( k_B * T_safe ), None, 700.0 );
+            r_lte = ( g_u / g_l ) * exp( -x_arg );
+            f_lte = r_lte / ( 1.0 + r_lte );
+            n_exc_frac = ( Gamma + f_lte * A_ul ) / ( A_ul + Gamma );
+        else:
+            n_exc_frac = Gamma / ( A_ul + Gamma );
         n_exc_frac = clip( n_exc_frac, 0, 0.9999 );
         #  Floor denormal excitation fractions to exact zero.
         n_exc_frac = where( n_exc_frac < 1e-30, 0.0, n_exc_frac );
@@ -125,25 +138,38 @@ def solve_populations( species_data, exc_flux, n_total, T = None, \
     n_total_c = maximum( n_total_flat, 1e-30 );
     Gamma = abs( exc_flat ) * sigma_0;
 
-    #  Closed-form branch: no collisional excitation possible.  Cells
-    #  with no external flux and no radiation background stay in the
-    #  ground state; the rest follow the 2-level formula on the pair.
+    #  Closed-form branch: no collisional excitation possible.  With a
+    #  temperature the base population is the LTE (Boltzmann) one, and
+    #  the external flux pumps the target pair on top; without a
+    #  temperature the ground state is the base.
     if colliders is None or not species_data.collision_partners \
        or T_flat is None:
+        if T_flat is not None:
+            base = species_data.lte_populations( n_total_flat, T_flat );
+            for i in range( n_levels ):
+                n_flat[ i ] = base[ 'n%d' % i ].reshape( -1 );
+        else:
+            n_flat[ 0 ] = n_total_flat;
+        #  External flux pumps the target pair above the base.
         n_exc_frac = Gamma / ( A_ul + Gamma );
         n_exc_frac = clip( n_exc_frac, 0, 0.9999 );
         n_exc_frac = where( n_exc_frac < 1e-30, 0.0, n_exc_frac );
-
         active = ones( n_cells, dtype = bool );
-        if colliders is None:
+        if colliders is None and T_flat is None:
             ground = ( Gamma < 1e-40 );
             n_flat[ 0, ground ] = n_total_flat[ ground ];
             active = ~ground;
+        #  Pump: move a fraction of the lower population to the upper.
         if active.any( ):
-            n_flat[ upper, active ] = n_exc_frac[ active ] * \
-                                      n_total_c[ active ];
-            n_flat[ lower, active ] = n_total_c[ active ] - \
-                                      n_flat[ upper, active ];
+            n_low = n_flat[ lower, active ];
+            n_u = n_exc_frac[ active ] * n_total_c[ active ];
+            n_flat[ upper, active ] = n_u;
+            #  Remove the pumped population from the lower level.
+            n_flat[ lower, active ] = maximum( n_low + \
+                n_flat[ upper, active ] - n_total_c[ active ], 0.0 );
+        #  Renormalise to conserve total population.
+        tot = maximum( n_flat.sum( axis = 0, keepdims = True ), 1e-30 );
+        n_flat = n_flat / tot * n_total_flat[ None, : ];
         return n_flat.reshape( ( n_levels, ) + shape );
 
     #  Collisional steady-state: build the rate matrix for every cell and
