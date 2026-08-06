@@ -216,6 +216,22 @@
     \<lambda\><rsub|0>|<sqrt|2>\<sigma\><rsub|th>> .
   </equation>
 
+  In the code, <math|b<rsub|sca>\<equiv\><sqrt|2>\<sigma\><rsub|th>> is
+  used as the Doppler broadening parameter, so that
+  <math|\<sigma\><around*|(|v|)>=\<sigma\><rsub|0>
+  H<around*|(|a,x|)>> with <math|x=v/b<rsub|sca>> and
+  <math|H<around*|(|0|)>=1>. The dimensionless Voigt damping parameter is
+  <math|a=\<Gamma\>/<around*|(|4\<pi\>\<Delta\>\<nu\><rsub|D>|)>>,
+  where <math|\<Gamma\>=A<rsub|ul>/<around*|(|2\<pi\>|)>> is the natural
+  line width and <math|\<Delta\>\<nu\><rsub|D>=b<rsub|sca>/\<lambda\><rsub|0>>
+  is the Doppler width. For <math|a\<rightarrow\>0>, the Hjerting function
+  <math|H<around*|(|a,x|)>> reduces to <math|<text|exp><around*|(|-x<rsup|2>|)>>
+  (pure Gaussian, the CFR limit). For <math|a\<gtrsim\>0.1>, the Lorentzian
+  wing <math|H\<approx\>a/<around*|(|<sqrt|\<pi\>>x<rsup|2>|)>> dominates at
+  <math|<around*|\||x|\|>\<gtrsim\>1>, which is essential for the
+  frequency-space diffusion in optically thick slabs (Neufeld 1990) and for
+  the imaging wing channels.
+
   In practice, the Python-side pipeline will calculate the oscillator
   strength <math|f> based on the Einstein <math|A> coefficient and the
   degeneracy <math|g<rsub|u>> and <math|g<rsub|l>> based on the <math|J> of
@@ -290,8 +306,15 @@
 
   <subsubsection|Propagation>
 
-  The same expression of overlap integral <math|<with|font|cal|I>> is also
-  used in determining the scattering event location. After each scattering
+  The scattering event location is determined by the scattering optical
+  depth, which uses the opacity profile <math|\<phi\><around*|(|u|)>=H<around*|(|a,u|)>>
+  (Voigt/Hjerting function, for <verbatim|ph_mode> 1/2/3) or
+  <math|\<phi\><around*|(|u|)>=<text|exp><around*|(|-u<rsup|2>|)>> (Gaussian,
+  for <verbatim|ph_mode> 0), where <math|u=<around*|(|\<Delta\>v+v<rsub|<around*|\||\<parallel\>|\|>>|)>/b<rsub|sca>>
+  is the gas-frame frequency offset in Doppler-width units and
+  <math|a=\<Gamma\>/<around*|(|4\<pi\>\<Delta\>\<nu\><rsub|D>|)>> is the
+  Voigt damping parameter (<math|\<Gamma\>> the natural line width,
+  <math|\<Delta\>\<nu\><rsub|D>> the Doppler width). After each scattering
   event (or after the photon is generated or read into Kratos, marked as the
   "0th" scattering), a "remaining scattering optical depth"
   <math|\<tau\><rsub|rem>> is generated following exponential distribution of
@@ -305,11 +328,18 @@
   vector <math|<wide|d|^>>, from surface to surface of cells. When reaching
   the exit surface of the current cell (the photon gets its exit point) after
   travelling for <math|\<delta\>l> in the current cell, the photon gets a
-  <math|\<delta\>\<tau\><rsub|rem>\<equiv\><with|font|cal|I>
+  <math|\<delta\>\<tau\><rsub|rem>\<equiv\>\<phi\><around*|(|u|)>
   \<lambda\><rsub|sca,0><rsup|-1>\<delta\>l>, then the updated value
   <math|\<tau\><rprime|'><rsub|rem>> is obtained by
   <math|\<tau\><rsub|rem><rprime|'>\<leftarrow\>\<tau\><rsub|rem>-\<delta\>\<tau\><rsub|rem>>
   assuming that the photon will reach the cell-exiting point.\ 
+
+  Note that the overlap integral <math|<with|font|cal|I>> defined in
+  \<S\>2.2 is used <with|font-series|bold|only> for the excitation flux
+  accumulation, <with|font-series|bold|not> for the propagation. The
+  propagation uses the opacity profile <math|\<phi\><around*|(|u|)>> (Voigt
+  or Gaussian), which includes the Lorentzian wing for
+  <verbatim|ph_mode> 1/2/3.
 
   Now, if <math|\<tau\><rprime|'><rsub|rem>\<gtr\>0>, then the photon packet
   continues propagation along <math|<wide|d|^>>. The absorption is taken into
@@ -332,7 +362,7 @@
   exp<around*|[|- <around*|(|\<tau\><rsub|rem>/\<delta\>\<tau\><rsub|rem>|)>\<delta\>l\<lambda\><rsub|abs><rsup|-1>|]>>
   (also linear interpolation in the absorption optical depth).
 
-  <subsubsection|Scattering event>
+  <subsubsection|Scattering event (CFR, <verbatim|ph_mode>=0)>
 
   When a scattering event takes place, we must re-assign the direction
   <math|<wide|d|^>>, the broadening <math|\<sigma\><rsub|ph>>, and the
@@ -359,6 +389,50 @@
     <item>Generate a new <math|\<tau\><rsub|rem>> in the same way as the
     previous sub-subsection.
   </enumerate>
+
+  In CFR (Complete Frequency Redistribution), the outgoing photon's
+  frequency is drawn from a Gaussian centered at zero (in the gas rest
+  frame), with no memory of the incoming photon's frequency. This is the
+  simplest redistribution and is valid when the natural line width is
+  negligible (<math|a\<ll\>1>).
+
+  <subsubsection|Scattering event (R_IIA, <verbatim|ph_mode>=1/2/3)>
+
+  For <verbatim|ph_mode> 1/2/3, the frequency redistribution uses the
+  full R_IIA (Angle-dependent Partial Redistribution) kernel, which
+  preserves the <with|font-series|bold|frequency memory> and the
+  <with|font-series|bold|angle\Ufrequency correlation> of the scattering
+  process. The direction is still sampled isotropically (step 1 above),
+  but the frequency is drawn from the USampler table.
+
+  The USampler draws <math|u> from the angle-averaged R_II kernel
+  <math|P<around*|(|u\|\|x|)>\<propto\><text|exp><around*|(|-u<rsup|2>|)>/<around*|(|a<rsup|2>+<around*|(|x-u|)><rsup|2>|)>>,
+  where <math|x=\<Delta\>v<rsub|lab>/b<rsub|sca>> is the incoming
+  frequency in Doppler-width units (gas rest frame). The outgoing
+  frequency is then:
+
+  <\equation>
+    x<rsub|new>=x+u<rsub|par><around*|(|g-1|)>+<text|sin\<theta\>>\<cdot\>u<rsub|perp>,
+  </equation>
+
+  where <math|g=<with|font-series|bold|d><rsub|old>\<cdot\><wide|d|^><rsub|new>>
+  is the directional correlation (cosine of the scattering angle),
+  <math|u<rsub|par>> is sampled from the USampler (parallel component,
+  frequency memory), and <math|u<rsub|perp>\<sim\><with|font|cal|N><around*|(|0,1/2|)>>
+  is the perpendicular component (thermal broadening, drawn from a
+  Gaussian). The stored velocity shift is then
+  <math|\<Delta\>v=x<rsub|new>b<rsub|sca>-<with|font-series|bold|v>\<cdot\><wide|d|^>>,
+  so that <math|\<Delta\>v+v<rsub|<around*|\||\<parallel\>|\|>>=x<rsub|new>b<rsub|sca>>
+  recovers the gas-frame outgoing frequency.
+
+  The R_IIA kernel is precomputed as a 3-D table
+  <math|R<around*|(|x<rsub|out>,<around*|\||x<rsub|pp>|\|>,g|)>> (200\<times\>100\<times\>40)
+  from the USampler CDF, and is also used in the imaging source function
+  accumulation (see <math|\<S\>4>). <verbatim|ph_mode> 1 uses global-memory
+  tables, <verbatim|ph_mode> 2 uses constant-memory tables (fastest exact
+  mode), and <verbatim|ph_mode> 3 uses an approximate analytic Voigt blend
+  for the opacity profile (fastest overall, with <math|<around*|(|1-3|)>%>
+  error in <math|<text|med>|x|> at low <math|a\<tau\><rsub|0>>).
 
   <section|Methods on the Python side>
 
@@ -505,6 +579,133 @@
 
   These steps are conducted iteratively until the system converges (or
   certain number of iterations is reached).\ 
+
+  <section|Imaging (Two-Step: Scattering Source Function + Ray Tracing)>
+
+  Imaging produces a position\Uvelocity cube <math|I<around*|(|<text|pixel>,
+  <text|channel>|)>> = the specific intensity reaching a distant observer,
+  using a two-step method adapted from Yang &amp; Wang (2025, \<S\>2.3 +
+  Appendix A).
+
+  <subsection|Principle>
+
+  Direct MC imaging is hopelessly expensive: the camera subtends a tiny
+  solid angle and multiple scattering randomises directions. Because RT is
+  linear, the contribution of scattered photons to a <with|font-series|bold|fixed>
+  viewing direction can instead be accumulated <with|font-series|bold|on the
+  grid during the scattering MC>, then a separate
+  <with|font-series|bold|non-scattering ray tracing> integrates the transfer
+  equation along camera rays\Ua post-processing step that can be repeated for
+  any viewing angle/camera at negligible cost.
+
+  The imaging is enabled by setting <verbatim|imaging> in the
+  <verbatim|LineRt> constructor or the <verbatim|[imaging]> par section.
+  It runs only on the <with|font-series|bold|final> MC cycle. When disabled,
+  the <math|s<rsub|cam>> field is not initialised, allocated, or written.
+
+  <subsection|Step 1 --- Scattering source function
+  <math|s<rsub|cam>>>
+
+  The per-cell, per-channel field <math|s<rsub|cam>> (Kratos
+  <verbatim|rad_t.s_cam>, <math|n<rsub|int>=n<rsub|chan>>) carries the
+  <with|font-series|bold|total source function toward the camera
+  direction>\Uthe emission seed and the scattering contribution folded
+  together.
+
+  <subsubsection|Emission seed>
+
+  On GPU init, the field is seeded with the line source function from the
+  local emissivity:
+
+  <\equation>
+    S<rsub|emiss>=<frac|j<rsub|emiss>|\<lambda\><rsub|sca,0><rsup|-1>\<sqrt|\<pi\>>
+    b<rsub|sca>>,
+  </equation>
+
+  where <math|j<rsub|emiss>=n<rsub|u>A<rsub|ul>/<around*|(|4\<pi\>|)>> is the
+  photon-number volume emissivity, <math|\<lambda\><rsub|sca,0><rsup|-1>=\<sigma\><rsub|0>n<rsub|lower>>
+  the line-center inverse scattering mean free path, and <math|b<rsub|sca>>
+  the Doppler broadening velocity. The <math|<sqrt|\<pi\>> b<rsub|sca>>
+  factor converts the frequency-integrated source function
+  (<math|j/\<lambda\><rsup|-1>>) to the frequency-dependent source function
+  <math|S<around*|(|v|)>=j<around*|(|v|)>/\<alpha\><around*|(|v|)>>, which is
+  frequency-independent for a two-level atom with CRD. This is applied to
+  every channel equally.
+
+  <subsubsection|Scattering accumulation>
+
+  During the MC, each path segment in cell <math|i> also adds the packet's
+  contribution to the scattering source function toward the camera:
+
+  <\eqnarray>
+    <tformat|<table|<row|<cell|<text|base>>|<cell|=>|<cell|<frac|\<cal-L\>
+    \<delta\>l|V><around*|(|1-\<mathd\>e<rsup|-\<delta\>\<tau\><rsub|e>>|)>/<around*|(|\<delta\>\<tau\><rsub|e>|)>\<cdot\><frac|1|4\<pi\>>>>|<row|<cell|s<rsub|cam><around*|[|i,k|]>>|<cell|+=>|<cell|<text|base>\<cdot\>R<rsub|IIA><around*|(|x<rsub|out>,<around*|\||x<rsub|pp>|\|>,g|)>/b<rsub|sca>>>>>
+  </eqnarray>
+
+  where <math|\<delta\>\<tau\><rsub|e>=\<delta\>l<around*|(|\<lambda\><rsub|sca,0><rsup|-1>+\<lambda\><rsub|abs><rsup|-1>|)>>
+  is the total extinction, <math|x<rsub|out>=<around*|(|v<rsub|chan,k>+<with|font-series|bold|d><rsub|cam>\<cdot\><with|font-series|bold|v>|)>/b<rsub|sca>>
+  the camera-resonant frequency offset, <math|x<rsub|pp>=<around*|(|\<Delta\>v+v<rsub|<around*|\||\<parallel\>|\|>>|)>/b<rsub|sca>>
+  the photon's own frequency offset, and <math|g=<with|font-series|bold|d><rsub|old>\<cdot\><with|font-series|bold|d><rsub|cam>>
+  the directional correlation.
+
+  The <with|font-series|bold|R_IIA kernel> <math|R<around*|(|x<rsub|out>;
+  x<rsub|pp>, g|)>> is the full angle-dependent frequency redistribution
+  kernel, precomputed at startup as a 3-D table (200\<times\>100\<times\>40 =
+  0.8 M floats in device global memory) from the USampler CDF. It correctly
+  captures the angle\Ufrequency correlation of R_IIA: the scattered frequency
+  depends on both the incoming frequency <math|x<rsub|pp>> and the scattering
+  angle <math|g>. The <math|1/b<rsub|sca>> factor converts from dimensionless
+  <math|x> to velocity-space density, with <math|<big|int>R
+  \<mathd\>x=1> (normalised).
+
+  <subsection|Camera and channel grid>
+
+  <math|dir_cam> (from <verbatim|dir_cam_theta>, <verbatim|dir_cam_phi>)
+  defines the line of sight <with|font-series|bold|pointing into the
+  domain>. The image plane is rotated into the domain frame by the
+  quaternion <math|q<rsub|cam>>. The velocity channel grid uses
+  <with|font-series|bold|bin centres>: <math|v<rsub|chan,k>=v<rsub|min>+<around*|(|k+0.5|)>\<delta\>v>,
+  <math|\<delta\>v=<around*|(|v<rsub|max>-v<rsub|min>|)>/n<rsub|chan>>.
+
+  <subsection|Step 2 --- Non-scattering ray tracing>
+
+  A second module integrates the transfer equation along each camera ray,
+  cell by cell, with the analytic solution of
+  <math|\<mathd\>I/\<mathd\>\<tau\>=-I+S> per cell:
+
+  <\eqnarray>
+    <tformat|<table|<row|<cell|\<alpha\><rsub|s>>|<cell|=>|<cell|\<lambda\><rsub|sca,0><rsup|-1>\<phi\><around*|(|v<rsub|cam>/b<rsub|sca>|)>>>|<row|<cell|\<alpha\><rsub|t>>|<cell|=>|<cell|\<alpha\><rsub|s>+\<lambda\><rsub|abs><rsup|-1>>>|<row|<cell|\<delta\>\<tau\>>|<cell|=>|<cell|\<alpha\><rsub|t>\<delta\>l>>|<row|<cell|S>|<cell|=>|<cell|<around*|(|\<alpha\><rsub|s>/\<alpha\><rsub|t>|)>s<rsub|cam><around*|[|i,k|]>>>|<row|<cell|I<rsub|k><rprime|'>>|<cell|=>|<cell|I<rsub|k>\<mathd\>e<rsup|-\<delta\>\<tau\>>+S<around*|(|1-\<mathd\>e<rsup|-\<delta\>\<tau\>>|)>>>>>
+  </eqnarray>
+
+  When the imaging integrator's Voigt table is not built
+  (<verbatim|build_tables=false> to avoid const-memory pool overflow), the
+  <math|\<phi\>> fallback blends Gaussian core with Lorentzian wing:
+  <math|H=max<around*|(|<text|exp><around*|(|-u<rsup|2>|)>,a/<around*|(|<sqrt|\<pi\>><around*|(|u<rsup|2>+a<rsup|2>|)>|)>|)>>,
+  essential for the Lorentzian wing at large frequency offsets.
+
+  <subsection|Validation>
+
+  The imaging module has been validated against Neufeld (1990) eq. (2.24)
+  for a plane-parallel scattering slab with isotropic midplane injection:
+
+  <\itemize>
+    <item><with|font-series|bold|Escaped photon spectrum>: the angle-averaged
+    emergent <math|<text|med>|x|> matches the golden values within 0.3% for
+    <math|\<tau\><rsub|0>=200, 500, 2000, 8000>.
+
+    <item><with|font-series|bold|Imaging spectrum>: the formal-transfer
+    double-peak <with|font-series|bold|moves outward> with increasing
+    <math|\<tau\><rsub|0>>, following the Neufeld
+    <math|<around*|(|a\<tau\><rsub|0>|)><rsup|1/3>> scaling:
+
+    <\equation>
+      \<tau\><rsub|0>=200\<rightarrow\>\<pm\>2.19,<space|1em>2000\<rightarrow\>\<pm\>5.31,<space|1em>8000\<rightarrow\>\<pm\>9.06<space|1em><around*|(|<text|Neufeld:|space>2.73,\\;5.89,\\;9.34|)>
+    </equation>
+
+    <item><with|font-series|bold|Thin-slab normalization>: the imaging cube
+    matches the analytic <math|I=j\<cdot\>L> to within 0.01% for optically
+    thin, non-absorbing slabs.
+  </itemize>
 
   \;
 
