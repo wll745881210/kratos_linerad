@@ -67,6 +67,7 @@ When installed, the same API is available as `from line_rt import LineRt, Transi
 | `docs/reference_mcrt/mcrt.py` | Reference Python MCRT (numba). ph_mode=1 uses USampler table-lookup R_IIA. `plot_neufeld.py` validates vs Neufeld (1990). |
 | `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py` | **Standalone Kratos regression test** (self-contained, no pipeline imports). Wide `aτ₀` sweep vs Neufeld eq (2.24) for ph_modes 1/2/3, golden med\|x\| table, PASS/FAIL exit code. Run: `python3 test_scaling_wide.py --kratos-root ~/apps/kratos_line_rt` |
 | `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_imaging_neufeld.py` | **Standalone imaging test** (inherits `test_scaling_wide.py` geometry). Validates imaging double-peak scaling vs Neufeld for ph_mode=2. Also runs escaped spectrum golden check. Run: `python3 test_imaging_neufeld.py --kratos-root ~/apps/kratos_line_rt` |
+| `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_image.py` | **Standalone imaging+escape scaling test** (self-contained). Sweeps `aτ₀`, compares imaging double-peak and escaped `med|x|`/`|x|_peak` vs Neufeld. Adaptive v_chan (3× Neufeld peak). Spectra PNG: Neufeld `J(x)` + Imaging `I(x)` + Escaped `F(x)` histogram with peak vlines. Run: `python3 test_scaling_image.py --kratos-root ~/apps/kratos_line_rt --plots` |
 | `~/apps/kratos_line_rt/` | Kratos build tree (symlinked to Seafile source) |
 | `~/scratch/line_rt/` | Historical runtime dir; new runs default to per-run subdirs under `/dev/shm/line_rt/`. `fiducial/` subdir holds reference test records. |
 
