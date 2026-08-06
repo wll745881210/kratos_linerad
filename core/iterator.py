@@ -254,12 +254,12 @@ def iterate( source_photons, species, fields_init, mesh, \
         # Line-dependent fields (mfp_i_sca_0, mfp_i_abs_0,
         # emiss) are written per cycle (populations evolve).
         # The emiss field is rescaled by proper_scale so that
-        # the emissivity seed (emiss/(mfp_i_sca*sqrt(pi)*b))
-        # carried by st_cam lives in the same scaled-proper
+        # the emission seed (emiss/(mfp_i_sca*sqrt(pi)*b))
+        # carried by s_cam lives in the same scaled-proper
         # units as the scattering part accumulated from the
         # (scaled) photon propers.  Photon propers in the
         # binary are already multiplied by proper_scale, so the
-        # scattering st_cam is in scaled units.  The emissivity
+        # scattering s_cam is in scaled units.  The emissivity
         # seed must therefore also be multiplied by
         # proper_scale to match.  Both are then divided by
         # scale_factor on readback.  Work on a copy so the
@@ -377,9 +377,9 @@ scale = %.3e" % ( proper_scale, \
                 if n_chan > 0 and \
                    l_flat.size == n_pix * n_chan:
                     cube = l_flat.reshape( n_pix, n_chan );
-                    # Undo proper scaling: st_cam is a sum of
+                    # Undo proper scaling: s_cam is a sum of
                     # scaled photon propers (scattering part)
-                    # plus an emissivity seed built from the
+                    # plus an emission seed built from the
                     # equally-scaled emiss field.  Both carry
                     # the same scale_factor.
                     cube = cube / scale_factor;

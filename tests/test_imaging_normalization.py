@@ -232,7 +232,7 @@ def test_imaging_absorbing_slab( ):
     """Absorbing slab: absorption is a pure sink (no B_nu emission).
 
     With thin scattering (tau_sca << 1) and thick absorption
-    (tau_abs >> 1), the emissivity seed dominates and:
+    (tau_abs >> 1), the emission seed dominates and:
       I(0) = (alpha_s/alpha_t) * S_emiss * (1 - exp(-alpha_t * L))
     """
     _run_or_skip( );
