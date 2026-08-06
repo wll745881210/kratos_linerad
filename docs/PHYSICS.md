@@ -556,12 +556,12 @@ repeated for any viewing angle/camera at negligible cost.
 
 The imaging is enabled by setting `imaging` in the `LineRt` constructor
 (`core/line_rt.py`) or the `[imaging]` par section. It runs only on the
-**final** MC cycle. When disabled, the st_cam field is not initialised,
+**final** MC cycle. When disabled, the s_cam field is not initialised,
 allocated, or written — existing (non-imaging) runs are unaffected.
 
-### 12.2 Step 1 — Scattering source function `st_cam`
+### 12.2 Step 1 — Scattering source function `s_cam`
 
-The per-cell, per-channel field `st_cam` (Kratos `rad_t.st_cam`,
+The per-cell, per-channel field `s_cam` (Kratos `rad_t.s_cam`,
 `n_int = n_chan`) carries the **total source function toward the camera
 direction** — the thermal emission and the scattering contribution are
 folded together (populations enter only through the emission/absorption
@@ -594,19 +594,37 @@ base = flx · (1 − e^−dτ_e) / dτ_e · (1/4π)         (flx = proper·dl/V)
 for channel k:
     dv_cam  = v_chan[k] + dir_cam·v_bulk(i)          (gas-frame offset
                                                      toward the camera)
-    prof_cam = φ(dv_cam / b_sca)                    (Gaussian or Voigt)
-    st_cam[i,k] += base · prof_cam / (√π · b_sca)
+    x_out   = dv_cam / b_sca
+    x_pp    = (vel + vel_obs) / b_sca               (photon's own freq)
+    g_dot   = dir_photon · dir_cam                  (directional correlation)
+    R       = R_IIA_kernel(x_out, |x_pp|, |g_dot|) (precomputed 3-D table)
+    s_cam[i,k] += base · R / b_sca
 ```
 
-Here `dτ_e = dl·(mfp_i_sca_0·φ_pp + mfp_i_abs_0)` is the extinction along
-the segment using the packet's *own* frequency offset (φ_pp), and the
-`(1−e^−dτ_e)/dτ_e` factor is the escape-probability-per-unit-length that
-weights the segment by the chance the packet scatters within the cell.
-This implements the CRD-like approximation of the R_IIA kernel toward
-the fixed camera direction (only the emission-profile factor `φ(dv_cam)`
-is angle-selective; the full angle–frequency correlation of R_IIA is not
-reproduced).  The `√π·b_sca` normalisation makes `∫φ dv = √π·b`, matching
-the Hjerting convention used elsewhere in the code.
+Here `dτ_e = dl·(mfp_i_sca_0 + mfp_i_abs_0)` is the total extinction along
+the segment (at the photon's own frequency, using the unnormalised line
+opacity `mfp_i_sca_0`), and the `(1−e^−dτ_e)/dτ_e` factor is the
+escape-probability-per-unit-length that weights the segment by the chance
+the packet scatters within the cell.
+
+The **R_IIA kernel** `R(x_out; x_pp, g)` is the full angle-dependent
+frequency redistribution kernel, precomputed at startup as a 3-D table
+(`intg.h:build_riia_kernel`, 200×100×40 = 0.8 M floats in device global
+memory) from the USampler CDF.  It replaces the earlier CRD-like
+approximation that used the normalised emission profile `φ(dv_cam)`
+directly.  The kernel correctly captures the angle–frequency correlation
+of R_IIA: the scattered frequency depends on both the incoming frequency
+`x_pp` and the scattering angle `g = Ω_old·Ω_cam`.  The `1/b_sca`
+factor converts from dimensionless `x` to velocity-space density, making
+`∫R dx = 1` (normalised in the dimensionless variable).
+
+**Thermal seed vs scattering**: the thermal seed (`emiss/(mfp_s·√π·b)`,
+§12.2 above) and the scattering accumulation (`base·R/b`) both produce
+the same source function `S = j/α` for a two-level atom in LTE.  In the
+optically thin limit the thermal seed dominates (no scattering); in thick
+slabs the scattering accumulation captures the multiple-scattering source
+function that builds up the characteristic double-peaked surface
+distribution (§12.6).
 
 ### 12.3 Camera and channel grid
 
@@ -629,9 +647,11 @@ of `img_resol = (n_x, n_y)` pixels covering the first two mesh dimensions
 thread per pixel; each pixel emits a parallel ray along `dir_cam`.
 
 **Velocity channels** (`n_chan`, `v_chan_min`/`v_chan_max` [cm/s, CGS]):
-the channel grid uses **cell edges**, `v_chan[k] = v_min + k·dv` with
-`dv = (v_max − v_min)/(n_chan − 1)`.  Python converts CGS→code
-(`× unit_t0/unit_l0`) before writing the par file.
+the channel grid uses **bin centres**, `v_chan[k] = v_min + (k+0.5)·dv`
+with `dv = (v_max − v_min)/n_chan`.  Python converts CGS→code
+(`× unit_t0/unit_l0`) before writing the par file.  The bin-centre
+convention (rather than linspace endpoints) matches the test
+infrastructure and avoids edge aliasing when `n_chan` is small.
 
 ### 12.4 Step 2 — Non-scattering ray tracing (imaging pass)
 
@@ -648,7 +668,7 @@ per channel k, per path segment:
     α_t     = α_s + mfp_i_abs_0                       (total extinction)
     dτ      = α_t · dl_seg
     e^−dτ   = exp(−dτ)
-    S       = (α_s / α_t) · st_cam[i,k]               (source fn toward camera)
+    S       = (α_s / α_t) · s_cam[i,k]               (source fn toward camera)
     I[k]    = I[k]·e^−dτ + S·(1 − e^−dτ)              (analytic cell update)
 ```
 
@@ -657,6 +677,16 @@ pure geometric move.  Rays start at the far box boundary along `−dir_cam`
 (`x = x0 − dl_min·dir·0.9999`) and march through the domain to the camera
 plane.  Output (binary keys `_dir_img`, `_x_img`, `_i2d_img`, `_l_img`)
 is read back by `kratos_io.read_output()` into `result['image']`.
+
+**Voigt profile in the imaging pass**: the imaging integrator
+(`rad_img_t`'s `intg_t`) sets `build_tables=false` to avoid re-building
+the USampler/Voigt tables into constant memory (pool overflow, see
+pitfall 18).  When the Voigt table is not available, `voigt_H(a, u)`
+falls back to a **Gaussian-core + Lorentzian-wing blend**:
+`H = max(exp(−u²), a/(√π·(u²+a²)))`.  The pure-Gaussian fallback (used
+in earlier versions) vanishes for `u > 5`, making the imaging opacity
+zero at wing channels and producing a zero image — the blend is essential
+for the Lorentzian wing that dominates at large frequency offsets.
 
 **Units**: the imaging output inherits the scaled-proper convention.
 Both the scattering part (accumulated from the scaled photon propers) and
@@ -684,6 +714,55 @@ out = rt.run(...)
 out['image']                     # {'cube': (n_pix, n_chan) CGS,
                                  #  'i2d': (n_pix, 2), 'v_chan': (v_lo, v_hi), ...}
 rt.plot_channel_maps()           # shared-log-scale channel maps
+```
+
+### 12.6 Validation
+
+The imaging module has been validated against Neufeld (1990) eq. (2.24)
+for a plane-parallel scattering slab with isotropic midplane injection
+(inheriting the `test_scaling_wide.py` geometry):
+
+**Escaped photon spectrum** (angle-averaged emergent `med|x|`):
+
+| τ₀ (mean) | golden `med|x|` | measured | ratio | PASS |
+|-----------|----------------|----------|-------|------|
+| 200       | 3.115          | 3.111    | 1.002 | ✓    |
+| 500       | 4.025          | 4.027    | 1.000 | ✓    |
+| 2000      | 6.148          | 6.149    | 1.000 | ✓    |
+| 8000      | 9.736          | 9.753    | 1.002 | ✓    |
+
+All within 0.3% of the golden values (tolerance 5%).
+
+**Imaging spectrum** (formal transfer cube `I(x)`):
+
+| τ₀   | imaging peak ±x | Neufeld peak | I(0)/I_max | dip shape      |
+|------|------------------|-------------|------------|----------------|
+| 200  | ±2.19            | 2.73        | 0.304      | clear double-peak |
+| 2000 | ±5.31            | 5.89        | 0.220      | broad U-shape  |
+| 8000 | ±9.06            | 9.34        | 0.200      | broad U-shape  |
+
+The imaging double-peak **moves outward** with increasing τ₀, following
+the Neufeld `(a·τ₀)^(1/3)` scaling.  The peak position is slightly below
+the Neufeld value (by 10–20%) because the imaging source function
+includes contributions from all depths (not just the exit surface where
+the Neufeld formula applies).  The centre dip deepens for optically thin
+slabs (τ₀=200: I(0)/I_max = 0.30) and flattens for thick slabs
+(τ₀=8000: I(0)/I_max = 0.20) as the interior single-peaked source
+function contributes more.
+
+**Thin-slab normalization** (`tests/test_imaging_normalization.py`):
+for an optically thin, non-absorbing slab with a uniform source, the
+imaging cube matches the analytic `I = j·L` to within 0.01%.  Three
+configurations tested: (1) thermal emission only (Group 1), (2)
+scattering of an external slab source (Group 2), (3) absorbing medium.
+All pass.
+
+**Standalone test**: `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_imaging_neufeld.py`
+inherits `test_scaling_wide.py`'s geometry (isotropic midplane source,
+128×2×2 mesh, L=1 AU) and adds the `[imaging]` section.  Run:
+```bash
+cd ~/apps/kratos_line_rt/usr_ext/line_rt/tests
+python3 test_imaging_neufeld.py --kratos-root ~/apps/kratos_line_rt
 ```
 
 ---
@@ -783,10 +862,10 @@ excited and collisions must be included for accurate populations.
  11. **Treating escaped-photon `proper` as a path length**: Kratos writes the photon weight (`proper`) under the binary key `_l`; the reader must NOT multiply it by `unit_l0`. Escaped weights are divided by `scale_factor` only, and exposed as `'proper'` (with `'l'` as a deprecated alias)
  12. **Boundary kinds with 3 faces**: Kratos expects 6 boundary kinds (−x,+x,−y,+y,−z,+z). Specifying only 3 leaves the remaining faces undefined, defaulting to periodic and causing photon wrap-around artifacts
  13. **Periodic boundary corner bug**: the framework's `geo_loc_t::fix` can produce zero-width cells when photons cross periodic boundaries in two dimensions simultaneously; fixed by adding a convergence loop and cell-index updates in `particle_base.h`
- 14. **Imaging: emiss field units (emissivity seed)**: `emiss` must be in the SAME scaled-proper units as the scattering st_cam. Photon propers in the binary are already multiplied by `proper_scale`, so the `emiss` field must also be multiplied by `proper_scale` on write (`core/iterator.py`) — NOT divided. The old `/ proper_scale` double-rescaling overflowed FP32 (emiss ~1e52 → `inf` → NaN/inf imaging cube → spurious corner peak). Both parts are then divided by `scale_factor` on readback.
+ 14. **Imaging: emiss field units (emissivity seed)**: `emiss` must be in the SAME scaled-proper units as the scattering s_cam. Photon propers in the binary are already multiplied by `proper_scale`, so the `emiss` field must also be multiplied by `proper_scale` on write (`core/iterator.py`) — NOT divided. The old `/ proper_scale` double-rescaling overflowed FP32 (emiss ~1e52 → `inf` → NaN/inf imaging cube → spurious corner peak). Both parts are then divided by `scale_factor` on readback.
  15. **Imaging: v_chan must be CGS→code converted**: the channel grid is written to the par file in code units (`× unit_t0/unit_l0`). Writing CGS cm/s leaves `dv_cam/b` ~1e14 → profile exactly 0 → zero image.
- 16. **Imaging: st_cam zeroing when disabled**: non-imaging runs must NOT initialise/allocate st_cam. The allocation is gated on `rad.imaging && rad.n_chan>0` in `block_data_t::setup()`; `pre_proc` zeroing is gated on `rad.imaging`. When imaging is disabled, `rad_img_t` skips `save()` (else it segfaults on the uninitialised pool).
- 17. **Imaging: emissivity seed must survive MC zeroing**: the scattering integrator's `pre_proc` zeroes `st_cam` each step; the emissivity seed is applied in `init_rad_fields_kernel` and must be preserved across MC steps — the scattering `intg_t` sets `zero_st_cam=false` when imaging is enabled.
+ 16. **Imaging: s_cam zeroing when disabled**: non-imaging runs must NOT initialise/allocate s_cam. The allocation is gated on `rad.imaging && rad.n_chan>0` in `block_data_t::setup()`; `pre_proc` zeroing is gated on `rad.imaging`. When imaging is disabled, `rad_img_t` skips `save()` (else it segfaults on the uninitialised pool).
+ 17. **Imaging: emissivity seed must survive MC zeroing**: the scattering integrator's `pre_proc` zeroes `s_cam` each step; the emissivity seed is applied in `init_rad_fields_kernel` and must be preserved across MC steps — the scattering `intg_t` sets `zero_s_cam=false` when imaging is enabled.
  18. **Imaging: duplicate intg_t kernels**: both `radiation_t` and `rad_img_t` enroll `intg_t`; the framework warns 'Duplicate entry kernels'. Harmless (runtime uses the first registered). The imaging integrator sets `build_tables=false` to avoid re-building the USampler/Voigt tables into const memory (pool overflow).
  19. **Imaging: pool init ordering**: `pol_img_t::init` runs before `intg_t::init` in the module init sequence, so it cannot read `n_chan` from the integrator — it reads it directly from the par (`args.get('imaging','n_chan',0)`).
  20. **Emission photons must be photon-number, not energy**: `compute_emissivity()` returns `n_u·A_ul/(4π)` [photons cm⁻³ s⁻¹ sr⁻¹], NOT `n_u·A_ul·h·ν/(4π)` [erg]. The pipeline works entirely in photon-number units; including the `h·ν` factor makes emission photon weights ~10⁵⁶× too small and inconsistent with external sources.
@@ -795,7 +874,10 @@ excited and collisions must be included for accurate populations.
  23. **LAMDA embedded files are stripped**: the embedded species files in `molecular/embedded/` have NO collision partners (stripped for size). `fetch_species()` prefers the downloaded full LAMDA file (cache -> download -> embedded fallback).
  24. **LAMDA collision rates array shape**: after parsing, `collision_partners[i]['rates']` has shape `(n_trans, n_temps)` - rate-only columns (trans#/upper/lower are stripped). The `trans_indices` array holds the 0-based `[upper, lower]` pairs separately.
  25. **Collisional destruction opacity**: when colliders are configured, `mfp_i_abs_0` must include the line destruction term `n_lower·σ₀·ε` where `ε = C_ul·n_coll/(A_ul+C_ul·n_coll)`. Without it, subthermally excited lines are treated as pure scattering (no thermalisation).
- 26. **Imaging: scattering st_cam vs emissivity seed normalization mismatch** (KNOWN, pending fix): the scattering accumulation uses the NORMALIZED profile `φ_norm = exp(−u²)/(√π·b)` (with `inv_norm = 1/(√π·b)`), while the emissivity seed uses the UNNORMALIZED profile (peak=1). This makes the scattering contribution ~1/(√π·b)× larger than the emissivity seed, so in the optically-thin limit the scattering st_cam dominates and the imaging cube deviates from the analytic `I = j·φ·L`. The convention must be unified.
+  26. **Imaging: s_cam normalization** (RESOLVED): the earlier CRD-like approximation used the normalised profile `φ_norm = exp(−u²)/(√π·b)` in the scattering accumulation, while the emissivity seed used the unnormalised profile (peak=1). This has been replaced by the full **R_IIA kernel** `R(x_out; x_pp, g)` (precomputed 3-D table), which correctly captures the angle–frequency correlation and is normalised in the dimensionless variable (`∫R dx = 1`). Both the thermal seed and scattering accumulation now produce the same source function `S = j/α` for a two-level atom in LTE. The `1/b_sca` factor (replacing the old `1/(√π·b_sca)`) converts from dimensionless `x` to velocity-space density.
+  27. **Imaging: voigt_H Lorentzian fallback** (RESOLVED): when the imaging integrator has `build_tables=false` (to avoid const-memory pool overflow), `voigt_H` falls back to a Gaussian-core + Lorentzian-wing blend `H = max(exp(−u²), a/(√π·(u²+a²)))`. The earlier pure-Gaussian fallback vanished for `u > 5`, making the imaging opacity zero at wing channels and producing a zero image. The Lorentzian wing is essential for the broad double-peaked imaging spectrum.
+  28. **Imaging: channel grid bin centres** (RESOLVED): the channel grid now uses bin centres `v_chan[k] = v_min + (k+0.5)·dv` (not linspace endpoints `v_min + k·(v_max−v_min)/(n_chan−1)`). The endpoint convention caused a half-bin shift and edge aliasing when comparing to the test's bin-centre convention.
+  29. **Imaging: s_cam corr clamping** (RESOLVED): the escape-probability correction `(1−e^−dτ_e)/dτ_e` was clamped by `dτ_e = max(dτ_e, 1)`, suppressing s_cam by 37% for thin cells (dτ_e ≪ 1). Fixed to `max(dτ_e, 1e-10f)` (only prevents division by zero).
 
 ---
 

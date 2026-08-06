@@ -66,6 +66,7 @@ When installed, the same API is available as `from line_rt import LineRt, Transi
 | `tests/archived_tests/` | Archived standalone test scripts (moved from `docs/archived_tests/`) |
 | `docs/reference_mcrt/mcrt.py` | Reference Python MCRT (numba). ph_mode=1 uses USampler table-lookup R_IIA. `plot_neufeld.py` validates vs Neufeld (1990). |
 | `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_scaling_wide.py` | **Standalone Kratos regression test** (self-contained, no pipeline imports). Wide `aτ₀` sweep vs Neufeld eq (2.24) for ph_modes 1/2/3, golden med\|x\| table, PASS/FAIL exit code. Run: `python3 test_scaling_wide.py --kratos-root ~/apps/kratos_line_rt` |
+| `~/apps/kratos_line_rt/usr_ext/line_rt/tests/test_imaging_neufeld.py` | **Standalone imaging test** (inherits `test_scaling_wide.py` geometry). Validates imaging double-peak scaling vs Neufeld for ph_mode=2. Also runs escaped spectrum golden check. Run: `python3 test_imaging_neufeld.py --kratos-root ~/apps/kratos_line_rt` |
 | `~/apps/kratos_line_rt/` | Kratos build tree (symlinked to Seafile source) |
 | `~/scratch/line_rt/` | Historical runtime dir; new runs default to per-run subdirs under `/dev/shm/line_rt/`. `fiducial/` subdir holds reference test records. |
 
@@ -130,7 +131,7 @@ a_voigt          = 0.0        # Voigt damping parameter (0 = pure Gaussian)
 - `field_fixed_file` (line-independent): `b_sca`, `vel_0..2` - depend only on the gas (bulk velocity, thermal temperature, molecular weight), fixed across lines. Written once per simulation.
 - If `field_fixed_file` is omitted, Kratos falls back to reading `b_sca`/`vel` from `field_file` (backward compatibility).
 
-**Imaging (two-step, runs on the FINAL cycle only):** the `[imaging]` section controls the camera + channel grid. When `enabled=0` (default) the st_cam field is neither allocated nor initialised — non-imaging runs are unaffected.
+**Imaging (two-step, runs on the FINAL cycle only):** the `[imaging]` section controls the camera + channel grid. When `enabled=0` (default) the s_cam field is neither allocated nor initialised — non-imaging runs are unaffected. The imaging uses the full **R_IIA kernel** (precomputed 3-D table, `intg.h:build_riia_kernel`) for the scattering source function toward the camera, correctly capturing the angle–frequency correlation (see `docs/PHYSICS.md` §12.2, §12.6).
 
 ```ini
 [imaging]
@@ -220,16 +221,16 @@ make clean && make USRDIR=usr_ext/line_rt -j8
 
 | File | Role |
 |------|------|
-| `usr_ext/line_rt/radiation.h` | Field I/O, `init_cond` (GPU kernel), `ini_t` (interp tables, `to_device`/`free_device`), imaging emissivity seed (`st_cam = emiss/(mfp_i_sca_0·√π·b_sca)`) |
-| `usr_ext/line_rt/photon.h` | `proc_geo` (scattering physics), `proc_phys` (excitation + st_cam scattering accumulation) |
+| `usr_ext/line_rt/radiation.h` | Field I/O, `init_cond` (GPU kernel), `ini_t` (interp tables, `to_device`/`free_device`), imaging emissivity seed (`s_cam = emiss/(mfp_i_sca_0·√π·b_sca)`) |
+| `usr_ext/line_rt/photon.h` | `proc_geo` (scattering physics), `proc_phys` (excitation + s_cam scattering accumulation via R_IIA kernel) |
 | `usr_ext/line_rt/photon_img.h` | `line_img_t` imaging photon: per-channel analytic RT integration, pixel ray setup |
 | `usr_ext/line_rt/rad_img.h` | `rad_img_t` imaging module (parasite of `radiation_t`), `enabled` gate |
 | `usr_ext/line_rt/pool_img.h` / `.cpp` | `pol_img_t` imaging output writing (`_dir_img`, `_x_img`, `_i2d_img`, `_l_img`) |
 | `usr_ext/line_rt/photon_gen_img.h` / `.cpp` | `gen_img_t` pixel generation (one ray per image-plane pixel) |
 | `usr_ext/line_rt/pool.h` | Escaped photon output writing |
 | `usr_ext/line_rt/gen.h` | Photon generation from binary |
-| `usr_ext/line_rt/intg.h` | Integrator parameters, camera (`dir_cam`, `q_cam`), channel grid (`d_v_chan`), Voigt interpolation table |
-| `usr_ext/line_rt/block_data.h` | `rad_t` struct (incl. `st_cam`, `emiss`, `imaging`, `n_chan`), block I/O (`copy_input` blank, `copy_output` device->host) |
+| `usr_ext/line_rt/intg.h` | Integrator parameters, camera (`dir_cam`, `q_cam`), channel grid (`d_v_chan`), Voigt interpolation table, R_IIA kernel table (`build_riia_kernel`, 200×100×40, device global mem) |
+| `usr_ext/line_rt/block_data.h` | `rad_t` struct (incl. `s_cam`, `emiss`, `imaging`, `n_chan`), block I/O (`copy_input` blank, `copy_output` device->host) |
 | `usr_ext/line_rt/line_rt.h` | Profile functions (b_sca only) |
 
 ### GPU field initialization (Task 1)
@@ -436,6 +437,9 @@ Full research record: `~/scratch/line_rt/fiducial/neufeld_test.md`
 
 29. **Memory: /dev/shm is tmpfs = RAM; results hold every cycle's arrays.** Per-cycle binaries (`fields_cycleN.bin`, `photons_cycleN.bin`, `cycleN_00000.bin`, `cycleN.par`, `cycleN.txt`) accumulate in the run dir under `/dev/shm/line_rt/` — plus the returned `results` list keeps every cycle's full arrays. **Defaults are now memory-friendly**: `keep_intermediate=False` by default (`LineRt` / `iterate(...)` / `run_pipeline(...)` / CLI), so each cycle's files are deleted as soon as their data is read back into RAM (fixed fields + final cycle kept), and `LineRt.run()` with an auto-created run dir removes the whole directory afterwards — including on a **crashed/interrupted run** (the cleanup is `try/except`-guarded). An explicit `path=` is never touched. Use `keep_intermediate=True` (`--keep-intermediate`) to keep every per-cycle file. In addition, before every auto-created run `LineRt.run()` prunes the scratch root: `rt_*` dirs older than `max_run_age` (default 3 h) are deleted, and if the total size of `rt_*` dirs exceeds `size_cap` (default 4 GB) the oldest dirs are removed until under the cap. Both are configurable: `LineRt(max_run_age=..., size_cap=...)`, `--max-run-age <sec>` / `--size-cap <bytes>` on the CLI (pass 0 to disable either); `prune_scratch(max_run_age, size_cap, base)` in `core/pipeline.py` runs the logic standalone. Use `retain_cycles=N` (`LineRt(retain_cycles=N)` / `--retain-cycles`) to keep only the last N cycle dicts in `out['results']`. Stored output fields (`flx`, `exc_flux_flat`) are float32 (Kratos already produces float32 binaries; nothing is lost vs float64).
 
-30. **Imaging: `emiss` field must be scaled by `proper_scale` (NOT `/ proper_scale`).** `core/iterator.py` rescales the emiss field by `× proper_scale` on write so the emissivity seed (`st_cam = emiss/(mfp_i_sca_0·√π·b_sca)`) lives in the same scaled-proper units as the scattering st_cam (photon propers in the binary are already multiplied by `proper_scale`). The `√π·b_sca` factor converts the frequency-integrated source function to the frequency-dependent `S(v)=j(v)/α(v)`. The old `/ proper_scale` double-rescaling overflowed FP32 → `inf` emiss → NaN/inf imaging cube → spurious corner peak. Readback divides the cube by `scale_factor` and converts to CGS intensity (`÷ unit_l0³·unit_t0`, `l³` because `I(v)` has units [ph cm⁻³ sr⁻¹]). See `docs/PHYSICS.md` §12.
+30. **Imaging: `emiss` field must be scaled by `proper_scale` (NOT `/ proper_scale`).** `core/iterator.py` rescales the emiss field by `× proper_scale` on write so the emissivity seed (`s_cam = emiss/(mfp_i_sca_0·√π·b_sca)`) lives in the same scaled-proper units as the scattering s_cam (photon propers in the binary are already multiplied by `proper_scale`). The `√π·b_sca` factor converts the frequency-integrated source function to the frequency-dependent `S(v)=j(v)/α(v)`. The old `/ proper_scale` double-rescaling overflowed FP32 → `inf` emiss → NaN/inf imaging cube → spurious corner peak. Readback divides the cube by `scale_factor` and converts to CGS intensity (`÷ unit_l0³·unit_t0`, `l³` because `I(v)` has units [ph cm⁻³ sr⁻¹]). See `docs/PHYSICS.md` §12.
 
 31. **Imaging: pass `x_min`/`x_max` in CODE units to `LineRt`.** `_cell_centers_cgs` multiplies the mesh coords by `unit_l0`, so passing CGS (e.g. `-5*AU`) makes all callable inputs ~1e13× too large — field callables return their fallback everywhere (constant mfp, zero emiss) → zero image. Use plain code units (`x_min=(-5,-5,-5)`) and give `unit_l0=AU` separately.
+32. **Imaging: voigt_H Lorentzian fallback** (RESOLVED): the imaging integrator has `build_tables=false` (const-memory pool overflow, see pitfall 18). The `voigt_H` fallback blends Gaussian core with Lorentzian wing: `H = max(exp(−u²), a/(√π·(u²+a²)))`. The old pure-Gaussian fallback vanished for `u > 5` → zero imaging opacity at wing channels → zero image. See `docs/PHYSICS.md` §12.4.
+33. **Imaging: channel grid bin centres** (RESOLVED): the channel grid now uses bin centres `v_chan[k] = v_min + (k+0.5)·dv` (not linspace endpoints). The endpoint convention caused a half-bin shift vs the test's bin-centre convention.
+34. **Imaging: s_cam corr clamping** (RESOLVED): `(1−e^−dτ_e)/dτ_e` was clamped by `max(dτ_e, 1)` (37% suppression for thin cells). Fixed to `max(dτ_e, 1e-10f)`.
