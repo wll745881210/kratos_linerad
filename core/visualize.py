@@ -712,7 +712,8 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
         print( 'plot_channel_maps: no image cube in results' );
         return None, None;
 
-    cube  = asarray( img[ 'cube' ], dtype = float64 );  # (n_pix,nch)
+    cube  = asarray( img.get( 'cube_cgs', img[ 'cube' ] ),
+                     dtype = float64 );  # (n_pix,nch) CGS
     i2d   = asarray( img[ 'i2d' ], dtype = int32 );
     nch   = int( img.get( 'n_chan', cube.shape[ 1 ] ) );
 
@@ -809,7 +810,8 @@ def plot_channel_maps( results, channels = None, n_cols = 6, \
     last_row, last_col = divmod( n_pan - 1, ncols );
     divider = make_axes_locatable( axes[ last_row, last_col ] );
     cax = divider.append_axes( 'right', size = '4%', pad = 0.08 );
-    fig.colorbar( im, cax = cax, label = 'intensity [CGS]',
+    fig.colorbar( im, cax = cax,
+                  label = r'intensity [photons cm$^{-2}$ s$^{-1}$ sr$^{-1}$]',
                   extend = 'min' );
 
     if transition_info is not None:

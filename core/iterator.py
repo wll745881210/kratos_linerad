@@ -392,19 +392,14 @@ scale = %.3e" % ( proper_scale, \
                     if imaging_pars is not None and \
                        '_v_chan_cgs' in imaging_pars:
                         img[ 'v_chan' ] = imaging_pars[ '_v_chan_cgs' ];
-                    # Convert code-unit intensity to CGS
-                    # Imaging intensity I(v) has units
-                    # [photons cm^-2 s^-1 sr^-1 per (cm/s)] =
-                    # [photons cm^-3 sr^-1] (per unit velocity).
-                    # In code units this is
-                    # [photons code_l^-3 sr^-1] (code_t cancels:
-                    # emiss has l^3*t, mfp has l^-1, b has t/l,
-                    # so S = emiss/(mfp*b) has l^3*t/(l^-1*t/l) =
-                    # l^3; dI = S*dtau = l^3 * l^-1*l = l^3).  The
-                    # conversion factor is 1/(unit_l0^3 * unit_t0)
-                    # — NOT 1/(unit_l0^2*unit_t0) which was used
-                    # for the fluence (flx) convention.
-                    i_conv = 1.0 / ( unit_l0 ** 3 * unit_t0 );
+                    # Convert code-unit intensity to CGS.
+                    # I(v) = [photons cm^-2 s^-1 sr^-1] (specific
+                    # intensity per velocity channel).
+                    # S = emiss/(mfp*b): emiss ~ l^3*t, mfp ~ l^-1,
+                    # b ~ t/l, so S ~ l^3 (t cancels).  dI = S*dtau
+                    # (dtau dimensionless), so I ~ l^3.  The t0 in
+                    # emiss and b cancel, leaving only l^3.
+                    i_conv = 1.0 / ( unit_l0 ** 3 );
                     img[ 'cube_cgs' ] = ( cube * i_conv ) \
                                          .astype( float32 );
 
