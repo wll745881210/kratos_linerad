@@ -86,22 +86,37 @@ geometry allowing escape in 6 directions (not just 2 as in a slab).
 
 | Configuration | Kratos GPU (s) | SKIRT CPU (s) | Speedup |
 |---------------|---------------|---------------|---------|
-| τ₀=10³, no imaging | 0.14 | 6.2 | 44× |
-| τ₀=10³, with imaging | 0.54 | 5.7 | 11× |
-| τ₀=10⁴, no imaging | 0.55 | 5.7 | 10× |
+| τ₀=10³, no imaging | 0.14 | 5.8 ± 0.2 | 41× |
+| τ₀=10³, with imaging | 0.54 | 5.8 ± 0.2 | 11× |
+| τ₀=10⁴, no imaging | 0.55 | 5.8 | 11× |
 
 Notes:
 - **Kratos timing** = internal GPU timer (excludes Python I/O ~8 s).
-- **SKIRT timing** = total run time (includes C++ setup).
+- **SKIRT timing** = total run time (3 repeats, mean ± std). The SED
+  instrument overhead is negligible (5.8 ± 0.2 s for both 2-bin and
+  200-bin SED — the instrument just bins escaping photons, O(N)).
 - **Kratos imaging** = 2D channel maps (32×32 pixels × 32 velocity
   channels). Imaging overhead = 0.40 s (281%) due to default 32×32
   pixel grid (1024 rays × 32 channels × per-cell Voigt evaluation).
   Setting `img_resol=(8,8)` reduces this to 64 rays (requires fixing
   the par template `img_resol` key — currently silently dropped).
-- **SKIRT instrument** = 1D SED (200 wavelength bins). Overhead
-  negligible (5.7 vs 6.2 s for 200-bin vs 2-bin).
 - At τ₀=10⁴, MCRT work increases 4× (0.14→0.55 s) but SKIRT time is
-  unchanged (~5.7 s), suggesting SKIRT startup dominates.
+  unchanged (~5.8 s), suggesting SKIRT startup dominates.
+
+### SNR comparison
+
+| Approach | Output bins | SNR per bin | Spectral SNR | Mechanism |
+|----------|------------|-------------|-------------|-----------|
+| Our imaging (2D × chan) | 32768 | 9.5 / pixel | 304 | s_cam MC estimate (all segments) |
+| SKIRT SED (1D spectrum) | 196 | 14.3 avg, 62.3 peak | 14.3 | Poisson counting (escaped only) |
+
+Our imaging achieves **20× higher spectral SNR** (304 vs 14.3) when
+spatially averaged, because the s_cam source function uses ALL photon
+segments (~3.2M, including trapped photons that scatter many times),
+not just the 10⁵ escaped photons SKIRT counts. However, SKIRT has
+higher per-bin SNR because it produces fewer bins (200 vs 32768). The
+trade-off: our imaging yields 2D spatial channel maps (morphological
+information); SKIRT gives a 1D angle-averaged spectrum only.
 
 See `skirt/README.md` for SKIRT install steps and `.ski` configuration
 details.

@@ -101,9 +101,9 @@ prediction, consistent with the box geometry (6-direction escape vs
 
 | Configuration | Kratos GPU (s) | SKIRT CPU (s) | Speedup |
 |---------------|---------------|---------------|---------|
-| τ₀=10³, no imaging | 0.14 | 6.2 | 44× |
-| τ₀=10³, with imaging | 0.54 | 5.7 | 11× |
-| τ₀=10⁴, no imaging | 0.55 | 5.7 | 10× |
+| τ₀=10³, no imaging | 0.14 | 5.8 ± 0.2 | 41× |
+| τ₀=10³, with imaging | 0.54 | 5.8 ± 0.2 | 11× |
+| τ₀=10⁴, no imaging | 0.55 | 5.8 | 11× |
 
 **Hardware:** Kratos runs on NVIDIA RTX 3090 (82 SM, 24 GB VRAM).
 SKIRT runs on CPU with 16 threads.
@@ -111,14 +111,28 @@ SKIRT runs on CPU with 16 threads.
 **Timing notes:**
 - Kratos timing = internal GPU timer (from `cycle.cpp:163`,
   `Duration = X s`), excludes Python/IO overhead (~8 s wall).
-- SKIRT timing = total run time (from log
-  `Finished the run in X s`), includes C++ startup.
+- SKIRT timing = total run time (3 repeats, mean ± std). The SED
+  instrument overhead is negligible (5.8 ± 0.2 s for both 2-bin and
+  200-bin SED — the instrument just bins escaping photons, O(N)).
 - Kratos imaging overhead (0.40 s) is from the default 32×32 pixel
   grid (1024 rays × 32 channels). The `img_resol=(8,8)` override
   (64 rays) is silently dropped by `write_par_file` because
   `img_resol` is commented out in the par template.
-- SKIRT SED instrument overhead is negligible (5.7 vs 6.2 s for
-  200-bin vs 2-bin SED).
 - At τ₀=10⁴, Kratos MCRT time increases 4× (0.14→0.55 s) while
-  SKIRT stays at ~5.7 s, suggesting SKIRT startup dominates at these
+  SKIRT stays at ~5.8 s, suggesting SKIRT startup dominates at these
   scales.
+
+### SNR comparison
+
+| Approach | Output bins | SNR / bin | Spectral SNR | Mechanism |
+|----------|------------|-----------|-------------|-----------|
+| Our imaging (2D × chan) | 32768 | 9.5 / pixel | 304 | s_cam MC (all segments) |
+| SKIRT SED (1D) | 196 | 14.3 avg, 62.3 peak | 14.3 | Poisson (escaped only) |
+
+Our imaging achieves **20× higher spectral SNR** (304 vs 14.3) when
+spatially averaged, because the s_cam source function uses ALL photon
+segments (~3.2M, including trapped photons that scatter many times),
+not just the 10⁵ escaped photons SKIRT counts. SKIRT has higher
+per-bin SNR (fewer bins: 200 vs 32768) but produces 1D spectra only.
+The trade-off: our imaging yields 2D spatial channel maps
+(morphological information); SKIRT gives a 1D angle-averaged spectrum.

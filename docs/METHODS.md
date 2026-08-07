@@ -650,9 +650,21 @@ escaped spectra that don't match SKIRT's isotropic volume emission.
 
 | Configuration | Kratos GPU (s) | SKIRT CPU (s) | Speedup |
 |---------------|---------------|---------------|---------|
-| $\tau_0 = 10^3$, no imaging | 0.14 | 6.2 | 44× |
-| $\tau_0 = 10^3$, with imaging | 0.54 | 5.7 | 11× |
-| $\tau_0 = 10^4$, no imaging | 0.55 | 5.7 | 10× |
+| $\tau_0 = 10^3$, no imaging | 0.14 | 5.8 ± 0.2 | 41× |
+| $\tau_0 = 10^3$, with imaging | 0.54 | 5.8 ± 0.2 | 11× |
+| $\tau_0 = 10^4$, no imaging | 0.55 | 5.8 | 11× |
+
+**SNR comparison** (10⁵ photons, $\tau_0 = 10^3$):
+
+| Approach | Bins | SNR / bin | Spectral SNR | Mechanism |
+|----------|------|-----------|-------------|-----------|
+| Our imaging (2D × chan) | 32768 | 9.5 / pixel | 304 | s_cam MC (all segments) |
+| SKIRT SED (1D) | 196 | 14.3 avg | 14.3 | Poisson (escaped only) |
+
+Our imaging achieves 20× higher spectral SNR because the s_cam source
+function uses all photon segments ($\sim$3.2M, including trapped
+photons), not just the $10^5$ escaped photons SKIRT counts. SKIRT has
+higher per-bin SNR (fewer bins) but produces 1D spectra only.
 
 Kratos runs on NVIDIA RTX 3090 (82 SM); SKIRT on 16 CPU threads.
 
