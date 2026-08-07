@@ -141,10 +141,23 @@ SKIRT runs on CPU with 16 threads.
 
 ### SNR comparison
 
+**Definitions:**
+- **SNR per bin** = signal / noise. For MC estimates, noise ≈ √N_eff
+  where N_eff = effective number of independent samples in the bin.
+- **Spectral SNR** = per-bin SNR × √N_pixels (noise averages down
+  by √N when combining N independent pixels spatially).
+- For our imaging: N_eff ≈ (total photon path segments) /
+  (output bins). With ~3.2M segments / 32768 bins (32² × 32) ≈ 98,
+  per-pixel SNR ≈ √98 ≈ 9.9. Spectral SNR = 9.9 × √1024 ≈ 304.
+- For SKIRT SED: N_eff = escaped photon count per wavelength bin
+  (Poisson). With 10⁵ photons / 196 bins ≈ 510 avg, SNR ≈ √510 ≈ 22.6.
+  Measured 14.3 avg (non-uniform distribution) to 62.3 peak (line
+  center, more photons).
+
 | Approach | Output bins | SNR / bin | Spectral SNR | Mechanism |
 |----------|------------|-----------|-------------|-----------|
-| Our imaging (2D × chan) | 32768 | 9.5 / pixel | 304 | s_cam MC (all segments) |
-| SKIRT SED (1D) | 196 | 14.3 avg, 62.3 peak | 14.3 | Poisson (escaped only) |
+| Our imaging (2D × chan) | 32768 | 9.5 / pixel | 304 | s_cam MC (all ~3.2M segments) |
+| SKIRT SED (1D) | 196 | 14.3 avg, 62.3 peak | 14.3 | Poisson (10⁵ escaped only) |
 
 Our imaging achieves **20× higher spectral SNR** (304 vs 14.3) when
 spatially averaged, because the s_cam source function uses ALL photon

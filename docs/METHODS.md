@@ -664,6 +664,15 @@ I/O bottleneck.
 
 **SNR comparison** (10⁵ photons, $\tau_0 = 10^3$):
 
+*Definitions:* SNR per bin = signal / noise ≈ $\sqrt{N_{\mathrm{eff}}}$ where
+$N_{\mathrm{eff}}$ = effective independent samples per bin. Spectral
+SNR = per-bin SNR $\times \sqrt{N_{\mathrm{pixels}}}$ (spatial averaging
+reduces noise by $\sqrt{N}$). For our imaging: $N_{\mathrm{eff}} \approx$
+3.2M segments / 32768 bins ≈ 98, per-pixel SNR ≈ 9.9, spectral
+SNR ≈ $9.9 \times \sqrt{1024} \approx 304$. For SKIRT: $N_{\mathrm{eff}}$
+= escaped photon count per wavelength bin (Poisson), 10⁵ / 196 ≈ 510
+avg, SNR ≈ $\sqrt{510} \approx 22.6$ (measured 14.3 avg, 62.3 peak).
+
 | Approach | Bins | SNR / bin | Spectral SNR | Mechanism |
 |----------|------|-----------|-------------|-----------|
 | Our imaging (2D × chan) | 32768 | 9.5 / pixel | 304 | s_cam MC (all segments) |
