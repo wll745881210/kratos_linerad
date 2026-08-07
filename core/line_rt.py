@@ -143,12 +143,28 @@ class LineRt:
                   mfp_i_abs_0 = 0.0, vel = None, \
                   a_voigt = None, ph_mode = 0, n_step = 10000, \
                   n_scat = 10000, n_fld = 1, n_cycles = 1, \
+                  t_lim = None, \
                   path = None, visualize = True, n_emission_max = 10, \
                   colliders = None, snapshot = None, \
                   proper_scale = 1.0, keep_intermediate = False, \
                   retain_cycles = None, kratos_root = None, \
-                  imaging = None, max_run_age = None, size_cap = None ):
+                  imaging = None, max_run_age = None, size_cap = None, \
+                  worker_mode = False, proper_min_frac = 0.0 ):
         """
+        worker_mode : bool
+            When True, Kratos processes photons in 'server-worker' mode:
+            GPU workers fetch one photon at a time from a shared atomic
+            work counter until the pool is depleted (one persistent kernel
+            per step instead of one short kernel per photon).  Bit-identical
+            results to the default (each photon's RNG is seeded by its pool
+            index, not its thread id).
+        proper_min_frac : float
+            Proper-weight culling threshold (default 0 = off).  A photon is
+            culled once its weight drops below
+            `proper_min_frac * proper_0`, where `proper_0` is the weight it
+            was created with.  Culled photons are removed from further
+            evolution.  1e-4..1e-6 is a reasonable value for heavily
+            absorbing media.
         imaging : dict or None
             Camera configuration for line imaging.  When set, the
             final cycle runs an extra non-scattering ray-tracing
@@ -193,8 +209,11 @@ class LineRt:
         self._retain_cycles  = retain_cycles;
         self._kratos_root    = kratos_root;
         self._imaging        = imaging;
+        self._t_lim          = t_lim;
         self._max_run_age    = max_run_age;
         self._size_cap       = size_cap;
+        self._worker_mode    = bool( worker_mode );
+        self._proper_min_frac = float( proper_min_frac );
         self._sources        = [ ];
         self._boundary_kinds = 'fre fre fre fre fre fre';
         self._results        = None;
@@ -740,6 +759,13 @@ class LineRt:
         par_overrides = { 'kinds'   : self._boundary_kinds, \
                           'a_voigt' : str( float( a_voigt_val ) ), \
                           'n_fld'   : str( int( self._n_fld ) ) };
+        if self._worker_mode:
+            par_overrides[ 'worker_mode' ] = '1';
+        if self._proper_min_frac > 0.0:
+            par_overrides[ 'proper_min_frac' ] = \
+                str( float( self._proper_min_frac ) );
+        if self._t_lim is not None:
+            par_overrides[ 't_lim' ] = str( float( self._t_lim ) );
         def _cleanup_work_dir( ):
             #  Memory-saving mode: remove the auto-created run directory.
             #  Only auto-created dirs are removed - an explicit `path` is

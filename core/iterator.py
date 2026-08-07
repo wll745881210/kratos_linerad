@@ -347,10 +347,10 @@ scale = %.3e" % ( proper_scale, \
             v_factor = unit_t0 / unit_l0;
             inv_scale = 1.0 / scale_factor;
             phot = output[ 'photons' ];
-            for key in ( 'vel', 'x', 'proper' ):
+            for key in ( 'vel', 'x', 'proper', 'x_last_scat' ):
                 if key in phot:
                     arr = asarray( phot[ key ], dtype = float64 );
-                    if key == 'x':
+                    if key == 'x' or key == 'x_last_scat':
                         arr *= unit_l0;
                     elif key == 'vel':
                         arr /= v_factor;

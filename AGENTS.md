@@ -125,6 +125,8 @@ const_abs        = 1          # always 1 (absorption is wavelength-independent)
 n_fld            = 1
 num_rng          = 16381
 a_voigt          = 0.0        # Voigt damping parameter (0 = pure Gaussian)
+proper_min_frac  = 0          # proper-weight culling threshold (0 = disabled)
+worker_mode      = 0          # 1 = server-worker photon scheduling (GPU work queue)
 ```
 
 **Field file split (Task 2):** Fields are split into two groups to prepare for multi-line problems:
@@ -157,6 +159,12 @@ Physics and units are documented in `docs/PHYSICS.md` §12.
 - `3` – R_IIA: const-mem USampler only; scattering profile uses the approximate analytic `voigt_H` blend in `photon.h` (Gauss core + Lorentz wing crossover). Fastest overall but underestimates `med|x|` at low `aτ₀` (~0.77–0.94× Neufeld for `aτ₀=30–1192`); converges at high `aτ₀`.
 
 All R_IIA modes (1/2/3) share the same scattering kernel (`g = dir_old·dir` directional correlation). Modes 1 and 2 agree to ~1–2% (`med|x|`); use `2` for production, `1` for debug (global-mem table). `ph_mode=2`/`3` use the constant-memory pool — **not freed** in `finalize` (`free_dev_mem=false`); the 60 KiB const pool is a bump allocator.
+
+**Photon features (Kratos-side, all in `usr_ext/line_rt`, bit-identical to classic):**
+- `proper_min_frac` (default 0 = off): proper-weight culling. Each photon stores `proper_0` (its weight at creation, set in `gen.h`); in `photon.h:proc_step()` a photon is culled (`dest.todo = to_rm`) once `proper < proper_min_frac * proper_0`. Useful for heavily absorbing media. Exposed as `LineRt(proper_min_frac=...)`.
+- `worker_mode` (default 0): server-worker photon scheduling. `pool.h:pol_t` / `pool_img.h:pol_img_t` carry a device `work_counter` (reset each step in `pre_proc`); `intg.h:operator()` branches to a persistent `while(true)` loop that calls `pool.load_next()` (atomic increment) until the pool is depleted, instead of one short kernel per photon. **Bit-identical to classic** because each photon's RNG is seeded by its pool index (`par.id = i_par`), not its thread id. Exposed as `LineRt(worker_mode=True)`.
+- `x_last_scat`: every photon records its last-scattering position (initialised to its creation position in `gen.h`, updated in `photon.h:scat()`). Written to escaped-photon output under `_x_last_scat`; the pipeline readback exposes it as `out[...]['photons']['x_last_scat']` (CGS, × `unit_l0` like `x`). Only escaped photons carry it.
+- **Do NOT modify the particle trunk** (`src/modules/particle/` excluding `radiation/`) for these — it is generic and also serves dark-matter particles. All overrides live in `usr_ext/line_rt` (`pool.h`, `pool_img.h`, `intg.h`, `photon.h`, `gen.h`).
 
 ### `[cycle]` section (output control)
 

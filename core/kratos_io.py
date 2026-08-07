@@ -266,7 +266,9 @@ def read_output( filename ):
     # Escaped photons
     phot = dict(   );
     for raw_key in bio.hmap:
-        if  '_rank_' in raw_key and raw_key.endswith( '_x' ):
+        if  '_rank_' in raw_key and raw_key.endswith( '_x_last_scat' ):
+            phot[ 'x_last_scat' ] = bio.as_array( raw_key, 'f' );
+        elif '_rank_' in raw_key and raw_key.endswith( '_x' ):
             phot[ 'x' ] = bio.as_array( raw_key, 'f' );
         elif '_rank_' in raw_key and raw_key.endswith( '_dir' ):
             phot[ 'dir' ] = bio.as_array( raw_key, 'f' );

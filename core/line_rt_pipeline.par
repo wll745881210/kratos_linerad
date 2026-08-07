@@ -37,6 +37,8 @@ n_ph_read       = -1
 const_abs       = 1
 n_fld           = 1
 a_voigt         = 0       ; Voigt damping parameter (0 = pure Gaussian)
+proper_min_frac = 0       ; proper-weight culling threshold (0 = disabled)
+worker_mode     = 0       ; 1 = server-worker photon scheduling (GPU work queue)
 
 [boundary]
 kinds = fre fre fre fre fre fre
