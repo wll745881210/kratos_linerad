@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MONTECARLOSIMULATION © Astronomical Observatory, Ghent University -->
+<skirt-simulation-hierarchy type="MonteCarloSimulation" format="1.0" producer="manual" time="2026-08-07">
+  <MonteCarloSimulation userLevel="Regular" simulationMode="LyaExtinctionOnly" iteratePrimaryEmission="false" iterateSecondaryEmission="false" numPackets="1e4">
+    <random type="Random">
+      <Random/>
+    </random>
+    <units type="Units">
+      <SIUnits/>
+    </units>
+    <cosmology type="Cosmology">
+      <LocalUniverseCosmology/>
+    </cosmology>
+    <sourceSystem type="SourceSystem">
+      <SourceSystem minWavelength="1.21e-7 m" maxWavelength="1.22e-7 m" sourceBias="0.5">
+        <sources type="Source">
+          <GeometricSource>
+            <geometry type="Geometry">
+              <UniformBoxGeometry minX="-0.5 m" maxX="0.5 m" minY="-0.5 m" maxY="0.5 m" minZ="-0.5 m" maxZ="0.5 m"/>
+            </geometry>
+            <sed type="SED">
+              <LyaGaussianSED dispersion="1285 m/s"/>
+            </sed>
+            <normalization type="LuminosityNormalization">
+              <IntegratedLuminosityNormalization wavelengthRange="Source" integratedLuminosity="1 Lsun"/>
+            </normalization>
+          </GeometricSource>
+        </sources>
+      </SourceSystem>
+    </sourceSystem>
+    <mediumSystem type="MediumSystem">
+      <MediumSystem>
+        <photonPacketOptions type="PhotonPacketOptions">
+          <PhotonPacketOptions/>
+        </photonPacketOptions>
+        <lyaOptions type="LyaOptions">
+          <LyaOptions lyaAccelerationScheme="None" lyaAccelerationStrength="1" includeHubbleFlow="false"/>
+        </lyaOptions>
+        <media type="Medium">
+          <GeometricMedium>
+            <geometry type="Geometry">
+              <UniformBoxGeometry minX="-0.5 m" maxX="0.5 m" minY="-0.5 m" maxY="0.5 m" minZ="-0.5 m" maxZ="0.5 m"/>
+            </geometry>
+            <materialMix type="MaterialMix">
+              <LyaNeutralHydrogenGasMix defaultTemperature="100 K" includePolarization="false"/>
+            </materialMix>
+            <normalization type="MaterialNormalization">
+              <NumberMaterialNormalization number="1.69e19"/>
+            </normalization>
+          </GeometricMedium>
+        </media>
+        <grid type="SpatialGrid">
+          <CartesianSpatialGrid minX="-0.5 m" maxX="0.5 m" minY="-0.5 m" maxY="0.5 m" minZ="-0.5 m" maxZ="0.5 m">
+            <meshX type="Mesh">
+              <LinMesh numBins="32"/>
+            </meshX>
+            <meshY type="Mesh">
+              <LinMesh numBins="32"/>
+            </meshY>
+            <meshZ type="Mesh">
+              <LinMesh numBins="32"/>
+            </meshZ>
+          </CartesianSpatialGrid>
+        </grid>
+      </MediumSystem>
+    </mediumSystem>
+    <instrumentSystem type="InstrumentSystem">
+      <InstrumentSystem>
+        <defaultWavelengthGrid type="WavelengthGrid">
+          <LogWavelengthGrid minWavelength="1.21e-7 m" maxWavelength="1.22e-7 m" numWavelengths="25"/>
+        </defaultWavelengthGrid>
+        <instruments type="Instrument">
+          <SEDInstrument instrumentName="instrument1" radius="0 m" distance="10 Mpc" inclination="0 deg" azimuth="0 deg" roll="0 deg" recordComponents="false" numScatteringLevels="0" recordPolarization="false" recordStatistics="false"/>
+        </instruments>
+      </InstrumentSystem>
+    </instrumentSystem>
+    <probeSystem type="ProbeSystem">
+      <ProbeSystem/>
+    </probeSystem>
+  </MonteCarloSimulation>
+</skirt-simulation-hierarchy>

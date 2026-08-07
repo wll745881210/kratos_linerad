@@ -285,17 +285,17 @@ for i, k in enumerate( chan_idx ):
                     cmap = 'turbo', interpolation = 'bilinear',
                     vmin = 0, vmax = vmax );
     ax.set_title( r'$v = %.2f$ km/s' % v_kms[ k ],
-                  fontsize = 9 );
-    ax.set_xlabel( r'$x$ [AU]', fontsize = 8 );
+                  fontsize = 12 );
+    ax.set_xlabel( r'$x$ [AU]', fontsize = 11 );
     if i == 0:
-        ax.set_ylabel( r'$y$ [AU]', fontsize = 8 );
-    ax.tick_params( labelsize = 7 );
+        ax.set_ylabel( r'$y$ [AU]', fontsize = 11 );
+    ax.tick_params( labelsize = 10 );
     # Annotate the channel spacing in the first panel.
     if i == 0:
         ax.text( 0.02, 0.02,
                  r'$\Delta v = %.3f$ km/s' % dv_kms,
                  transform = ax.transAxes, va = 'bottom',
-                 fontsize = 7, color = 'w' );
+                 fontsize = 9, color = 'w' );
 
 fig.tight_layout(  );
 outpath = os.path.join( os.path.dirname( __file__ ),

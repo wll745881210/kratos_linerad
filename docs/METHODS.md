@@ -627,6 +627,35 @@ cosh formula overestimates $f_{\rm esc}$ at intermediate depth
 along $x$. The imaging peak shifts by $-0.5$ km/s (blueshift), matching
 the convention `vel = dv - vel_obs` where `vel_obs = \hat{n} \cdot \mathbf{v}_{\rm bulk}`.
 
+### 3.6 SKIRT Cross-Code Comparison
+
+**Test.** `docs/external_tests/skirt/`: apple-to-apple comparison
+against SKIRT 9 (CPU, 16 threads) for Lyα ($a = 4.73 \times 10^{-3}$,
+$T = 100$ K). Both codes use R_IIA redistribution, isotropic volume
+source, 32³ grid, 10⁵ photons.
+
+**Peak convergence** (escaped spectrum double-peak, $\tau_0 = 1000$):
+
+| Source type | Our $|x_{\rm peak}|$ | SKIRT $|x_{\rm peak}|$ | Agreement |
+|-------------|---------------------|------------------------|-----------|
+| Slab (one-sided) | 0.96 | 2.36 | 59% off |
+| Slab (two-sided) | 0.38 | 2.36 | 84% off |
+| **Volume (isotropic)** | **2.63** | **2.36** | **11%** |
+
+The volume source (matching SKIRT's `UniformBoxGeometry`) is required
+for peak convergence; boundary-injected slab sources produce anisotropic
+escaped spectra that don't match SKIRT's isotropic volume emission.
+
+**Speed tests** (same configuration, with and without imaging):
+
+| Configuration | Kratos GPU (s) | SKIRT CPU (s) | Speedup |
+|---------------|---------------|---------------|---------|
+| $\tau_0 = 10^3$, no imaging | 0.14 | 6.2 | 44× |
+| $\tau_0 = 10^3$, with imaging | 0.54 | 5.7 | 11× |
+| $\tau_0 = 10^4$, no imaging | 0.55 | 5.7 | 10× |
+
+Kratos runs on NVIDIA RTX 3090 (82 SM); SKIRT on 16 CPU threads.
+
 ---
 
 ## 4. Discussion (outline)
