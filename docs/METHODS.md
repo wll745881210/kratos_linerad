@@ -690,7 +690,8 @@ function uses all photon segments ($\sim$3.2M, including trapped
 photons), not just the $10^5$ escaped photons SKIRT counts. SKIRT has
 higher per-bin SNR (fewer bins) but produces 1D spectra only.
 
-Kratos runs on NVIDIA RTX 3090 (82 SM); SKIRT on 16 CPU threads.
+Kratos runs on NVIDIA RTX 3090 (82 SM); SKIRT on AMD Ryzen 7 5800X
+(8-core/16-thread CPU).
 
 ---
 

@@ -123,7 +123,7 @@ geometry allowing escape in 6 directions (not just 2 as in a slab).
 - At 10⁶ photons, Kratos MCRT is only 2.5% of wall time — the Python
   I/O bottleneck dominates the end-to-end comparison.
 - **Pure MCRT speedup: 243×** at 10⁶ photons. This reflects the
-  GPU (RTX 3090, 82 SM) vs CPU (16 threads) throughput for photon
+  GPU (NVIDIA RTX 3090, 82 SM) vs CPU (AMD Ryzen 7 5800X, 16 threads) throughput for photon
   transport + R_IIA scattering.
 - **Wall speedup: 6.1×** at 10⁶ photons, capped by the ~9 s Python
   I/O. To dwarf this overhead, ~4×10⁷ photons are needed (MCRT ~10 s),
