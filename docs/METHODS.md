@@ -417,7 +417,14 @@ $S = S_{\rm em} + S_{\rm sca}$.
 **Crucial normalization:** The `emiss` field is scaled by
 `proper_scale` on write so the emission seed lives in the same
 scaled-proper units as the scattering `s_cam`. On readback, the image
-cube is divided by `scale_factor` to undo the scaling.
+cube is divided by `scale_factor` to undo the scaling. When
+`proper_scale=None` (default), the pipeline auto-computes a scale
+from the estimated maximum `s_cam` magnitude (emission seed +
+scattering contribution) in code units, ensuring the Kratos-side
+`s_cam` field fits in FP32 range (< 1e30). This prevents the thermal-
+seed overflow (`emiss/(mfp_s·√π·b) > 3.4e38` in code units due to
+the `unit_l0³` factor in emiss combined with the tiny `b_code`)
+that would otherwise produce `inf` imaging cubes.
 
 #### Step 2: Formal ray tracing (imaging pass)
 
@@ -494,14 +501,25 @@ host garbage. Field copies happen only in `copy_output`
 - **Voigt table:** 1D log-space, 5000 points over $u \in [0, 50]$,
   built from a host-side scipy 2-D table. Stored in constant memory.
 - **R_IIA kernel table:** 200 × 100 × 40 = 800,000 float32 values
-  (~3.2 MiB), stored in device global memory (too large for const pool).
+  (~3.2 MiB), $x_{\rm out} \in [-50, 50]$, $|x_{\rm pp}| \in [0, 50]$,
+  $g \in [-1, 1]$, stored in device global memory (too large for const
+  pool).
 
 #### Parallelization
 
-- Scattering MC: one thread per photon packet. Hardware-optimized
-  `atomicAdd` accumulates `flx`, `excitation_flux`, and `s_cam`.
-- Imaging: one thread per image-plane pixel. Each ray marches
-  independently through the grid.
+- Scattering MC: **server-worker mode** (default ON, $n_{\rm worker} =
+  32768$). A persistent kernel launches $n_{\rm worker}$ threads, each
+  fetching photons from a shared atomic work counter (`pool.load_next()`)
+  until the pool is depleted — load-balanced work-stealing that provides
+  ~2$\times$ speedup at high optical depth (photons with varying
+  lifetimes). The launch grid is capped at $n_{\rm worker}$ via
+  `resource()` override (optimal: 6 blocks/SM $\times$ 82 SMs $\times$ 64
+  threads on RTX 3090). NOT bit-identical to classic (RNG indexed by
+  thread id) but statistically equivalent ($<0.3\%$ ensemble difference).
+  Imaging ray-tracing uses one thread per pixel (no worker loop — fixed
+  work per ray, no imbalance).
+- Hardware-optimized `atomicAdd` accumulates `flx`,
+  `excitation_flux`, and `s_cam`.
 - Block data (fields, source function) shared via `p_map` between
   the scattering module (`radiation_t`) and imaging module
   (`rad_img_t`).

@@ -516,7 +516,7 @@ Defined in the `[unit]` section of the Kratos parameter file. The Python pipelin
 
 Photon `proper` values can be very large (e.g., ~10⁴⁴ for astronomical luminosities). The Python writer (`write_photon_data()`) applies two rescale stages and **returns the combined scale factor**:
 
-1. **User rescale** — every photon weight is multiplied by `proper_scale` (default 1.0 = no-op). Passed as `proper_scale=` to `iterate()`/`run_pipeline()`, `LineRt(proper_scale=...)`, or `--proper-scale` on the CLI. Because Kratos MCRT is linear in photon weights, a constant rescale leaves all fields unchanged after the read-back division — use `proper_scale < 1` when the physical flux would overflow the FP32 output fields (≥ 3.4e38) even though no single photon does.
+1. **User / auto rescale** — every photon weight is multiplied by `proper_scale`. When `proper_scale=None` (default), the pipeline auto-computes a scale from the estimated maximum `s_cam` magnitude in code units, considering both the **emission seed** (`emiss/(mfp_s·√π·b)`) and the **scattering contribution** (`n_ph·max_proper·max_dsi/(4π·√π·b)`), so that the Kratos-side `s_cam` field fits in FP32 range (< 1e30, margin below 3.4e38). This prevents the thermal-seed overflow that produces `inf` imaging cubes. Set `proper_scale=1.0` to disable auto-scaling, or a small value (< 1) for manual control. Passed as `proper_scale=` to `iterate()`/`run_pipeline()`, `LineRt(proper_scale=...)`, or `--proper-scale` on the CLI. Because Kratos MCRT is linear in photon weights, a constant rescale leaves all fields unchanged after the read-back division.
 2. **FP32 fallback** — if the scaled `proper_max` still exceeds `1e38`, all weights are further scaled by `1/proper_max`.
 
 `write_photon_data()` copies its input (never mutates the caller's array).
@@ -693,11 +693,13 @@ Both the scattering part (accumulated from the scaled photon propers) and
 the emission seed must live in the same scaled units, so the `emiss` field
 is rescaled by `proper_scale` on write (`core/iterator.py`) and the cube
 is divided by `scale_factor` on readback, then converted to CGS
-intensity (`÷ unit_l0³·unit_t0`).  The cube in the results dict is
-`image['cube']` in **photon-number** surface brightness
-[photons cm⁻² s⁻¹ sr⁻¹].  The `l³` (not `l²`) reflects that the imaging
-intensity `I(v)` has units [ph cm⁻³ sr⁻¹] = [ph cm⁻² s⁻¹ sr⁻¹ per (cm/s)],
-i.e. the velocity-channel width is in cm/s.
+intensity (`÷ unit_l0³`; `unit_t0` cancels in the source-function
+ratio).  When `proper_scale=None` (default), the scale is auto-computed
+(see §11.2) to prevent the emission-seed FP32 overflow.  The cube in
+the results dict is `image['cube_cgs']` in **photon-number** surface
+brightness [photons cm⁻² s⁻¹ sr⁻¹].  The `l³` (not `l²`) reflects that
+the imaging intensity `I(v)` has units [ph cm⁻³ sr⁻¹] = [ph cm⁻² s⁻¹
+sr⁻¹ per (cm/s)], i.e. the velocity-channel width is in cm/s.
 
 ### 12.5 Python API
 
@@ -862,7 +864,7 @@ excited and collisions must be included for accurate populations.
  11. **Treating escaped-photon `proper` as a path length**: Kratos writes the photon weight (`proper`) under the binary key `_l`; the reader must NOT multiply it by `unit_l0`. Escaped weights are divided by `scale_factor` only, and exposed as `'proper'` (with `'l'` as a deprecated alias)
  12. **Boundary kinds with 3 faces**: Kratos expects 6 boundary kinds (−x,+x,−y,+y,−z,+z). Specifying only 3 leaves the remaining faces undefined, defaulting to periodic and causing photon wrap-around artifacts
  13. **Periodic boundary corner bug**: the framework's `geo_loc_t::fix` can produce zero-width cells when photons cross periodic boundaries in two dimensions simultaneously; fixed by adding a convergence loop and cell-index updates in `particle_base.h`
-  14. **Imaging: emiss field units (emission seed)**: `emiss` must be in the SAME scaled-proper units as the scattering s_cam. Photon propers in the binary are already multiplied by `proper_scale`, so the `emiss` field must also be multiplied by `proper_scale` on write (`core/iterator.py`) — NOT divided. The old `/ proper_scale` double-rescaling overflowed FP32 (emiss ~1e52 → `inf` → NaN/inf imaging cube → spurious corner peak). Both parts are then divided by `scale_factor` on readback.
+  14. **Imaging: emiss field units (emission seed)**: `emiss` must be in the SAME scaled-proper units as the scattering s_cam. Photon propers in the binary are already multiplied by `proper_scale`, so the `emiss` field must also be multiplied by `proper_scale` on write (`core/iterator.py`) — NOT divided. The old `/ proper_scale` double-rescaling overflowed FP32 (emiss ~1e52 → `inf` → NaN/inf imaging cube → spurious corner peak). Both parts are then divided by `scale_factor` on readback. When `proper_scale=None` (default), the auto-computed scale (see §11.2) prevents this overflow automatically.
  15. **Imaging: v_chan must be CGS→code converted**: the channel grid is written to the par file in code units (`× unit_t0/unit_l0`). Writing CGS cm/s leaves `dv_cam/b` ~1e14 → profile exactly 0 → zero image.
  16. **Imaging: s_cam zeroing when disabled**: non-imaging runs must NOT initialise/allocate s_cam. The allocation is gated on `rad.imaging && rad.n_chan>0` in `block_data_t::setup()`; `pre_proc` zeroing is gated on `rad.imaging`. When imaging is disabled, `rad_img_t` skips `save()` (else it segfaults on the uninitialised pool).
   17. **Imaging: emission seed must survive MC zeroing**: the scattering integrator's `pre_proc` zeroes `s_cam` each step; the emission seed is applied in `init_rad_fields_kernel` and must be preserved across MC steps — the scattering `intg_t` sets `zero_s_cam=false` when imaging is enabled.
