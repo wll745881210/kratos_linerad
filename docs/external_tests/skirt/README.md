@@ -97,6 +97,13 @@ Agreement: 11%. Both codes give peaks higher than Neufeld's slab
 prediction, consistent with the box geometry (6-direction escape vs
 2-direction slab).
 
+> **Analytic value:** Neufeld (1990) eq. (2.24) for a plane-parallel
+> slab gives |x_peak| = 0.881 (aτ₀)^(1/3). With a = 4.73×10⁻³,
+> τ₀ = 1000: aτ₀ = 4.73, so |x_peak| = 0.881 × 4.73^(1/3) =
+> 0.881 × 1.679 = **1.479**. This is the mean-depth (half-slab)
+> convention; the box geometry allows escape in 6 directions (not 2),
+> producing higher peaks in both codes.
+
 ### Speed tests
 
 #### Photon scaling (τ₀ = 10³, 32³ grid, volume source)

@@ -646,6 +646,13 @@ The volume source (matching SKIRT's `UniformBoxGeometry`) is required
 for peak convergence; boundary-injected slab sources produce anisotropic
 escaped spectra that don't match SKIRT's isotropic volume emission.
 
+> **Analytic:** Neufeld (1990) eq. (2.24), plane-parallel slab:
+> $|x_{\rm peak}| = 0.881\,(a\tau_0)^{1/3}$. With $a = 4.73 \times
+> 10^{-3}$, $\tau_0 = 10^3$: $|x_{\rm peak}| = 0.881 \times (4.73)^{1/3}
+> = 0.881 \times 1.679 = \mathbf{1.479}$ (mean-depth convention). The
+> box geometry (6-direction escape) produces higher peaks in both
+> codes.
+
 **Speed tests** — photon scaling ($\tau_0 = 10^3$, 32³ grid, volume source):
 
 | Photons | Kratos MCRT (s) | Kratos overhead (s) | Kratos total (s) | SKIRT MCRT (s) | SKIRT overhead (s) | SKIRT total (s) |
