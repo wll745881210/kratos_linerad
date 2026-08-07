@@ -86,49 +86,40 @@ geometry allowing escape in 6 directions (not just 2 as in a slab).
 
 #### Photon scaling (τ₀ = 10³, 32³ grid, volume source)
 
-| Photons | Kratos MCRT (s) | Kratos wall (s) | SKIRT (s) | MCRT speedup | Wall speedup |
-|---------|----------------|-----------------|-----------|--------------|--------------|
-| 1×10⁵   | 0.033          | 8.7             | 5.8       | 176×         | 0.7×         |
-| 1×10⁶   | 0.236          | 9.4             | 56.3      | **239×**     | **6.0×**     |
+| Photons | Kratos MCRT (s) | Kratos overhead (s) | Kratos total (s) | SKIRT MCRT (s) | SKIRT overhead (s) | SKIRT total (s) | MCRT speedup | Total speedup |
+|---------|----------------|---------------------|------------------|----------------|---------------------|-----------------|---------------|----------------|
+| 1×10³   | 0.010          | 8.7                 | 8.7              | 0.10           | 0.00                | 0.10            | 10×           | 0.01×          |
+| 1×10⁴   | 0.012          | 8.4                 | 8.4              | 0.60           | 0.02                | 0.62            | 50×           | 0.07×          |
+| 1×10⁵   | 0.033          | 8.7                 | 8.7              | 5.80           | 0.06                | 5.86            | 176×          | 0.7×           |
+| 1×10⁶   | 0.236          | 9.2                 | 9.4              | 57.30          | 0.04                | 57.34           | **243×**      | **6.1×**       |
 
-**Interpretation:**
+**Overhead breakdown:**
 
-- **SKIRT** scales linearly (5.8 → 56.3 s, ~10× for 10× photons). At
-  10⁶ photons, SKIRT is ~90% MCRT — its ~5.7 s C++ startup overhead
-  is dwarfed.
-- **Kratos MCRT** also scales linearly (0.033 → 0.236 s, ~7× for 10×
-  photons). However, the Python pipeline I/O overhead (~8.7 s: field
-  binary write, photon binary write, par file, output readback) is
-  constant regardless of photon count. At 10⁶ photons, MCRT is only
-  2.5% of the wall time — the Python I/O dominates.
-- **Pure MCRT speedup** (excluding Python I/O): **239×** at 10⁶
-  photons. This reflects the GPU vs CPU throughput for the actual
-  photon transport + R_IIA scattering.
-- **Wall speedup** (end-to-end, including Python I/O): **6.0×** at
-  10⁶ photons. The Python I/O bottleneck caps the practical speedup.
-- To dwarf the Python I/O for Kratos (MCRT >> 8.7 s), ~4×10⁷ photons
-  are needed (MCRT ~10 s). But SKIRT at 4×10⁷ would take ~37 min,
-  making the benchmark impractical.
+- **Kratos overhead** (~8.5 s, constant) = Python pipeline I/O: field
+  binary write, photon binary write, par file generation, Kratos
+  subprocess launch, output binary readback. Does not scale with
+  photon count. The Kratos internal GPU timer (`Duration = X s` in
+  `cycle.cpp:163`) captures only the MCRT kernel time.
+- **SKIRT overhead** (~0.05 s) = process startup (shared library
+  loading, `.ski` parsing, grid construction). SKIRT's
+  `Finished setup in 0.0 s` confirms grid construction is negligible.
+  The `Finished the run in X s` is essentially all MCRT.
 
-#### Configuration variants (1×10⁵ photons, τ₀ = 10³)
+**Key observations:**
 
-| Configuration | Kratos MCRT (s) | SKIRT (s) | Speedup (MCRT) |
-|---------------|----------------|-----------|----------------|
-| No imaging    | 0.033          | 5.8       | 176×           |
-| With imaging  | 0.39           | 5.8       | 15×            |
-| τ₀ = 10⁴     | 0.55           | 5.8       | 11×            |
-
-Notes:
-- **Kratos timing** = internal GPU timer (from `cycle.cpp:163`,
-  `Duration = X s`), excludes Python I/O (~8.7 s wall).
-- **SKIRT timing** = total run time (3 repeats, mean ± std). The SED
-  instrument overhead is negligible (5.8 ± 0.2 s for both 2-bin and
-  200-bin SED).
-- **Kratos imaging** = 2D channel maps (32×32 pixels × 32 velocity
-  channels). Imaging overhead = 0.36 s due to default 32×32 pixel
-  grid (1024 rays × 32 channels × per-cell Voigt evaluation).
-- At τ₀=10⁴, Kratos MCRT increases 17× (0.033→0.55 s) while SKIRT
-  stays at ~5.8 s (overhead-dominated, 10⁵ photons).
+- SKIRT scales linearly (0.10 → 57.3 s, ~570× for 1000× photons). At
+  10⁶ photons, SKIRT is >99.9% MCRT — overhead fully dwarfed.
+- Kratos MCRT also scales sub-linearly at low counts (0.010 → 0.236 s,
+  ~24× for 1000× photons, due to GPU kernel launch overhead at small
+  payloads) but approaches linearity at 10⁵+.
+- At 10⁶ photons, Kratos MCRT is only 2.5% of wall time — the Python
+  I/O bottleneck dominates the end-to-end comparison.
+- **Pure MCRT speedup: 243×** at 10⁶ photons. This reflects the
+  GPU (RTX 3090, 82 SM) vs CPU (16 threads) throughput for photon
+  transport + R_IIA scattering.
+- **Wall speedup: 6.1×** at 10⁶ photons, capped by the ~9 s Python
+  I/O. To dwarf this overhead, ~4×10⁷ photons are needed (MCRT ~10 s),
+  but SKIRT at that count would take ~37 min.
 
 ### SNR comparison
 

@@ -648,17 +648,19 @@ escaped spectra that don't match SKIRT's isotropic volume emission.
 
 **Speed tests** — photon scaling ($\tau_0 = 10^3$, 32³ grid, volume source):
 
-| Photons | Kratos MCRT (s) | Kratos wall (s) | SKIRT (s) | MCRT speedup | Wall speedup |
-|---------|----------------|-----------------|-----------|--------------|--------------|
-| $10^5$  | 0.033          | 8.7             | 5.8       | 176×         | 0.7×         |
-| $10^6$  | 0.236          | 9.4             | 56.3      | **239×**     | **6.0×**     |
+| Photons | Kratos MCRT (s) | Kratos overhead (s) | Kratos total (s) | SKIRT MCRT (s) | SKIRT overhead (s) | SKIRT total (s) |
+|---------|----------------|---------------------|------------------|----------------|---------------------|-----------------|
+| $10^3$  | 0.010          | 8.7                 | 8.7              | 0.10           | 0.00                | 0.10            |
+| $10^4$  | 0.012          | 8.4                 | 8.4              | 0.60           | 0.02                | 0.62            |
+| $10^5$  | 0.033          | 8.7                 | 8.7              | 5.80           | 0.06                | 5.86            |
+| $10^6$  | 0.236          | 9.2                 | 9.4              | 57.30          | 0.04                | 57.34           |
 
-At $10^6$ photons, SKIRT is ~90% MCRT (startup overhead dwarfed), while
-Kratos MCRT is only 2.5% of wall time (Python I/O ~8.7 s dominates). The
-**pure MCRT speedup is 239×**; the **wall speedup is 6×** (capped by
-Python I/O). To dwarf the Python I/O for Kratos, $\sim 4 \times 10^7$
-photons are needed (MCRT ~10 s), but SKIRT at that count would take
-~37 min.
+Kratos overhead ($\sim$8.5 s) = Python I/O (binary write, par file,
+subprocess launch, output readback), constant regardless of photon
+count. SKIRT overhead ($\sim$0.05 s) = process startup, negligible.
+At $10^6$ photons, the **pure MCRT speedup is 243×** (57.3 s vs 0.236 s);
+the **wall speedup is 6.1×** (57.3 s vs 9.4 s), capped by the Python
+I/O bottleneck.
 
 **SNR comparison** (10⁵ photons, $\tau_0 = 10^3$):
 
