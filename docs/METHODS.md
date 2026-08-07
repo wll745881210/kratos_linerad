@@ -646,13 +646,19 @@ The volume source (matching SKIRT's `UniformBoxGeometry`) is required
 for peak convergence; boundary-injected slab sources produce anisotropic
 escaped spectra that don't match SKIRT's isotropic volume emission.
 
-**Speed tests** (same configuration, with and without imaging):
+**Speed tests** — photon scaling ($\tau_0 = 10^3$, 32³ grid, volume source):
 
-| Configuration | Kratos GPU (s) | SKIRT CPU (s) | Speedup |
-|---------------|---------------|---------------|---------|
-| $\tau_0 = 10^3$, no imaging | 0.14 | 5.8 ± 0.2 | 41× |
-| $\tau_0 = 10^3$, with imaging | 0.54 | 5.8 ± 0.2 | 11× |
-| $\tau_0 = 10^4$, no imaging | 0.55 | 5.8 | 11× |
+| Photons | Kratos MCRT (s) | Kratos wall (s) | SKIRT (s) | MCRT speedup | Wall speedup |
+|---------|----------------|-----------------|-----------|--------------|--------------|
+| $10^5$  | 0.033          | 8.7             | 5.8       | 176×         | 0.7×         |
+| $10^6$  | 0.236          | 9.4             | 56.3      | **239×**     | **6.0×**     |
+
+At $10^6$ photons, SKIRT is ~90% MCRT (startup overhead dwarfed), while
+Kratos MCRT is only 2.5% of wall time (Python I/O ~8.7 s dominates). The
+**pure MCRT speedup is 239×**; the **wall speedup is 6×** (capped by
+Python I/O). To dwarf the Python I/O for Kratos, $\sim 4 \times 10^7$
+photons are needed (MCRT ~10 s), but SKIRT at that count would take
+~37 min.
 
 **SNR comparison** (10⁵ photons, $\tau_0 = 10^3$):
 
