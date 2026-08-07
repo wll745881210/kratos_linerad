@@ -277,6 +277,10 @@ class LineRt:
             units='energy').
             "point" — point source at (x, y, z). Must provide **luminosity**
             [photons/s] (or erg/s with units='energy').
+            "volume" — isotropic volume source: photons at random uniform
+            positions throughout the mesh, isotropic directions. Must
+            provide **luminosity** [photons/s] (or erg/s with
+            units='energy'). Matches SKIRT's UniformBoxGeometry source.
         n_photon : int
             Number of photon packets.
         luminosity : float or None
@@ -357,6 +361,19 @@ class LineRt:
                 raise ValueError( \
                     "point source requires luminosity (photons/s, "
                     "or erg/s with units='energy')" );
+        elif type == 'volume':
+            if flux is not None:
+                raise ValueError( \
+                    "flux is for slab sources only; "
+                    "use luminosity for a volume source" );
+            if luminosity is None:
+                raise ValueError( \
+                    "volume source requires luminosity (photons/s, "
+                    "or erg/s with units='energy')" );
+            if r_random > 0.0:
+                raise ValueError( \
+                    "r_random is for point sources only; "
+                    "volume sources fill the entire mesh" );
         else:
             raise ValueError( \
                 "source type must be 'slab' or 'point', got '%s'" % type );
@@ -371,6 +388,10 @@ class LineRt:
             raise ValueError( \
                 "r_random is for point sources only; "
                 "slab sources emit from the plane x=%.6g" % x );
+        if type == 'volume' and r_random > 0.0:
+            raise ValueError( \
+                "r_random is for point sources only; "
+                "volume sources fill the entire mesh" );
 
         wavelength = None;
         if units == 'energy':
@@ -448,6 +469,10 @@ class LineRt:
                       ( x_pos, src.get( 'direction', '+x' ), \
                         src.get( 'y_range' ) or 'full', \
                         src.get( 'z_range' ) or 'full' );
+            elif s_type == 'volume':
+                qty = "luminosity = %s %s" % ( lum, \
+                      'erg/s' if units == 'energy' else 'photons/s' );
+                geo = "uniform volume (full mesh)";
             else:
                 qty = "luminosity = %s %s" % ( lum, \
                       'erg/s' if units == 'energy' else 'photons/s' );
@@ -1108,7 +1133,7 @@ class LineRt:
             ph = zeros( ( n_ph, n_col ), dtype = float64 );
             ph[ :, 6 ] = proper;
             ph[ :, 7 ] = vel_offset + ( vel_draw if vel_draw is not None \
-                                        else 0.0 );
+                                         else 0.0 );
             if n_col >= 9:
                 ph[ :, 8 ] = sigma;
 
@@ -1130,6 +1155,30 @@ class LineRt:
                 ph[ :, 0 ] = float( pos[ 0 ] );
                 ph[ :, 1 ] = float( pos[ 1 ] );
                 ph[ :, 2 ] = float( pos[ 2 ] );
+            theta = arccos( 2.0 * random.random( n_ph ) - 1.0 );
+            phi = 2.0 * pi * random.random( n_ph );
+            ph[ :, 3 ] = sin( theta ) * cos( phi );
+            ph[ :, 4 ] = sin( theta ) * sin( phi );
+            ph[ :, 5 ] = cos( theta );
+        elif s_type == 'volume':
+            if units == 'energy':
+                proper = float( luminosity ) / E_ph / n_ph;
+            else:
+                proper = float( luminosity ) / n_ph;
+
+            ph = zeros( ( n_ph, n_col ), dtype = float64 );
+            ph[ :, 6 ] = proper;
+            ph[ :, 7 ] = vel_offset + ( vel_draw if vel_draw is not None \
+                                         else 0.0 );
+            if n_col >= 9:
+                ph[ :, 8 ] = sigma;
+
+            x_min = mesh[ 'x_min' ];
+            x_max_vals = array( mesh[ 'x_min' ] ) + \
+                         array( mesh[ 'dx' ] ) * array( mesh[ 'n_cell' ] );
+            ph[ :, 0 ] = random.uniform( x_min[ 0 ], x_max_vals[ 0 ], n_ph );
+            ph[ :, 1 ] = random.uniform( x_min[ 1 ], x_max_vals[ 1 ], n_ph );
+            ph[ :, 2 ] = random.uniform( x_min[ 2 ], x_max_vals[ 2 ], n_ph );
             theta = arccos( 2.0 * random.random( n_ph ) - 1.0 );
             phi = 2.0 * pi * random.random( n_ph );
             ph[ :, 3 ] = sin( theta ) * cos( phi );
