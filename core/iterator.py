@@ -263,27 +263,32 @@ def iterate( source_photons, species, fields_init, mesh, \
     # auto-rescales if the photon propers themselves overflow FP32.
     if proper_scale is None:
         proper_scale = 1.0;
-        _b_cgs = fields.get( 'b_sca', 1.0 );
-        _b_arr = asarray( _b_cgs, dtype = float64 );
-        _b_val = float( _b_arr.ravel()[0] ) \
-                 if _b_arr.size else 1.0;
-        _b_code = _b_val * float( unit_t0 ) / float( unit_l0 );
+        # fields dict from make_fields is ALREADY in code units
+        # (emiss *= unit_l0^3 * unit_t0, mfp *= unit_l0, b_sca *=
+        # unit_t0/unit_l0).  Use directly — do NOT double-convert.
+        _b_arr = asarray( fields.get( 'b_sca', 1.0 ),
+                          dtype = float64 );
+        _b_code = float( _b_arr.ravel()[0] ) \
+                  if _b_arr.size else 1.0;
 
         _max_s_cam = 0.0;
 
         # 1. Emission seed (thermal source function)
+        # s_th = emiss_code / (mfp_sca_code * sqrt(pi) * b_code)
         if 'emiss' in fields and 'mfp_i_sca_0' in fields:
             _em = abs( asarray( fields[ 'emiss' ],
                                 dtype = float64 ) );
             _ms = abs( asarray( fields[ 'mfp_i_sca_0' ],
                                 dtype = float64 ) );
             _denom = _ms * sqrt( pi ) * abs( _b_code ) + 1e-300;
-            _ts = _em * ( float( unit_l0 ) ** 3 ) / _denom;
+            _ts = _em / _denom;
             _max_s_cam = max( _max_s_cam,
                               float( _ts.max( ) )
                               if _ts.size else 0.0 );
 
         # 2. Scattering s_cam (worst case: all photons in one cell)
+        # Photon propers are CGS [photons/s]; convert to code units
+        # (* unit_t0) so the estimate matches the code-unit thermal seed.
         _n_ph = 0;  _max_proper = 0.0;
         if ext_source is not None and ext_source.shape[0] > 0:
             _n_ph += ext_source.shape[0];
@@ -302,7 +307,9 @@ def iterate( source_photons, species, fields_init, mesh, \
                              float(_dx[0]) * float(_dx[2]),
                              float(_dx[1]) * float(_dx[2]) );
             _max_dsi = 1.0 / ( _min_face + 1e-300 );
-            _max_sc = ( float( _n_ph ) * _max_proper * _max_dsi ) \
+            _max_sc = ( float( _n_ph )
+                        * _max_proper * float( unit_t0 )
+                        * _max_dsi ) \
                       / ( 4.0 * pi * sqrt( pi )
                           * abs( _b_code ) + 1e-300 );
             _max_s_cam = max( _max_s_cam, _max_sc );
