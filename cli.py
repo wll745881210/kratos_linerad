@@ -136,13 +136,13 @@ def main( ):
     rt.add_argument( '--n-emission-max', type = int, default = 10, \
                       help = 'Max internal emission photons per cell ' \
                              'per cycle' );
-    rt.add_argument( '--proper-scale', type = float, default = 1.0, \
+    rt.add_argument( '--proper-scale', type = float, default = None, \
                       help = 'Rescale every photon proper weight by this ' \
-                             'factor before writing (default: 1.0 = no ' \
-                             'rescale). Use < 1 for very high-flux runs ' \
-                             'whose FP32 flux maps would overflow ' \
-                             '(>= 3.4e38); the read-back flux is divided ' \
-                             'back automatically.' );
+                             'factor before writing.  When omitted (default), ' \
+                             'the pipeline auto-computes a scale to prevent ' \
+                             'FP32 overflow of the emission seed. Use < 1 for ' \
+                             'manual control (e.g. 1e-30 for YSO-scale fluxes); ' \
+                             'the read-back flux is divided back automatically.' );
     rt.add_argument( '--keep-intermediate', action = 'store_true', \
                      default = False, \
                      help = 'Keep all per-cycle binary files in the run ' \

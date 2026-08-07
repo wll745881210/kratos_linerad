@@ -24,6 +24,11 @@ import importlib.util, os;
 import matplotlib;
 matplotlib.use( 'Agg' );
 import matplotlib.pyplot as plt;
+import sys as _sys;
+_sys.path.insert( 0, '/home/lilew/Seafile/seafile_sync/'
+                     'current_work/kratos_linerad/Figures/code' );
+from line_rt_style import use_house_style;
+use_house_style(  );
 from numpy import full, zeros, sqrt, arange
 
 ##############################
@@ -118,12 +123,10 @@ rt = line_rt.LineRt(
     visualize    = False,
     kratos_root  = KRATOS_ROOT,
 
-    #  proper_scale rescales photon weights (and the emiss
-    #  field) so that st_cam stays within FP32 range at high
-    #  optical depth.  The readback divides it out, so the
-    #  returned cube is in CGS regardless of its value.  Pick
-    #  a value so that flux * proper_scale ~ 1e0..1e10.
-    proper_scale = 1e-20,
+    #  proper_scale=None (default) lets the pipeline auto-compute
+    #  a scale that keeps s_cam within FP32 range at high optical
+    #  depth.  The readback divides it out, so the returned cube
+    #  is in CGS regardless.
 
     imaging      = {
         'dir_cam'  : ( 0.0, 0.0 ),       # along +z
@@ -256,7 +259,7 @@ ax2 = fig.add_subplot( gs[ 1, : ] );
 im = ax2.imshow( pv.T, origin = 'lower', aspect = 'auto',
                  extent = ( x_axis[ 0 ], x_axis[ -1 ],
                             v_kms[ 0 ],  v_kms[ -1 ] ),
-                 cmap = 'magma', interpolation = 'bilinear' );
+                 cmap = 'turbo', interpolation = 'bilinear' );
 ax2.set_xlabel( r'$x$  [AU]' );
 ax2.set_ylabel( r'$v_{\rm chan}$  [km/s]' );
 ax2.set_title( 'Position-velocity diagram (summed over $y$)' );
@@ -279,7 +282,7 @@ for i, k in enumerate( chan_idx ):
                     aspect = 'auto',
                     extent = ( x_axis[ 0 ], x_axis[ -1 ],
                                y_lo, y_hi ),
-                    cmap = 'magma', interpolation = 'bilinear',
+                    cmap = 'turbo', interpolation = 'bilinear',
                     vmin = 0, vmax = vmax );
     ax.set_title( r'$v = %.2f$ km/s' % v_kms[ k ],
                   fontsize = 9 );

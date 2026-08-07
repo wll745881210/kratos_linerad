@@ -1,6 +1,7 @@
 import os
 from numpy import ones, zeros, asarray, broadcast_to, nan_to_num, \
-                  mean, hstack, vstack, float32, float64, int32;
+                  mean, hstack, vstack, float32, float64, int32, \
+                  sqrt, pi, abs;
 
 from .pipeline import run_kratos_cycle, \
                     DEFAULT_RUN_ROOT, \
@@ -37,7 +38,7 @@ def iterate( source_photons, species, fields_init, mesh, \
              n_scat = 10000, ph_mode = 1, par_overrides = None, \
              mol_mass = 28.0, work_dir = None, callback = None, \
              n_species = None, transition_idx = 0, n_emission_max = 10, \
-             colliders = None, proper_scale = 1.0, \
+             colliders = None, proper_scale = None, \
              keep_intermediate = False, retain_cycles = None, \
              unit_l0 = 1.49598e13, unit_t0 = 1.0, kratos_root = None, \
              imaging = None ):
@@ -249,6 +250,69 @@ def iterate( source_photons, species, fields_init, mesh, \
     write_field_data( fixed_file, fixed_fields, mesh, unit_l0 = unit_l0, \
                       group = 'fixed' );
     base_overrides[ 'field_fixed_file' ] = 'fields_fixed.bin';
+
+    # ---- Auto proper_scale -------------------------------------- #
+    # When proper_scale is None (default), estimate the maximum
+    # s_cam magnitude in code units and pick a scale so it fits FP32.
+    # s_cam has two contributions:
+    #   1. Emission seed: s_th = emiss / (mfp_s * sqrt(pi) * b)
+    #   2. Scattering:    s_sc ~ n_ph * max_proper * max_dsi
+    #                        / (4*pi * sqrt(pi) * b_code)
+    # Both are linear in the photon proper / emiss scale, so a single
+    # proper_scale keeps both in range.  write_photon_data() further
+    # auto-rescales if the photon propers themselves overflow FP32.
+    if proper_scale is None:
+        proper_scale = 1.0;
+        _b_cgs = fields.get( 'b_sca', 1.0 );
+        _b_arr = asarray( _b_cgs, dtype = float64 );
+        _b_val = float( _b_arr.ravel()[0] ) \
+                 if _b_arr.size else 1.0;
+        _b_code = _b_val * float( unit_t0 ) / float( unit_l0 );
+
+        _max_s_cam = 0.0;
+
+        # 1. Emission seed (thermal source function)
+        if 'emiss' in fields and 'mfp_i_sca_0' in fields:
+            _em = abs( asarray( fields[ 'emiss' ],
+                                dtype = float64 ) );
+            _ms = abs( asarray( fields[ 'mfp_i_sca_0' ],
+                                dtype = float64 ) );
+            _denom = _ms * sqrt( pi ) * abs( _b_code ) + 1e-300;
+            _ts = _em * ( float( unit_l0 ) ** 3 ) / _denom;
+            _max_s_cam = max( _max_s_cam,
+                              float( _ts.max( ) )
+                              if _ts.size else 0.0 );
+
+        # 2. Scattering s_cam (worst case: all photons in one cell)
+        _n_ph = 0;  _max_proper = 0.0;
+        if ext_source is not None and ext_source.shape[0] > 0:
+            _n_ph += ext_source.shape[0];
+            _max_proper = max( _max_proper,
+                               float( abs( ext_source[:, 6] ) \
+                                      .max( ) ) );
+        if emission_ph is not None \
+           and emission_ph.shape[0] > 0:
+            _n_ph += emission_ph.shape[0];
+            _max_proper = max( _max_proper,
+                               float( abs( emission_ph[:, 6] ) \
+                                      .max( ) ) );
+        if _n_ph > 0 and _max_proper > 0:
+            _dx = mesh[ 'dx' ];
+            _min_face = min( float(_dx[0]) * float(_dx[1]),
+                             float(_dx[0]) * float(_dx[2]),
+                             float(_dx[1]) * float(_dx[2]) );
+            _max_dsi = 1.0 / ( _min_face + 1e-300 );
+            _max_sc = ( float( _n_ph ) * _max_proper * _max_dsi ) \
+                      / ( 4.0 * pi * sqrt( pi )
+                          * abs( _b_code ) + 1e-300 );
+            _max_s_cam = max( _max_s_cam, _max_sc );
+
+        _FP32_SAFE = 1e30;   # margin below 3.4e38
+        if _max_s_cam > _FP32_SAFE:
+            proper_scale = _FP32_SAFE / _max_s_cam;
+        print( "[iterate] Auto proper_scale = %.3e "
+               "(max s_cam code estimate = %.3e)" \
+               % ( proper_scale, _max_s_cam ) );
 
     for cycle in range( n_cycles ):
         # Line-dependent fields (mfp_i_sca_0, mfp_i_abs_0,

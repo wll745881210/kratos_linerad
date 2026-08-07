@@ -38,7 +38,8 @@ const_abs       = 1
 n_fld           = 1
 a_voigt         = 0       ; Voigt damping parameter (0 = pure Gaussian)
 proper_min_frac = 0       ; proper-weight culling threshold (0 = disabled)
-worker_mode     = 0       ; 1 = server-worker photon scheduling (GPU work queue)
+worker_mode     = 1       ; 1 = server-worker photon scheduling (GPU work queue, default ON, ~1.9x faster)
+n_worker        = 32768   ; persistent worker grid size (only used when worker_mode = 1)
 
 [boundary]
 kinds = fre fre fre fre fre fre

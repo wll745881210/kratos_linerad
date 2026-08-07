@@ -14,3 +14,4 @@ neufeld_pop_test/
 *.egg-info/
 dist/
 build/
+cont.json
