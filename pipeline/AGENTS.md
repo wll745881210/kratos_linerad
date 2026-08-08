@@ -60,10 +60,15 @@ diverged). The workflow is:
 
 ```bash
 # 1. Make changes in the dev repos:
-#    Pipeline:  ~/Seafile/seafile_sync/code/line_rt_pipeline/
-#    Kratos:    ~/apps/kratos_line_rt/usr_ext/line_rt/  (symlinked to ~/Seafile/.../kratos/usr_ext/)
+#    Pipeline:    ~/Seafile/seafile_sync/code/line_rt_pipeline/
+#    Kratos full: ~/apps/kratos_line_rt/  (build tree, symlinked to ~/Seafile/.../kratos/)
+#    Kratos usr:  ~/apps/kratos_line_rt/usr_ext/line_rt/
 
-# 2. Sync to the monorepo (automated):
+# 2. Sync to the monorepo (automated, 3 steps):
+#    a) rsync pipeline/ from the dev repo
+#    b) rsync kratos/usr_ext/line_rt/ from the dev build tree
+#    c) re-extract kratos C++ source (src/, usr/extension/algo/, Makefile, visual/)
+#       from the full Kratos tree via extract_kratos.sh
 cd ~/Documents/kratos_linerad && ./scripts/sync_monorepo.sh
 
 # 3. Commit and push from the monorepo:
