@@ -262,22 +262,15 @@ struct line_rt_photon_t
 
         //////////////////////////////////////////////////
         // Imaging: accumulate the per-cell, per-channel
-        // scattering source function toward the camera
-        // (s_cam).  Frequency-DEPENDENT: each channel k
-        // gets its own value evaluated via the R_IIA
-        // redistribution kernel density
-        //   R(x_out; x_pp, g)   [∫R dx = 1]
-        // where x_out = (v_chan[k] + dir_cam.v_bulk)/b is
-        // the camera-resonant frequency, x_pp = (vel +
-        // vel_obs)/b is the photon gas-frame frequency,
-        // and g = dir.dir_cam is the directional cosine.
-        // The kernel is pre-tabulated in build_riia_kernel
-        // (intg.h) and looked up by riia_kernel().
+        // s_cam accumulates the scattering source function
+        // toward the camera.  The imaging pass converts it to
+        // emissivity via j = mfp_s * s_cam (line-centre
+        // opacity, NOT the frequency-dependent alpha_sca).
+        // See photon_img.h for details.
         //
         // This is NOT a blackbody term — the line emissivity
         // comes from the Python emiss field (seeded in
-        // init_cond as S_emiss = emiss/(mfp_s*sqrt(pi)*b)),
-        // not from B_nu * mfp_abs.
+        // init_cond), not from B_nu * mfp_abs.
         if( itg.imaging && itg.n_chan > 0 )
         {
             auto d_tau_e = dl[ a_proc ]
@@ -296,19 +289,22 @@ struct line_rt_photon_t
             for( int a = 0; a < 3; ++ a )
                 g_dot += dir[ a ] * itg.dir_cam[ a ];
             // Photon gas-frame frequency in b units
-            const auto x_pp = ( vel + vel_obs ) / b_sca;
-            auto * s = prx.rad.s_cam.at( i );
-            const auto base = flx * corr * 0.0795775f;
-            const auto inv_b = 1.f / b_sca;
+            const auto x_pp = ( vel + vel_obs )  / b_sca;
+            auto  *  s = prx.rad.s_cam.at( i );
+            auto  base = flx * corr * 0.0795775f / b_sca;
             for( int k = 0; k < itg.n_chan; ++ k )
             {
                 // Camera-resonant freq in b units
                 const auto x_out =
                   ( itg.d_v_chan[ k ] + vobs_cam ) / b_sca;
-                // R_IIA kernel: x-space density (∫R dx = 1)
-                const auto R = itg.riia_kernel
-                    ( x_out, x_pp, g_dot );
-                atomicAdd( s + k, base * R * inv_b );
+                // prof_s = H(a, x_pp) is the Voigt profile at the
+                // photon's INCOMING frequency.  Including it makes
+                // s_cam an emissivity (j = sigma(v_in) * R * J),
+                // so the imaging pass uses j = mfp_s * s_cam
+                // (line-centre opacity scale) without an extra
+                // H(a, x_out) factor.
+                atomicAdd( s + k, base * itg.riia_kernel
+                         ( x_out, x_pp, g_dot ) * prof_s );
             }
         }       
 

@@ -587,12 +587,12 @@ struct intg_t : particle::integrate::base_t< intg_t >
 
         const size_t n_tab = size_t( n_xo ) * n_xp * n_g;
         float_t * h_tab = new float_t[ n_tab ]();
-        const float_t sqrt_pi = float_t( 1.7724538509 );
-        const float_t u_min = -u_max;
+        const float2_t sqrt_pi = float2_t( 1.7724538509 );
+        const float2_t u_min = -float2_t( u_max );
 
         for( int jp = 0; jp < n_xp; ++ jp )
         {
-            const float_t xpp = jp * riia_dxp;
+            const float2_t xpp = float2_t( jp * riia_dxp );
 
             int jxg = 0;
             for( int lo = 0, hi = n_xg - 1; lo <= hi; )
@@ -609,40 +609,40 @@ struct intg_t : particle::integrate::base_t< intg_t >
             if( jxg >= n_xg - 1 ) jxg = n_xg - 2;
             const float2_t * row = h_cdf + jxg * n_u;
 
-            float_t pdf[ 256 ];
-            pdf[ 0 ] = float_t( row[ 0 ] );
+            float2_t pdf[ 256 ];
+            pdf[ 0 ] = row[ 0 ];
             for( int k = 1; k < n_u; ++ k )
-                pdf[ k ] = float_t( row[ k ] )
-                         - float_t( row[ k - 1 ] );
-            float_t pdf_sum = 0;
+                pdf[ k ] = row[ k ] - row[ k - 1 ];
+            float2_t pdf_sum = 0;
             for( int k = 0; k < n_u; ++ k )
                 pdf_sum += pdf[ k ];
 
             for( int ig = 0; ig < n_g; ++ ig )
             {
-                const float_t g = -1.f + ig * riia_dg;
-                float_t sin_g = sqrtf
-                    ( fmaxf( 1.f - g * g, 0.f ) );
-                sin_g = fmaxf( sin_g, 1e-3f );
-                const float_t gm1 = g - 1.f;
-                const float_t inv_sg = 1.f / sin_g;
+                const float2_t g = -1.
+                    + float2_t( ig ) * float2_t( riia_dg );
+                float2_t sin_g = sqrt
+                    ( fmax( 1. - g * g, 0. ) );
+                sin_g = fmax( sin_g, 1e-3 );
+                const float2_t gm1 = g - 1.;
+                const float2_t inv_sg = 1. / sin_g;
 
                 for( int io = 0; io < n_xo; ++ io )
                 {
-                    const float_t xo = -xo_max
-                        + io * riia_dxo;
-                    float_t R = 0;
+                    const float2_t xo = -float2_t( xo_max )
+                        + float2_t( io ) * float2_t( riia_dxo );
+                    float2_t R = 0;
                     for( int k = 0; k < n_u; ++ k )
                     {
-                        const float_t uk = u_min
-                            + du * float_t( k );
-                        const float_t y = xo - uk * gm1;
+                        const float2_t uk = u_min
+                            + float2_t( du ) * float2_t( k );
+                        const float2_t y = xo - uk * gm1;
                         R += pdf[ k ]
-                            * expf( -y * y * inv_sg * inv_sg )
+                            * exp( -y * y * inv_sg * inv_sg )
                             * inv_sg / sqrt_pi;
                     }
                     h_tab[ ( ( io * n_xp ) + jp ) * n_g + ig ]
-                        = R;
+                        = float_t( R );
                 }
             }
         }
@@ -785,6 +785,24 @@ struct intg_t : particle::integrate::base_t< intg_t >
             float_t Delta = x_out - x_pp;
             return expf( -Delta * Delta / denom )
                  / ( 1.7724538509f * sqrtf( denom ) );
+        }
+
+        // For |g| > (1 - riia_dg) — the last 2 grid points on
+        // each side — the R_IIA kernel collapses to a narrow
+        // Gaussian (delta-function limit as g -> ±1).  Trilinear
+        // interpolation between a broad Gaussian (g=0.949,
+        // σ≈0.22) and a delta spike (g=1.0, σ≈0) cannot capture
+        // the qualitative shape change, so use the analytic form
+        // R = Gauss(Δ; σ=sin_g/√π) instead.  This is exact for
+        // g=±1 and a good approximation for |g|>0.949 (u_k shifts
+        // ≪ sin_g for typical u_k).
+        if( fabsf( g ) > 0.99f )
+        {
+            float_t sin_g = sqrtf
+                ( fmaxf( 1.f - g * g, 1e-6f ) );
+            float_t Delta = x_out - x_pp;
+            return expf( -Delta * Delta / ( sin_g * sin_g ) )
+                 / ( sin_g * 1.7724538509f );
         }
 
         const float_t sgn = ( x_pp >= 0.f ) ? 1.f : -1.f;

@@ -613,15 +613,17 @@ path segment in cell `i` also adds the packet's contribution to the
 scattering source function toward the camera:
 
 ```
-base = flx · (1 − e^−dτ_e) / dτ_e · (1/4π)         (flx = proper·dl/V)
+base = flx · (1 − e^−dτ_e) / dτ_e · (1/4π) / b_sca    (flx = proper·dl/V)
 for channel k:
     dv_cam  = v_chan[k] + dir_cam·v_bulk(i)          (gas-frame offset
-                                                     toward the camera)
+                                                      toward the camera)
     x_out   = dv_cam / b_sca
     x_pp    = (vel + vel_obs) / b_sca               (photon's own freq)
     g_dot   = dir_photon · dir_cam                  (directional correlation)
+    prof_s  = H(a_voigt, x_pp)                       (Voigt profile at the
+                                                      photon's INCOMING freq)
     R       = R_IIA_kernel(x_out, |x_pp|, g_dot)  (precomputed 3-D table)
-    s_cam[i,k] += base · R / b_sca
+    s_cam[i,k] += base · R · prof_s
 ```
 
 Here `dτ_e = dl·(mfp_i_sca_0 + mfp_i_abs_0)` is the total extinction along
@@ -629,6 +631,17 @@ the segment (at the photon's own frequency, using the unnormalised line
 opacity `mfp_i_sca_0`), and the `(1−e^−dτ_e)/dτ_e` factor is the
 escape-probability-per-unit-length that weights the segment by the chance
 the packet scatters within the cell.
+
+The `prof_s = H(a, x_pp)` factor is the Voigt profile evaluated at the
+photon's **incoming** frequency `x_pp = (vel + vel_obs)/b_sca`.  Including
+it makes `s_cam` an **emissivity** (`j = σ(v_in) × R × J`), not a source
+function.  The imaging pass (§12.4) multiplies by `mfp_s` (line-centre
+opacity scale `σ₀ × n_l`) to recover the full emissivity
+`j = σ₀ × H(a, x_in) × R × J = σ(v_in) × R × J`.  The opacity is at the
+**incoming** frequency (where the photon is absorbed), not the outgoing
+frequency — this avoids the spurious extra line-profile factor
+`H(a, x_out)` that would produce a double-Gaussian spectrum
+(see `docs/debug/imaging_source_term.md`).
 
 The **R_IIA kernel** `R(x_out; x_pp, g)` is the full angle-dependent
 frequency redistribution kernel density, precomputed at startup as a 3-D
@@ -712,11 +725,16 @@ same USampler table:
   perpendicular velocity — the analytic integral of the sampling kernel.
 
 **Emission seed vs scattering**: the emission seed (`emiss/(mfp_s·√π·b)`,
-§12.2 above) and the scattering accumulation (`base·R/b`) both produce
-the same source function `S = j/α` for a two-level atom in LTE.  In the
-optically thin limit the emission seed dominates (no scattering); in thick
-slabs the scattering accumulation captures the multiple-scattering source
-function that builds up the characteristic double-peaked surface
+§12.2 above) is a **source function** `S = j/α` (frequency-independent for a
+two-level atom).  The imaging pass converts it to emissivity via
+`j = mfp_s × S` (line-centre opacity scale; see §12.4).  The scattering
+accumulation (`base·R·prof_s/b`) is already an emissivity (includes
+`σ(v_in) = σ₀ × H(a, x_in)`).  Both contribute to the same `s_cam` field,
+and the imaging pass applies the same `j = mfp_s × s_cam` formula uniformly.
+
+In the optically thin limit the emission seed dominates (no scattering);
+in thick slabs the scattering accumulation captures the multiple-scattering
+source function that builds up the characteristic double-peaked surface
 distribution (§12.6).
 
 ### 12.3 Camera and channel grid
@@ -757,13 +775,25 @@ along each camera ray, cell by cell, with the **analytic** solution of
 per channel k, per path segment:
     dv_cam  = v_chan[k] + dir_cam·v_bulk(i)
     prof    = φ(dv_cam / b_sca)                       (Gaussian or Voigt)
-    α_s     = mfp_i_sca_0 · prof                      (line opacity)
-    α_t     = α_s + mfp_i_abs_0                       (total extinction)
+    α_t     = mfp_i_sca_0 · prof + mfp_i_abs_0        (total extinction)
     dτ      = α_t · dl_seg
     e^−dτ   = exp(−dτ)
-    S       = (α_s / α_t) · s_cam[i,k]               (source fn toward camera)
-    I[k]    = I[k]·e^−dτ + S·(1 − e^−dτ)              (analytic cell update)
+    j       = mfp_i_sca_0 · s_cam[i,k]               (emissivity; s_cam already
+                                                       includes H(a, x_in))
+    I[k]    = I[k]·e^−dτ + (j/α_t)·(1 − e^−dτ)      (analytic cell update)
 ```
+
+The emissivity `j = mfp_s × s_cam` uses the line-centre opacity scale
+`mfp_s = σ₀ × n_l` (NOT the frequency-dependent `α_s = mfp_s × H(a, x_out)`).
+This is correct because `s_cam` already includes `prof_s = H(a, x_pp)` in
+the MC accumulation (§12.2), so
+`j = mfp_s × [base × R × H(a, x_in)] = σ₀ × n_l × H(a, x_in) × R × J = σ(v_in) × R × J`.
+Using `α_s = mfp_s × H(a, x_out)` instead would introduce a spurious
+extra `H(a, x_out)` factor, producing a double-Gaussian spectrum in the
+thin-slab limit (see `docs/debug/imaging_source_term.md`).
+For Group 1 (emiss present) the emission seed is a source function
+`S = emiss/(mfp_s × √π × b)`; `j = mfp_s × S` converts it to the
+line-centre emissivity `emiss/(√π × b)`.
 
 The imaging photon has `n_scat = 1` (never scatters); `proc_geo` is the
 pure geometric move.  Rays start at the far box boundary along `−dir_cam`
@@ -774,12 +804,13 @@ is read back by `kratos_io.read_output()` into `result['image']`.
 **Voigt profile in the imaging pass**: the imaging integrator
 (`rad_img_t`'s `intg_t`) sets `build_tables=false` to avoid re-building
 the USampler/Voigt tables into constant memory (pool overflow, see
-pitfall 18).  When the Voigt table is not available, `voigt_H(a, u)`
-falls back to a **Gaussian-core + Lorentzian-wing blend**:
-`H = max(exp(−u²), a/(√π·(u²+a²)))`.  The pure-Gaussian fallback (used
-in earlier versions) vanishes for `u > 5`, making the imaging opacity
-zero at wing channels and producing a zero image — the blend is essential
-for the Lorentzian wing that dominates at large frequency offsets.
+pitfall 18).  Instead, the Voigt table pointers are **shared from the
+scattering integrator** in `rad_img_t::init()`: for ph_mode 0/1 the 2-D
+global-mem table (`voigt_interp`) is shallow-copied; for ph_mode 2 the
+1-D const-mem table (`d_log_voigt_c`) pointer is copied.  This gives the
+imaging pass access to the same smooth tabulated Voigt profile as the
+scattering pass, avoiding the derivative discontinuity of the analytic
+`max(exp(−u²), a/(√π·(u²+a²)))` fallback that was used in earlier versions.
 
 **Units**: the imaging output inherits the scaled-proper convention.
 Both the scattering part (accumulated from the scaled photon propers) and

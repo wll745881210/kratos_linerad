@@ -86,31 +86,29 @@ struct line_img_t
         #pragma unroll 8
         for( int k = 0; k < nch; ++ k )
         {
-            const auto dv_cam = itg.d_v_chan[ k ] + vobs_cam;
-            const auto u      = dv_cam / b;
-            const auto prof   = ( a_v > 1e-6f )
-                ? itg.voigt_H( a_v, u )
-                : expf( - u * u );
-            const auto alpha_s = mfp_s * prof;
-            const auto alpha_t = alpha_s + mfp_a;
+            auto dv_cam  = itg.d_v_chan[ k ] + vobs_cam;
+            auto u       = dv_cam / b;
+            auto alpha_t = mfp_s * itg.voigt_H( a_v, u )
+                         + mfp_a ;
             if( alpha_t <= 0.f )
                 continue;          // optically negligible cell
             const auto dtau = alpha_t * dl_seg;
-            // Total source function toward the camera
-            // (thermal + scattering, MC-sampled in s_cam).
-            const auto S = ( alpha_s / alpha_t ) * s[ k ];
-            // Formal solution:  I_out = I_in * e^{-dtau}
-            //                        + S * (1 - e^{-dtau}).
-            // For very small dtau (< ~1e-4) use the first-order
-            // expansion to avoid FP32 cancellation in
-            // (1 - expf(-dtau)) which underflows to 0.
+            // The s_cam field already includes H(a, x_pp) in the
+            // accumulation (photon.h), so j = mfp_s * s_cam gives
+            //   j = sigma_0 * H(a, x_in) * R * J = sigma(v_in) * R * J
+            // which is the correct scattering emissivity.
+            // For Group 1 (emiss present) the thermal seed is a
+            // source function S = emiss/(mfp_s*sqrt(pi)*b);
+            // j_thermal = mfp_s * S is still correct (the
+            // mfp_s multiplication converts S -> j).
+            const auto j = mfp_s * s[ k ];
             if( dtau < 1e-4f )
-                I_chan[ k ] += S * dtau;
+                I_chan[ k ] += j * dl_seg;
             else
             {
                 const auto edtau = expf( - dtau );
                 I_chan[ k ] = I_chan[ k ] * edtau
-                            + S * ( 1.f - edtau );
+                            + ( j / alpha_t ) * ( 1.f - edtau );
             }
         }
         return;
