@@ -167,10 +167,14 @@ The reason: in the gas rest frame, the re-emitted photon is at line center (Δv_
 This is the "coherent redistribution / complete frequency redistribution" (ph_mode=0) case.
 
 **R_IIA modes (ph_mode = 1/2/3):** the re-emitted frequency is drawn
-from the angle-averaged redistribution kernel `P(u|x) ∝ exp(−u²) / (a² + (x−u)²)`
-via an inverse-CDF table lookup (USampler), with directional
-correlation `g = dir_old·dir`. All three modes share the same kernel
-and table; they differ only in where the tables live and how the
+from the angle-averaged redistribution kernel
+`P(u|x) ∝ exp(−u²) / (a² + (x−u)²)` — the conditional distribution of the
+atom's parallel velocity `u` given incoming dimensionless frequency `x`
+(Maxwellian atom velocity weighted by the Lorentzian absorption profile).
+This is sampled via an inverse-CDF table lookup (USampler), with
+directional correlation `g = dir_old·dir` (see §12.2 for the full R_IIA
+kernel density definition used in imaging). All three modes share the same
+kernel and table; they differ only in where the tables live and how the
 Voigt opacity is evaluated:
 
 | ph_mode | USampler table | Voigt opacity | Notes |
@@ -608,15 +612,73 @@ escape-probability-per-unit-length that weights the segment by the chance
 the packet scatters within the cell.
 
 The **R_IIA kernel** `R(x_out; x_pp, g)` is the full angle-dependent
-frequency redistribution kernel, precomputed at startup as a 3-D table
-(`intg.h:build_riia_kernel`, 200×100×40 = 0.8 M floats in device global
-memory) from the USampler CDF.  It replaces the earlier CRD-like
+frequency redistribution kernel density, precomputed at startup as a 3-D
+table (`intg.h:build_riia_kernel`, 400×200×40 = 3.2 M floats in device
+global memory) from the USampler CDF.  It replaces the earlier CRD-like
 approximation that used the normalised emission profile `φ(dv_cam)`
 directly.  The kernel correctly captures the angle–frequency correlation
 of R_IIA: the scattered frequency depends on both the incoming frequency
-`x_pp` and the scattering angle `g = Ω_old·Ω_cam`.  The `1/b_sca`
-factor converts from dimensionless `x` to velocity-space density, making
-`∫R dx = 1` (normalised in the dimensionless variable).
+`x_pp` and the scattering angle `g = Ω_old·Ω_cam`.
+
+#### Definition of the R_IIA kernel
+
+**Step 1 — USampler** (angle-averaged R_II conditional,
+`intg.h:build_usampler`).  The conditional distribution of the atom's
+parallel velocity `u` given incoming dimensionless frequency `x` is:
+
+```
+P(u | x) ∝ exp(−u²) / (a² + (x − u)²)
+```
+
+where `u` and `x` are in Doppler-width units (`v_th = √(2kT/m)`), and `a`
+is the Voigt damping parameter.  This is the standard R_II redistribution
+kernel conditional — the Maxwellian atom velocity distribution weighted by
+the Lorentzian absorption profile.  The USampler tabulates the CDF of
+`P(u|x)` on a grid of `n_u = 251` points spanning `u ∈ [−6, +6]`
+(`Δu = 0.048`), for `n_xg = 40` values of `|x|` on a mixed linear+log
+grid spanning `[0, 300]` (18 linear points `[0, 8]` + 22 log points
+`[8, 300]`).  The CDF is stored as `log(CDF)` in float32 for smooth tail
+interpolation.  `a_eff = max(a_voigt, 1e-6)` avoids NaN at `a = 0`.
+
+**Step 2 — R_IIA kernel density** (`intg.h:build_riia_kernel`).  The full
+angle-dependent kernel is the marginalisation of the sampling distribution
+over the perpendicular velocity component.  For each `(|x_pp|, g, x_out)`:
+
+```
+R(x_out; x_pp, g) = Σ_k  pdf[k] × Gauss( y_k ; σ = sin_g / √2 )
+
+    y_k    = x_out − x_pp − u_k × (g − 1)
+    sin_g  = √( max(1 − g², 0) )       (clamped to ≥ 1e-3)
+    pdf[k] = CDF[k] − CDF[k−1]          (discrete probabilities from the
+                                         USampler CDF row at |x_pp|)
+    Gauss(y; σ) = exp(−y² / sin_g²) / (sin_g √π)
+```
+
+The table covers `x_out ∈ [−120, +120]` (400 points), `|x_pp| ∈ [0, 120]`
+(200 points), `g ∈ [−1, +1]` (40 points), total 3.2 M float32 values.
+Device-side lookup (`intg.h:riia_kernel`) uses trilinear interpolation with
+edge clamping (no extrapolation).  **Symmetry:**
+`R(x_out; −x_pp, g) = R(−x_out; x_pp, g)` — the table stores only
+`|x_pp| ≥ 0`; the sign is restored at lookup time via `sgn = sign(x_pp)`,
+`txo = x_out × sgn`.
+
+**Normalisation:** `∫ R dx_out = 1` by construction (`Σ pdf = 1` from the
+CDF, `∫ Gauss = 1`).  The `1/b_sca` factor in the `s_cam` accumulation
+converts from dimensionless `x` to velocity-space density.
+
+**Relationship to photon scattering:** the code has two paths using the
+same USampler table:
+
+- **Sampling path** (actual photon scattering, `photon.h:scat()`): draws
+  `u_par` from `P(u|x_freq)` via inverse-CDF lookup (`intg.h:sample_upar`),
+  then `x_new = x_freq + u_par×(g−1) + sin_g×u_perp` where
+  `u_perp ~ N(0, 1/√2)` (Box–Muller).  This produces a single random
+  outgoing frequency per scattering event.
+- **Density path** (imaging source function, `photon.h:proc_phys`):
+  evaluates the kernel density `R(x_out; x_pp, g)` via trilinear
+  interpolation of the precomputed table.  This gives the probability
+  density of scattering into each camera channel, marginalised over the
+  perpendicular velocity — the analytic integral of the sampling kernel.
 
 **Emission seed vs scattering**: the emission seed (`emiss/(mfp_s·√π·b)`,
 §12.2 above) and the scattering accumulation (`base·R/b`) both produce

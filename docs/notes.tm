@@ -426,13 +426,35 @@
   recovers the gas-frame outgoing frequency.
 
   The R_IIA kernel is precomputed as a 3-D table
-  <math|R<around*|(|x<rsub|out>,<around*|\||x<rsub|pp>|\|>,g|)>> (200\<times\>100\<times\>40)
-  from the USampler CDF, and is also used in the imaging source function
-  accumulation (see <math|\<S\>4>). <verbatim|ph_mode> 1 uses global-memory
-  tables, <verbatim|ph_mode> 2 uses constant-memory tables (fastest exact
-  mode), and <verbatim|ph_mode> 3 uses an approximate analytic Voigt blend
-  for the opacity profile (fastest overall, with <math|<around*|(|1-3|)>%>
-  error in <math|<text|med>|x|> at low <math|a\<tau\><rsub|0>>).
+  <math|R<around*|(|x<rsub|out>,<around*|\||x<rsub|pp>|\|>,g|)>>
+  (400\<times\>200\<times\>40 = 3.2 M floats) from the USampler CDF, and
+  is also used in the imaging source function accumulation (see
+  <math|\<S\>4>). The kernel density is defined as:
+
+  <\equation>
+    R<around*|(|x<rsub|out>; x<rsub|pp>, g|)>=<big|sum><rsub|k>pdf<around*|[|k|]>\<cdot\><frac|<text|exp><around*|(|-y<rsub|k><rsup|2>/sin<rsup|2>\<theta\><rsub|g>|)>|sin\<theta\><rsub|g>\<cdot\><sqrt|\<pi\>|>>
+  </equation>
+
+  where <math|y<rsub|k>=x<rsub|out>-x<rsub|pp>-u<rsub|k><around*|(|g-1|)>>,
+  <math|sin\<theta\><rsub|g>=<sqrt|<text|max><around*|(|1-g<rsup|2>,0|)>>>>
+  (clamped to <math|\<geq\>10<rsup|-3>>),
+  <math|pdf<around*|[|k|]>=<text|CDF><around*|[|k|]>-<text|CDF><around*|[|k-1|]>>
+  are discrete probabilities from the USampler CDF row at
+  <math|<around*|\||x<rsub|pp>|\|>>, and <math|u<rsub|k>> are the USampler
+  grid points (<math|n<rsub|u>=251>, <math|u\<in\><around*|[|-6,+6|]>>,
+  <math|\<Delta\>u=0.048>). The USampler conditional is
+  <math|P<around*|(|u\|x|)>\<propto\><text|exp><around*|(|-u<rsup|2>|)>/<around*|(|a<rsup|2>+<around*|(|x-u|)><rsup|2>|)>>.
+  Normalisation: <math|<big|int>R\<mathd\>x<rsub|out>=1>. Symmetry:
+  <math|R<around*|(|x<rsub|out>;-x<rsub|pp>,g|)>=R<around*|(|-x<rsub|out>;x<rsub|pp>,g|)>>.
+  The table spans <math|x<rsub|out>\<in\><around*|[|-120,+120|]>>,
+  <math|<around*|\||x<rsub|pp>|\|>\<in\><around*|[|0,120|]>>,
+  <math|g\<in\><around*|[|-1,+1|]>>.
+
+  <verbatim|ph_mode> 1 uses global-memory tables, <verbatim|ph_mode> 2 uses
+  constant-memory tables (fastest exact mode), and <verbatim|ph_mode> 3
+  uses an approximate analytic Voigt blend for the opacity profile
+  (fastest overall, with <math|<around*|(|1-3|)>%> error in
+  <math|<text|med>|x|> at low <math|a\<tau\><rsub|0>>).
 
   <section|Methods on the Python side>
 
@@ -650,13 +672,15 @@
 
   The <with|font-series|bold|R_IIA kernel> <math|R<around*|(|x<rsub|out>;
   x<rsub|pp>, g|)>> is the full angle-dependent frequency redistribution
-  kernel, precomputed at startup as a 3-D table (200\<times\>100\<times\>40 =
-  0.8 M floats in device global memory) from the USampler CDF. It correctly
-  captures the angle\Ufrequency correlation of R_IIA: the scattered frequency
-  depends on both the incoming frequency <math|x<rsub|pp>> and the scattering
-  angle <math|g>. The <math|1/b<rsub|sca>> factor converts from dimensionless
-  <math|x> to velocity-space density, with <math|<big|int>R
-  \<mathd\>x=1> (normalised).
+  kernel density, precomputed at startup as a 3-D table
+  (400\<times\>200\<times\>40 = 3.2 M floats in device global memory) from
+  the USampler CDF (see <math|\<S\>2.3.3> for the full definition). It
+  correctly captures the angle\Ufrequency correlation of R_IIA: the
+  scattered frequency depends on both the incoming frequency
+  <math|x<rsub|pp>> and the scattering angle <math|g>. The
+  <math|1/b<rsub|sca>> factor converts from dimensionless <math|x> to
+  velocity-space density, with <math|<big|int>R \<mathd\>x=1>
+  (normalised).
 
   <subsection|Camera and channel grid>
 

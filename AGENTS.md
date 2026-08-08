@@ -160,7 +160,7 @@ Physics and units are documented in `docs/PHYSICS.md` §12.
 - `2` – R_IIA: same USampler kernel, but tables in **constant memory**: coarse log-CDF USampler (251×40, `du=0.048`) + 1D log-space Voigt table (5000 pts, `u∈[0,50]`, built from the host-side scipy 2D table). Fastest exact mode.
 - `3` – R_IIA: const-mem USampler only; scattering profile uses the approximate analytic `voigt_H` blend in `photon.h` (Gauss core + Lorentz wing crossover). Fastest overall but underestimates `med|x|` at low `aτ₀` (~0.77–0.94× Neufeld for `aτ₀=30–1192`); converges at high `aτ₀`.
 
-All R_IIA modes (1/2/3) share the same scattering kernel (`g = dir_old·dir` directional correlation). Modes 1 and 2 agree to ~1–2% (`med|x|`); use `2` for production, `1` for debug (global-mem table). `ph_mode=2`/`3` use the constant-memory pool — **not freed** in `finalize` (`free_dev_mem=false`); the 60 KiB const pool is a bump allocator.
+All R_IIA modes (1/2/3) share the same scattering kernel (`g = dir_old·dir` directional correlation). The USampler conditional is `P(u|x) ∝ exp(−u²)/(a²+(x−u)²)` (`n_u=251`, `u∈[−6,6]`, `du=0.048`, `n_xg=40`, `xg∈[0,300]` mixed linear+log). The R_IIA kernel density `R(x_out; x_pp, g) = Σ_k pdf[k]·Gauss(y_k; σ=sin_g/√2)` is precomputed as a 400×200×40 table (`x_out∈[−120,120]`, `|x_pp|∈[0,120]`, `g∈[−1,1]`), used in imaging source-function accumulation (see `docs/PHYSICS.md` §12.2 for the full definition). Modes 1 and 2 agree to ~1–2% (`med|x|`); use `2` for production, `1` for debug (global-mem table). `ph_mode=2`/`3` use the constant-memory pool — **not freed** in `finalize` (`free_dev_mem=false`); the 60 KiB const pool is a bump allocator.
 
 **Photon features (Kratos-side, all in `usr_ext/line_rt`):**
 - `proper_min_frac` (default 0 = off): proper-weight culling. Each photon stores `proper_0` (its weight at creation, set in `gen.h`); in `photon.h:proc_step()` a photon is culled (`dest.todo = to_rm`) once `proper < proper_min_frac * proper_0`. Useful for heavily absorbing media. Exposed as `LineRt(proper_min_frac=...)`.
@@ -240,7 +240,7 @@ make clean && make USRDIR=usr_ext/line_rt -j8
 | `usr_ext/line_rt/photon_gen_img.h` / `.cpp` | `gen_img_t` pixel generation (one ray per image-plane pixel) |
 | `usr_ext/line_rt/pool.h` | Escaped photon output writing |
 | `usr_ext/line_rt/gen.h` | Photon generation from binary |
-| `usr_ext/line_rt/intg.h` | Integrator parameters, camera (`dir_cam`, `q_cam`), channel grid (`d_v_chan`), Voigt interpolation table, R_IIA kernel table (`build_riia_kernel`, 200×100×40, device global mem) |
+| `usr_ext/line_rt/intg.h` | Integrator parameters, camera (`dir_cam`, `q_cam`), channel grid (`d_v_chan`), Voigt interpolation table, R_IIA kernel table (`build_riia_kernel`, 400×200×40, device global mem) |
 | `usr_ext/line_rt/block_data.h` | `rad_t` struct (incl. `s_cam`, `emiss`, `imaging`, `n_chan`), block I/O (`copy_input` blank, `copy_output` device->host) |
 | `usr_ext/line_rt/line_rt.h` | Profile functions (b_sca only) |
 

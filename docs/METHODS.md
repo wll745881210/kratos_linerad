@@ -380,8 +380,8 @@ where:
   contribution (proper weight × path length / cell volume)
 - $R_{\rm IIA}(x_{\rm out}; |x_{\rm pp}|, |g|)$ = the R_IIA
   redistribution kernel density, precomputed as a 3-D table
-  (200 × 100 × 40 points for $x_{\rm out} \in [-50, 50]$,
-  $|x_{\rm pp}| \in [0, 50]$, $g \in [0, 1]$)
+  (400 × 200 × 40 points for $x_{\rm out} \in [-120, 120]$,
+  $|x_{\rm pp}| \in [0, 120]$, $g \in [-1, 1]$)
 - $x_{\rm out} = (v_k + \hat{n}_{\rm cam} \cdot \mathbf{v}_{\rm bulk}) / b$
   = resonant gas-frame frequency for the camera LOS at cell $i$
 - $x_{\rm pp} = (\mathrm{vel} + \hat{n}_{\rm pp} \cdot \mathbf{v}_{\rm bulk}) / b$
@@ -390,17 +390,46 @@ where:
 - $\mathrm{d}\tau_e = (\lambda_{\rm sca}^{-1} + \lambda_{\rm abs}^{-1}) \mathrm{d}l$
   = extinction optical depth of the path segment
 
-The R_IIA kernel table is constructed from the USampler CDF:
+The R_IIA kernel table is constructed from the USampler CDF.
+
+**Step 1 — USampler** (`intg.h:build_usampler`): tabulates the CDF of the
+angle-averaged R_II conditional
+$P(u | x) \propto \exp(-u^2) / (a^2 + (x-u)^2)$
+on a grid of $n_u = 251$ points spanning $u \in [-6, +6]$
+($\Delta u = 0.048$), for $n_{xg} = 40$ values of $|x|$ on a mixed
+linear+log grid spanning $[0, 300]$. The CDF is stored as $\log(\mathrm{CDF})$
+in float32.
+
+**Step 2 — R_IIA kernel density** (`intg.h:build_riia_kernel`):
 
 $$
 R(x_{\rm out}; x_{\rm pp}, g) =
-\sum_k P(u_k | x_{\rm pp}) \,
-\frac{e^{-(x_{\rm out} - x_{\rm pp} - u_k(g-1))^2 / \sin^2\theta_g}}
+\sum_k \mathrm{pdf}[k] \,
+\frac{\exp\!\left(-\frac{(x_{\rm out} - x_{\rm pp} - u_k(g-1))^2}{\sin^2\theta_g}\right)}
 {\sin\theta_g \sqrt{\pi}}
 $$
 
-where $P(u_k | x_{\rm pp})$ are discrete probabilities from the USampler
-CDF, and the Gaussian has $\sigma = \sin\theta_g / \sqrt{2}$.
+where $\mathrm{pdf}[k] = \mathrm{CDF}[k] - \mathrm{CDF}[k{-}1]$ are discrete
+probabilities from the USampler CDF row at $|x_{\rm pp}|$,
+$u_k$ are the USampler grid points, and
+$\sin\theta_g = \sqrt{\max(1-g^2,\, 0)}$ (clamped to $\geq 10^{-3}$).
+The Gaussian has $\sigma = \sin\theta_g / \sqrt{2}$.
+
+**Normalisation:** $\int R \, \mathrm{d}x_{\rm out} = 1$ by construction
+($\sum \mathrm{pdf} = 1$, $\int \mathrm{Gauss} = 1$).
+
+**Symmetry:** $R(x_{\rm out}; -x_{\rm pp}, g) = R(-x_{\rm out}; x_{\rm pp}, g)$
+— the table stores only $|x_{\rm pp}| \geq 0$; sign is restored at lookup
+time.
+
+**Two paths, one table:** the USampler CDF serves both the *sampling*
+path (actual photon scattering in `photon.h:scat()`, drawing $u_{\rm par}$
+via inverse-CDF lookup then computing
+$x_{\rm new} = x + u_{\rm par}(g-1) + \sin\theta_g \cdot u_\perp$) and the
+*density* path (imaging source function in `photon.h:proc_phys`,
+evaluating $R(x_{\rm out}; x_{\rm pp}, g)$ via trilinear interpolation).
+The density is the analytic marginalisation of the sampling kernel over
+the perpendicular velocity component $u_\perp$.
 
 **Emission seed:** In addition to the scattering accumulation, each
 channel is seeded with the line emission source function:
@@ -500,8 +529,8 @@ host garbage. Field copies happen only in `copy_output`
   stored in constant memory. Accessed via bisection in device code.
 - **Voigt table:** 1D log-space, 5000 points over $u \in [0, 50]$,
   built from a host-side scipy 2-D table. Stored in constant memory.
-- **R_IIA kernel table:** 200 × 100 × 40 = 800,000 float32 values
-  (~3.2 MiB), $x_{\rm out} \in [-50, 50]$, $|x_{\rm pp}| \in [0, 50]$,
+- **R_IIA kernel table:** 400 × 200 × 40 = 3,200,000 float32 values
+  (~12.8 MiB), $x_{\rm out} \in [-120, 120]$, $|x_{\rm pp}| \in [0, 120]$,
   $g \in [-1, 1]$, stored in device global memory (too large for const
   pool).
 
