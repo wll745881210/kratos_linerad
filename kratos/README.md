@@ -11,7 +11,6 @@ make USRDIR=usr_ext/line_rt -j8
 
 # HIP-CPU (no GPU needed, uses g++)
 make USRDIR=usr_ext/line_rt ARCH=HIPCPU -j8
-
 # HIP (AMD GPU, requires hipcc/ROCm)
 make USRDIR=usr_ext/line_rt ARCH=HIP -j8
 ```
@@ -27,6 +26,19 @@ The binary is produced at `bin/kratos`.
 | `SM` | `sm_80` | GPU compute capability (e.g. `sm_70`, `sm_80`, `sm_90`) |
 | `DEBUG` | `0` | `1` for debug build with `-g -O0` |
 | `MPI` | `0` | `1` for MPI parallel I/O |
+
+### HIP-CPU backend
+
+The `HIPCPU` backend requires no GPU but needs:
+
+1. **libtbb-dev**: `sudo apt install libtbb-dev`
+2. **HIP-CPU runtime** — patched fork (the original ROCm/HIP-CPU does not
+   compile with modern GCC):
+   ```bash
+   git clone https://github.com/wll745881210/HIP-CPU-vibe.git
+   cd HIP-CPU-vibe && mkdir build && cd build
+   cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local && make install
+   ```
 
 ## Directory Structure
 

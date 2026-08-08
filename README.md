@@ -32,10 +32,30 @@ The code supports three backends:
 |--------|----------|--------|-------|
 | `CUDA` (default) | `nvcc` | NVIDIA GPU (sm_80) | Pass `SM=sm_70` etc. for other architectures |
 | `HIP` | `hipcc` | AMD ROCm GPU | Requires ROCm toolkit |
-| `HIPCPU` | `g++` | CPU (multi-threaded) | No GPU required; uses HIP-CPU runtime |
+| `HIPCPU` | `g++` | CPU (multi-threaded) | Requires libtbb-dev + HIP-CPU runtime (see below) |
 
 All device-specific code is `#ifdef`-guarded, so the same source compiles under
 any backend without modification.
+
+### HIP-CPU requirements
+
+The `HIPCPU` backend (no GPU) requires:
+
+1. **libtbb-dev** — Intel Threading Building Blocks:
+   ```bash
+   sudo apt install libtbb-dev
+   ```
+
+2. **HIP-CPU runtime** — a patched fork that works with modern GCC and libtbb-dev:
+   ```bash
+   git clone https://github.com/wll745881210/HIP-CPU-vibe.git
+   cd HIP-CPU-vibe
+   mkdir build && cd build
+   cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local
+   make install
+   ```
+   > **Note:** The original [ROCm/HIP-CPU](https://github.com/ROCm/HIP-CPU) does
+   > not compile with recent GCC or libtbb-dev. Use the patched fork above.
 
 ### 2. Install the Python pipeline
 
@@ -67,7 +87,7 @@ rt.plot_results()
 
 ## Prerequisites
 
-- **CUDA toolkit** (NVIDIA GPU builds), **ROCm toolkit** (AMD GPU builds), or **g++** (HIP-CPU builds)
+- **CUDA toolkit** (NVIDIA GPU builds), **ROCm toolkit** (AMD GPU builds), or **libtbb-dev + HIP-CPU** (CPU builds)
 - **Python 3.10+** with `numpy`, `scipy`, `matplotlib`
 - **NVIDIA GPU** (compute capability ≥ 7.0, e.g. RTX 3090) **or AMD GPU** (ROCm, e.g. MI250X) **or CPU**
 

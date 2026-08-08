@@ -2,6 +2,9 @@
 kratos/obj/
 kratos/bin/
 
+# Scripts (keep local via Seafile, not public)
+scripts/
+
 # Extraction notes (references private dev tree paths)
 EXTRACTION_NOTES.md
 
