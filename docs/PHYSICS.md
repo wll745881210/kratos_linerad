@@ -184,6 +184,25 @@ Voigt opacity is evaluated:
 | 2 | constant mem (251×40, log-CDF) | 1D log-space table, const mem (5000 pts) | production |
 | 3 | constant mem | approximate `voigt_H` blend (photon.h) | fastest; underestimates med\|x\| at low aτ₀ |
 
+**Table sizes and GPU memory layout:**
+
+| Table | Grid points | Bytes | ph_mode 1 (global) | ph_mode 2 (const) |
+|-------|-------------|-------|-------------------|-------------------|
+| 2D Voigt (`voigt_interp`) | 64×512 = 32,768 | 128 KiB | global (`to_device`) | host-only (removed from device) |
+| 1D Voigt (`d_log_voigt_c`) | 5,000 | 19.5 KiB | — | const (`malloc_const`) |
+| USampler CDF (`d_cdf`) | 251×40 = 10,040 | 39.2 KiB | global (`malloc_device`) | const (`malloc_const`) |
+| USampler xg (`d_xg`) | 40 | 160 B | global | const |
+| R_IIA kernel (`d_riia`) | 200×200×40 = 1,600,000 | 6.1 MiB | global | global (unchanged) |
+| **Total const-mem** | — | — | — | **59.8 KiB** (of 64 KiB HW limit) |
+
+The `free_dev_mem` flag (set at `init()`: `true` for ph1, `false` for ph2)
+controls whether `build_usampler()` uses `malloc_device` (global) or
+`malloc_const` + `f_cc` (const). The 2D Voigt table (128 KiB) is the largest
+saving in ph_mode 2: it is replaced by a run-specific 1D slice (19.5 KiB)
+pre-sampled at the fixed `a_voigt`, collapsing the `a` dimension entirely.
+The R_IIA kernel (6.1 MiB) is too large for constant memory (~157× the 64 KiB
+limit) and stays in global memory in all modes.
+
 See `docs/debug/debug.md` "Jul 31 afternoon session" for the
 validation numbers (a=0.149, Neufeld eq. 2.24) and the Humlicek
 W4 / TG2006 evaluation.
