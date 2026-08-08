@@ -73,40 +73,54 @@ kratos/
 
 ## Par File Format
 
-Kratos reads a `.par` configuration file. Key sections:
+Kratos reads a `.par` configuration file. **All values are in code units**
+(except the `[unit]` section which defines the CGS conversion factors).
+The Python pipeline handles all CGS → code-unit conversions automatically.
+
+> **See [PHYSICS.md](../pipeline/docs/PHYSICS.md) §1 for the full unit
+> specification** — this is essential reading before writing par files by hand.
+
+Key sections:
 
 ```ini
 [mesh]
-x_min = -1.0 0 0              # CODE units (not CGS)
+x_min = -1.0 0 0              # CODE units (NOT CGS)
 x_max =  1.0 1 1
-n_cell_global = 64 16 2       # MUST be integers
+n_cell_global = 64 16 2       # MUST be integers (not floats!)
 
 [unit]
-length  = 1.49598e13          # code unit → cm
+length  = 1.49598e13          # code unit → cm (CGS); documentation-only
 time    = 1.0                 # code unit → s
 density = 1.0                 # code unit → g/cm³
 
 [line_rt]
-field_file       = fields_cycle0.bin
-field_fixed_file = fields_fixed.bin
+field_file       = fields_cycle0.bin    # line-dependent: mfp_i_sca_0, mfp_i_abs_0, emiss
+field_fixed_file = fields_fixed.bin      # line-independent: b_sca, vel (optional)
 photon_file      = photons_cycle0.bin
-ph_mode          = 2          # 0=CFR, 1/2/3=R_IIA
-b_sca            = 1.3369e-7  # CODE units
-n_scat           = 10000
-worker_mode      = 1
-n_worker         = 32768
+ph_mode          = 2          # 0=CFR (Gaussian), 1/2/3=R_IIA (see PHYSICS.md §2)
+b_sca            = 1.3369e-7  # Doppler b for scattering [CODE units]
+n_scat           = 10000     # max scatterings per photon
+worker_mode      = 1          # 1=server-worker (default ON), 0=classic
+n_worker         = 32768     # worker count (0=auto)
 
 [imaging]
 enabled         = 1
-n_chan          = 32
-dir_cam_theta   = 0.785
-dir_cam_phi     = 0.0
-v_chan_min      = -1.0e5
-v_chan_max       = 1.0e5
+n_chan          = 32          # velocity channels
+dir_cam_theta   = 0.785       # camera LOS polar angle [rad]
+dir_cam_phi     = 0.0         # camera LOS azimuth [rad]
+v_chan_min      = -1.0e5      # channel grid lower edge [CODE units]
+v_chan_max       = 1.0e5      # channel grid upper edge [CODE units]
 ```
 
-Everything in `[mesh]` and `[line_rt]` is in **code units**, not CGS.
-The `[unit]` section is documentation-only — Kratos does not auto-convert.
+**Field keys** (written by the pipeline as cell-centred `(nz,ny,nx)` binaries):
+
+| File | Key | Content | Unit |
+|------|-----|---------|------|
+| `field_file` | `mfp_i_sca_0_` | Inverse scattering MFP at line centre (σ₀·n_lower) | [code-l]⁻¹ |
+| `field_file` | `mfp_i_abs_0_` | Inverse absorption MFP | [code-l]⁻¹ |
+| `field_file` | `emiss_` | Photon-number emissivity (n_u·A_ul/4π) | code units |
+| `field_fixed_file` | `b_sca_` | Doppler b for scattering | code-l/code-t |
+| `field_fixed_file` | `vel_0_`/`vel_1_`/`vel_2_` | Bulk velocity components | code-l/code-t |
 
 ## GPU Memory Layout
 

@@ -72,18 +72,38 @@ from line_rt import LineRt
 rt = LineRt(
     kratos_root='../kratos',            # path to the kratos/ directory
     n_cell=(64, 16, 2),
-    x_min=(-8, -2, 0), x_max=(8, 2, 0.2),
-    unit_l0=1.49598e13,                  # 1 AU in cm
-    b_sca=1e-4, mfp_i_sca_0=0.01, mfp_i_abs_0=1e-12,
-    ph_mode=2,                           # R_IIA (production)
+    x_min=(-8, -2, 0), x_max=(8, 2, 0.2),  # CODE units (NOT CGS)
+    unit_l0=1.49598e13,                  # length: 1 code unit = 1 AU in cm
+    b_sca=1e-4,                          # Doppler b for scattering [cm/s] (CGS)
+    mfp_i_sca_0=0.01,                    # inverse scattering MFP at line centre [cm^-1] (CGS)
+    mfp_i_abs_0=1e-12,                   # inverse absorption MFP [cm^-1] (CGS)
+    ph_mode=2,                           # R_IIA frequency redistribution (production)
     n_step=20000, n_scat=10000,
     n_cycles=3,
 )
-rt.add_source(type='slab', position=-5, direction='+x',
-              n_photon=100000, flux=1e6)
+rt.add_source(type='slab', position=-5, direction='+x',  # position in CGS [cm]
+              n_photon=100000, flux=1e6)                   # flux in CGS [photons cm^-2 s^-1]
 out = rt.run()
 rt.plot_results()
 ```
+
+> **Unit convention:** The Python pipeline accepts **CGS** inputs for all
+> physical quantities (densities, velocities, opacities, source positions,
+> fluxes) — **except** `x_min`/`x_max` which are in **code units**
+> (multiples of `unit_l0`). The Kratos backend operates in **code units**
+> internally; the pipeline handles all conversions.
+> See **[PHYSICS.md](pipeline/docs/PHYSICS.md)** for the full specification
+> (§1: units, §3: cross sections, §12: imaging).
+
+**Key parameters:**
+
+| Parameter | Unit | Description |
+|-----------|------|-------------|
+| `unit_l0` | cm | Length: 1 code unit → this many cm (e.g. `1.49598e13` = 1 AU) |
+| `b_sca` | cm/s | Doppler b-parameter for scattering (thermal + turbulent broadening) |
+| `mfp_i_sca_0` | cm⁻¹ | Inverse scattering mean free path at line centre (τ₀ = × slab length) |
+| `mfp_i_abs_0` | cm⁻¹ | Inverse absorption mean free path (dust/continuum destruction) |
+| `n_species` | cm⁻³ | Species number density (lower-level population; used in Group 1) |
 
 ## Prerequisites
 
