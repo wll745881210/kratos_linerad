@@ -211,7 +211,7 @@ P(u_\parallel | x_{\rm in}) \propto \frac{e^{-u_\parallel^2}}{a^2 + (x_{\rm in} 
 $$
 
 This is tabulated as a log-CDF with 251 $u_\parallel$ points over
-$u \in [0, 6]$ (resolution $\mathrm{d}u = 0.048$) and 40 $x_{\rm grid}$
+$u \in [-6, 6]$ (resolution $\mathrm{d}u = 0.048$) and 40 $x_{\rm grid}$
 points (18 linear $[0, 8]$ + 22 log $[8, 300]$). The CDF is converted
 to log-space for FP32 dynamic range and stored in device memory
 (constant memory for mode 2, global for mode 1).
@@ -370,7 +370,7 @@ The source function toward the camera at cell $i$, channel $k$:
 $$
 S_{\rm sca}(\hat{n}_{\rm cam}, v_k, i) =
 \sum_{\rm pp} \frac{F_{\rm pp}}{4\pi} \,
-R_{\rm IIA}(x_{\rm out}; |x_{\rm pp}|, |g|) \,
+R_{\rm IIA}(x_{\rm out}; |x_{\rm pp}|, g) \,
 \frac{1 - e^{-\mathrm{d}\tau_e}}{\mathrm{d}\tau_e}
 $$
 
@@ -378,10 +378,11 @@ where:
 
 - $F_{\rm pp} = w_{\rm pp} \times \mathrm{d}l / V$ = photon flux
   contribution (proper weight × path length / cell volume)
-- $R_{\rm IIA}(x_{\rm out}; |x_{\rm pp}|, |g|)$ = the R_IIA
+- $R_{\rm IIA}(x_{\rm out}; |x_{\rm pp}|, g)$ = the R_IIA
   redistribution kernel density, precomputed as a 3-D table
-  (400 × 200 × 40 points for $x_{\rm out} \in [-120, 120]$,
-  $|x_{\rm pp}| \in [0, 120]$, $g \in [-1, 1]$)
+  (200 × 200 × 40 points for $\Delta = x_{\rm out} - x_{\rm pp} \in [-10, 10]$,
+  $|x_{\rm pp}| \in [0, 120]$, $g \in [-1, 1]$, with analytic
+  asymptotic for $|x_{\rm pp}| \ge 120$)
 - $x_{\rm out} = (v_k + \hat{n}_{\rm cam} \cdot \mathbf{v}_{\rm bulk}) / b$
   = resonant gas-frame frequency for the camera LOS at cell $i$
 - $x_{\rm pp} = (\mathrm{vel} + \hat{n}_{\rm pp} \cdot \mathbf{v}_{\rm bulk}) / b$
@@ -529,10 +530,11 @@ host garbage. Field copies happen only in `copy_output`
   stored in constant memory. Accessed via bisection in device code.
 - **Voigt table:** 1D log-space, 5000 points over $u \in [0, 50]$,
   built from a host-side scipy 2-D table. Stored in constant memory.
-- **R_IIA kernel table:** 400 × 200 × 40 = 3,200,000 float32 values
-  (~12.8 MiB), $x_{\rm out} \in [-120, 120]$, $|x_{\rm pp}| \in [0, 120]$,
-  $g \in [-1, 1]$, stored in device global memory (too large for const
-  pool).
+- **R_IIA kernel table:** 200 × 200 × 40 = 1,600,000 float32 values
+  (~6.4 MiB), $\Delta = x_{\rm out} - x_{\rm pp} \in [-10, 10]$,
+  $|x_{\rm pp}| \in [0, 120]$, $g \in [-1, 1]$, stored in device global
+  memory (too large for const pool).  Analytic asymptotic for
+  $|x_{\rm pp}| \ge 120$.
 
 #### Parallelization
 

@@ -601,7 +601,7 @@ for channel k:
     x_out   = dv_cam / b_sca
     x_pp    = (vel + vel_obs) / b_sca               (photon's own freq)
     g_dot   = dir_photon · dir_cam                  (directional correlation)
-    R       = R_IIA_kernel(x_out, |x_pp|, |g_dot|) (precomputed 3-D table)
+    R       = R_IIA_kernel(x_out, |x_pp|, g_dot)  (precomputed 3-D table)
     s_cam[i,k] += base · R / b_sca
 ```
 
@@ -613,12 +613,12 @@ the packet scatters within the cell.
 
 The **R_IIA kernel** `R(x_out; x_pp, g)` is the full angle-dependent
 frequency redistribution kernel density, precomputed at startup as a 3-D
-table (`intg.h:build_riia_kernel`, 400×200×40 = 3.2 M floats in device
-global memory) from the USampler CDF.  It replaces the earlier CRD-like
-approximation that used the normalised emission profile `φ(dv_cam)`
-directly.  The kernel correctly captures the angle–frequency correlation
-of R_IIA: the scattered frequency depends on both the incoming frequency
-`x_pp` and the scattering angle `g = Ω_old·Ω_cam`.
+table (`intg.h:build_riia_kernel`, 200×200×40 = 1.6 M floats in device
+global memory) from the USampler CDF.  The table is parametrised in
+`Δ = x_out − x_pp` (not `x_out` directly), which halves the table
+size while providing 6× finer resolution in the dynamically relevant
+range.  An analytic asymptotic is used for `|x_pp| ≥ 120` where the
+USampler CDF has converged.
 
 #### Definition of the R_IIA kernel
 
@@ -642,25 +642,37 @@ interpolation.  `a_eff = max(a_voigt, 1e-6)` avoids NaN at `a = 0`.
 
 **Step 2 — R_IIA kernel density** (`intg.h:build_riia_kernel`).  The full
 angle-dependent kernel is the marginalisation of the sampling distribution
-over the perpendicular velocity component.  For each `(|x_pp|, g, x_out)`:
+over the perpendicular velocity component.  The table is parametrised in
+`Δ = x_out − x_pp`.  For each `(|x_pp|, g, Δ)`:
 
 ```
-R(x_out; x_pp, g) = Σ_k  pdf[k] × Gauss( y_k ; σ = sin_g / √2 )
+R(Δ; x_pp, g) = Σ_k  pdf[k] × Gauss( y_k ; σ = sin_g / √2 )
 
-    y_k    = x_out − x_pp − u_k × (g − 1)
+    y_k    = Δ − u_k × (g − 1)
     sin_g  = √( max(1 − g², 0) )       (clamped to ≥ 1e-3)
     pdf[k] = CDF[k] − CDF[k−1]          (discrete probabilities from the
                                          USampler CDF row at |x_pp|)
     Gauss(y; σ) = exp(−y² / sin_g²) / (sin_g √π)
 ```
 
-The table covers `x_out ∈ [−120, +120]` (400 points), `|x_pp| ∈ [0, 120]`
-(200 points), `g ∈ [−1, +1]` (40 points), total 3.2 M float32 values.
+The table covers `Δ ∈ [−10, +10]` (200 points), `|x_pp| ∈ [0, 120]`
+(200 points), `g ∈ [−1, +1]` (40 points), total 1.6 M float32 values.
 Device-side lookup (`intg.h:riia_kernel`) uses trilinear interpolation with
 edge clamping (no extrapolation).  **Symmetry:**
-`R(x_out; −x_pp, g) = R(−x_out; x_pp, g)` — the table stores only
-`|x_pp| ≥ 0`; the sign is restored at lookup time via `sgn = sign(x_pp)`,
-`txo = x_out × sgn`.
+`R(Δ; −x_pp, g) = R(−Δ; x_pp, g)` — the table stores only `|x_pp| ≥ 0`;
+the sign is restored at lookup time via `sgn = sign(x_pp)`,
+`t_Δ = (x_out − x_pp) × sgn`.
+
+**Asymptotic for `|x_pp| ≥ 120`:** the USampler CDF converges to
+`pdf_∞ ∝ exp(−u²)` (independent of `x_pp` and `a`), giving the
+analytic kernel:
+
+```
+R_∞(Δ; g) = exp( −Δ² / ((g−1)² + sin²_g) ) / ( √π × √((g−1)² + sin²_g) )
+```
+
+which is used directly (no table lookup).  The kernel returns 0 for
+`|Δ| > 10` (negligible).
 
 **Normalisation:** `∫ R dx_out = 1` by construction (`Σ pdf = 1` from the
 CDF, `∫ Gauss = 1`).  The `1/b_sca` factor in the `s_cam` accumulation

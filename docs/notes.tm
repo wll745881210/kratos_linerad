@@ -426,16 +426,17 @@
   recovers the gas-frame outgoing frequency.
 
   The R_IIA kernel is precomputed as a 3-D table
-  <math|R<around*|(|x<rsub|out>,<around*|\||x<rsub|pp>|\|>,g|)>>
-  (400\<times\>200\<times\>40 = 3.2 M floats) from the USampler CDF, and
+  <math|R<around*|(|\<Delta\>,<around*|\||x<rsub|pp>|\|>,g|)>>
+  (200\<times\>200\<times\>40 = 1.6 M floats) from the USampler CDF, and
   is also used in the imaging source function accumulation (see
-  <math|\<S\>4>). The kernel density is defined as:
+  <math|\<S\>4>). The table is parametrised in
+  <math|\<Delta\>=x<rsub|out>-x<rsub|pp>>. The kernel density is:
 
   <\equation>
-    R<around*|(|x<rsub|out>; x<rsub|pp>, g|)>=<big|sum><rsub|k>pdf<around*|[|k|]>\<cdot\><frac|<text|exp><around*|(|-y<rsub|k><rsup|2>/sin<rsup|2>\<theta\><rsub|g>|)>|sin\<theta\><rsub|g>\<cdot\><sqrt|\<pi\>|>>
+    R<around*|(|\<Delta\>; x<rsub|pp>, g|)>=<big|sum><rsub|k>pdf<around*|[|k|]>\<cdot\><frac|<text|exp><around*|(|-y<rsub|k><rsup|2>/sin<rsup|2>\<theta\><rsub|g>|)>|sin\<theta\><rsub|g>\<cdot\><sqrt|\<pi\>|>>
   </equation>
 
-  where <math|y<rsub|k>=x<rsub|out>-x<rsub|pp>-u<rsub|k><around*|(|g-1|)>>,
+  where <math|y<rsub|k>=\<Delta\>-u<rsub|k><around*|(|g-1|)>>,
   <math|sin\<theta\><rsub|g>=<sqrt|<text|max><around*|(|1-g<rsup|2>,0|)>>>>
   (clamped to <math|\<geq\>10<rsup|-3>>),
   <math|pdf<around*|[|k|]>=<text|CDF><around*|[|k|]>-<text|CDF><around*|[|k-1|]>>
@@ -444,11 +445,15 @@
   grid points (<math|n<rsub|u>=251>, <math|u\<in\><around*|[|-6,+6|]>>,
   <math|\<Delta\>u=0.048>). The USampler conditional is
   <math|P<around*|(|u\|x|)>\<propto\><text|exp><around*|(|-u<rsup|2>|)>/<around*|(|a<rsup|2>+<around*|(|x-u|)><rsup|2>|)>>.
-  Normalisation: <math|<big|int>R\<mathd\>x<rsub|out>=1>. Symmetry:
-  <math|R<around*|(|x<rsub|out>;-x<rsub|pp>,g|)>=R<around*|(|-x<rsub|out>;x<rsub|pp>,g|)>>.
-  The table spans <math|x<rsub|out>\<in\><around*|[|-120,+120|]>>,
+  Normalisation: <math|<big|int>R\<mathd\>\<Delta\>=1>. Symmetry:
+  <math|R<around*|(|\<Delta\>;-x<rsub|pp>,g|)>=R<around*|(|-\<Delta\>;x<rsub|pp>,g|)>>.
+  The table spans <math|\<Delta\>\<in\><around*|[|-10,+10|]>>,
   <math|<around*|\||x<rsub|pp>|\|>\<in\><around*|[|0,120|]>>,
-  <math|g\<in\><around*|[|-1,+1|]>>.
+  <math|g\<in\><around*|[|-1,+1|]>>. For
+  <math|<around*|\||x<rsub|pp>|\|>\<geq\>120>, the analytic asymptotic
+  <math|R<rsub|\<infty\>><around*|(|\<Delta\>;g|)>=<text|exp><around*|(|-\<Delta\><rsup|2>/\<Delta\><rsub|g><rsup|2>|)>/<around*|(|<sqrt|\<pi\>>\<cdot\><sqrt|\<Delta\><rsub|g><rsup|2>>|)>>
+  is used, where
+  <math|\<Delta\><rsub|g><rsup|2>=(g-1)<rsup|2>+sin<rsup|2>\<theta\><rsub|g>>.
 
   <verbatim|ph_mode> 1 uses global-memory tables, <verbatim|ph_mode> 2 uses
   constant-memory tables (fastest exact mode), and <verbatim|ph_mode> 3
@@ -670,11 +675,13 @@
   the photon's own frequency offset, and <math|g=<with|font-series|bold|d><rsub|old>\<cdot\><with|font-series|bold|d><rsub|cam>>
   the directional correlation.
 
-  The <with|font-series|bold|R_IIA kernel> <math|R<around*|(|x<rsub|out>;
+  The <with|font-series|bold|R_IIA kernel> <math|R<around*|(|\<Delta\>;
   x<rsub|pp>, g|)>> is the full angle-dependent frequency redistribution
   kernel density, precomputed at startup as a 3-D table
-  (400\<times\>200\<times\>40 = 3.2 M floats in device global memory) from
-  the USampler CDF (see <math|\<S\>2.3.3> for the full definition). It
+  (200\<times\>200\<times\>40 = 1.6 M floats in device global memory) from
+  the USampler CDF (see <math|\<S\>2.3.3> for the full definition). The
+  table is parametrised in <math|\<Delta\>=x<rsub|out>-x<rsub|pp>>, with
+  analytic asymptotic for <math|<around*|\||x<rsub|pp>|\|>\<geq\>120>. It
   correctly captures the angle\Ufrequency correlation of R_IIA: the
   scattered frequency depends on both the incoming frequency
   <math|x<rsub|pp>> and the scattering angle <math|g>. The
