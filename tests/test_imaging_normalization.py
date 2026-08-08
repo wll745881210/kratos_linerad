@@ -257,8 +257,277 @@ def test_imaging_absorbing_slab( ):
     _check_center_pixel( cube, i2d, expected, "absorbing", tol = 0.30 );
 
 
+# ------------------------------------------------------------------ #
+#  Test 4: thin-slab spectrum (external source, perpendicular, multi-channel)
+#
+#  Geometry (rotated to match slab-source API which only supports +x/-x):
+#    Domain:  [-L, L]^3  (code units), free boundaries all 6 faces
+#    Source:  slab at x=-L, direction +x, flux F
+#    Camera:  dir_cam = (0, 0)  ->  (0, 0, 1)  along +z
+#    Slab:    -L/2 < z < L/2  (scattering medium, thickness L_slab = L*AU)
+#    vel:     (0, 0, v_z)  bulk velocity along camera direction
+#    g = dir_source . dir_cam = (1,0,0).(0,0,1) = 0  (perpendicular)
+#
+#  For a->0, g=0:  R(x_out; x_pp, 0) = exp(-x_out^2) / sqrt(pi)
+#  Opacity:  phi(k) = exp(-x_out(k)^2),  x_out = (v_chan + v_z) / b
+#  Intensity (thin):  I(k) = F * mfp_s * L_slab * exp(-2*x_out^2)
+#                                  / (4*pi * b * sqrt(pi))
+#  Total:  int I dv = F * mfp_s * L_slab / (4*pi * sqrt(2))
+# ----------------------------------------------------------------- #
+
+def _analytic_spectrum( v_chans, v_bulk, b, mfp_s, L_slab, F ):
+    """I(v) for thin slab, perpendicular scattering, a->0."""
+    x = ( v_chans + v_bulk ) / b;
+    return F * mfp_s * L_slab * exp( -2.0 * x ** 2 ) \
+           / ( 4.0 * pi * sqrt( pi ) * b );
+
+
+def _analytic_total( b, mfp_s, L_slab, F ):
+    """int I dv = F * mfp_s * L_slab / (4*pi*sqrt(2))."""
+    return F * mfp_s * L_slab / ( 4.0 * pi * sqrt( 2.0 ) );
+
+
+def _run_spectrum_imaging( mfp_sca_0_cgs, b_sca_cgs, v_z_cgs,
+                           L_au, n_chan, v_lo, v_hi,
+                           flux, n_photon ):
+    """Run: source +x, camera +z, slab in z, vel in z."""
+    import numpy as np;
+    lr = _load_lr( );
+
+    slab_half_cgs = 0.5 * L_au * AU;
+
+    def mfp_callable( X, Y, Z ):
+        return np.where( np.abs( Z ) < slab_half_cgs,
+                         mfp_sca_0_cgs, 0.0 );
+
+    rt = lr.LineRt(
+        kratos_root = KRATOS_ROOT,
+        n_cell = ( 8, 8, 16 ),
+        x_min = ( -L_au, -L_au, -L_au ),
+        x_max = (  L_au,  L_au,  L_au ),
+        unit_l0 = AU,
+        b_sca = b_sca_cgs,
+        mfp_i_sca_0 = mfp_callable,
+        mfp_i_abs_0 = 0.0,
+        a_voigt = 0.0,
+        ph_mode = 2,
+        n_step = 200000,
+        n_scat = 1000,
+        vel = ( 0.0, 0.0, v_z_cgs ),
+        imaging = {
+            'dir_cam' : ( 0.0, 0.0 ),
+            'n_chan'  : n_chan,
+            'v_chan'  : ( v_lo, v_hi ),
+        },
+        visualize = False,
+        keep_intermediate = False,
+    );
+    rt.set_boundary( 'fre fre fre fre fre fre' );
+    rt.add_source( type = 'slab', direction = '+x',
+                   x = -L_au, flux = flux, n_photon = n_photon );
+    out = rt.run( n_cycles = 1 );
+    assert 'image' in out, "no image in output";
+    img = out[ 'image' ];
+    assert 'cube_cgs' in img, "no cube_cgs in image";
+    return img[ 'cube_cgs' ], img[ 'i2d' ];
+
+
+def _channel_centers( n_chan, v_lo, v_hi ):
+    """Bin-centre velocities [cm/s]."""
+    dv = ( v_hi - v_lo ) / n_chan;
+    from numpy import arange;
+    return v_lo + ( arange( n_chan ) + 0.5 ) * dv, dv;
+
+
+def _center_pixel_spectrum( cube, i2d ):
+    """Extract the centre-pixel spectrum from the cube."""
+    center = None;
+    for p in range( i2d.shape[ 0 ] ):
+        if i2d[ p, 0 ] == 4 and i2d[ p, 1 ] == 4:
+            center = p; break;
+    assert center is not None, "no centre pixel found";
+    spec = cube[ center, : ].copy( );
+    return spec;
+
+
+def test_imaging_spectrum_normalization( ):
+    """Test A: sum of all channels vs analytic total intensity."""
+    _run_or_skip( );
+    L_au = 1.0;  b_cgs = 1e5;  tau0 = 0.01;
+    L_slab_cgs = L_au * AU;
+    mfp_s = tau0 / L_slab_cgs;
+    F = 1e6;  n_photon = 100000;
+    n_chan = 32;  v_lo = -5e5;  v_hi = 5e5;
+
+    expected = _analytic_total( b_cgs, mfp_s, L_slab_cgs, F );
+
+    cube, i2d = _run_spectrum_imaging(
+        mfp_s, b_cgs, 0.0, L_au, n_chan, v_lo, v_hi, F, n_photon );
+
+    spec = _center_pixel_spectrum( cube, i2d );
+    _, dv = _channel_centers( n_chan, v_lo, v_hi );
+    sim = float( spec.sum( ) ) * dv;
+
+    rel = abs( sim - expected ) / expected if expected > 0 else 1e99;
+    print( "  [norm] sim=%.4e, expected=%.4e, rel=%.1f%%" \
+           % ( sim, expected, rel * 100 ) );
+    assert rel < 0.15, \
+        "[norm] total %.4e vs expected %.4e (%.1f%%)" \
+        % ( sim, expected, rel * 100 );
+    print( "  [norm] PASS" );
+
+
+def test_imaging_spectrum_shape( ):
+    """Test B: spectral shape vs exp(-2*x^2)."""
+    _run_or_skip( );
+    L_au = 1.0;  b_cgs = 1e5;  tau0 = 0.01;
+    L_slab_cgs = L_au * AU;
+    mfp_s = tau0 / L_slab_cgs;
+    F = 1e6;  n_photon = 100000;
+    n_chan = 32;  v_lo = -5e5;  v_hi = 5e5;
+
+    v_chans, _ = _channel_centers( n_chan, v_lo, v_hi );
+    analytic = _analytic_spectrum( v_chans, 0.0, b_cgs, mfp_s,
+                                  L_slab_cgs, F );
+
+    cube, i2d = _run_spectrum_imaging(
+        mfp_s, b_cgs, 0.0, L_au, n_chan, v_lo, v_hi, F, n_photon );
+
+    spec = _center_pixel_spectrum( cube, i2d );
+
+    peak_sim = float( spec.max( ) );
+    peak_an = float( analytic.max( ) );
+    if peak_sim <= 0:
+        assert False, "spectrum all zeros";
+    sim_norm = spec / peak_sim;
+    an_norm = analytic / peak_an;
+
+    max_rel = float( abs( sim_norm - an_norm ).max( ) );
+    print( "  [shape] peak_sim=%.4e, peak_an=%.4e, max_rel=%.1f%%" \
+           % ( peak_sim, peak_an, max_rel * 100 ) );
+    assert max_rel < 0.15, \
+        "[shape] max deviation %.1f%%" % ( max_rel * 100, );
+    print( "  [shape] PASS" );
+
+
+def test_imaging_doppler_shift( ):
+    """Test C: Doppler shift with v_z = b_sca.
+
+    Peak should shift to v_chan = -v_z = -b_sca.
+    """
+    _run_or_skip( );
+    L_au = 1.0;  b_cgs = 1e5;  tau0 = 0.01;
+    L_slab_cgs = L_au * AU;
+    mfp_s = tau0 / L_slab_cgs;
+    F = 1e6;  n_photon = 100000;
+    n_chan = 32;  v_lo = -5e5;  v_hi = 5e5;
+    v_z = b_cgs;
+
+    v_chans, _ = _channel_centers( n_chan, v_lo, v_hi );
+    analytic = _analytic_spectrum( v_chans, v_z, b_cgs, mfp_s,
+                                  L_slab_cgs, F );
+
+    cube, i2d = _run_spectrum_imaging(
+        mfp_s, b_cgs, v_z, L_au, n_chan, v_lo, v_hi, F, n_photon );
+
+    spec = _center_pixel_spectrum( cube, i2d );
+
+    peak_sim = float( spec.max( ) );
+    peak_an = float( analytic.max( ) );
+
+    k_sim = int( spec.argmax( ) );
+    k_an = int( analytic.argmax( ) );
+
+    print( "  [doppler] peak_sim at chan %d (v=%.1e), peak_an at chan %d (v=%.1e)" \
+           % ( k_sim, v_chans[ k_sim ], k_an, v_chans[ k_an ] ) );
+
+    assert abs( k_sim - k_an ) <= 1, \
+        "[doppler] peak channel mismatch: sim=%d, an=%d" % ( k_sim, k_an );
+
+    if peak_sim > 0 and peak_an > 0:
+        sim_norm = spec / peak_sim;
+        an_norm = analytic / peak_an;
+        max_rel = float( abs( sim_norm - an_norm ).max( ) );
+        print( "  [doppler] shape max_rel=%.1f%%" % ( max_rel * 100, ) );
+        assert max_rel < 0.15, \
+            "[doppler] shape deviation %.1f%%" % ( max_rel * 100, );
+
+    print( "  [doppler] PASS" );
+
+
+def test_imaging_spectrum_figure( ):
+    """Generate a figure comparing analytic vs simulation spectra.
+
+    Two panels: v_z = 0 (left) and v_z = b_sca (right).
+    Each shows the analytic line and simulation markers
+    (cube averaged over valid pixels).
+    """
+    _run_or_skip( );
+    try:
+        import matplotlib;
+        matplotlib.use( 'Agg' );
+        import matplotlib.pyplot as plt;
+    except ImportError:
+        pytest.skip( "matplotlib not installed" );
+
+    L_au = 1.0;  b_cgs = 1e5;  tau0 = 0.01;
+    L_slab_cgs = L_au * AU;
+    mfp_s = tau0 / L_slab_cgs;
+    F = 1e6;  n_photon = 100000;
+    n_chan = 32;  v_lo = -5e5;  v_hi = 5e5;
+
+    fig, axes = plt.subplots( 1, 2, figsize = ( 12, 5 ) );
+
+    for ax, v_z, label in zip( axes, [ 0.0, b_cgs ],
+                               [ r'$v_z = 0$', r'$v_z = b_{\rm sca}$' ] ):
+        v_chans, _ = _channel_centers( n_chan, v_lo, v_hi );
+        analytic = _analytic_spectrum( v_chans, v_z, b_cgs, mfp_s,
+                                       L_slab_cgs, F );
+
+        cube, i2d = _run_spectrum_imaging(
+            mfp_s, b_cgs, v_z, L_au, n_chan, v_lo, v_hi, F, n_photon );
+
+        valid = cube.any( axis = 1 );
+        avg_spec = cube[ valid ].mean( axis = 0 );
+
+        x = v_chans / b_cgs;
+        ax.plot( x, analytic, 'b-', linewidth = 2, label = 'Analytic' );
+        ax.plot( x, avg_spec, 'ro', markersize = 5, label = 'Simulation' );
+        ax.set_xlabel( r'$v_{\rm chan} \,/\, b_{\rm sca}$' );
+        ax.set_ylabel(
+            r'$I$ [photons cm$^{-2}$ s$^{-1}$ sr$^{-1}$]' );
+        ax.set_title( label );
+        ax.legend( );
+        ax.set_xlim( -5, 5 );
+
+    fig.suptitle(
+        'Thin-slab imaging spectrum: '
+        r'$I(v) \propto \exp(-2\,x_{\rm out}^2)$, '
+        r'$x_{\rm out} = (v + v_z)/b$' );
+    fig.tight_layout( );
+    out_path = os.path.join( os.path.dirname( __file__ ),
+                             'imaging_spectrum.png' );
+    fig.savefig( out_path, dpi = 150 );
+    plt.close( fig );
+    print( "  [figure] saved to %s" % out_path );
+
+    shape_ok = False;
+    if avg_spec.max( ) > 0 and analytic.max( ) > 0:
+        sim_n = avg_spec / avg_spec.max( );
+        an_n = analytic / analytic.max( );
+        max_rel = float( abs( sim_n - an_n ).max( ) );
+        print( "  [figure] shape max_rel=%.1f%%" % ( max_rel * 100, ) );
+        shape_ok = max_rel < 0.15;
+    assert shape_ok, "[figure] shape check failed";
+    print( "  [figure] PASS" );
+
+
 if __name__ == '__main__':
     test_imaging_thin_slab( );
     test_imaging_scattering_slab( );
     test_imaging_absorbing_slab( );
+    test_imaging_spectrum_normalization( );
+    test_imaging_spectrum_shape( );
+    test_imaging_doppler_shift( );
+    test_imaging_spectrum_figure( );
     print( "Imaging tests passed." );
