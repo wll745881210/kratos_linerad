@@ -125,16 +125,17 @@ def resolve_kratos_bin( kratos_root = None ):
     Resolution order:
       1. ``kratos_root`` argument (a directory or full bin path)
       2. ``KRATOS_ROOT`` environment variable
+      3. ``~/.config/kratos_linerad/paths.conf`` (written by ``scripts/install.sh``)
+      4. Monorepo auto-detect (``../kratos/bin/kratos`` relative to this package)
 
-    There is NO default - you must set one of the above.  The build
-    tree must contain ``bin/kratos``.
+    The build tree must contain ``bin/kratos``.
 
     Parameters
     ----------
     kratos_root : str or None
         Path to the Kratos build tree root (containing ``bin/kratos``)
         or directly to the ``kratos`` binary.  If None, falls back to
-        the ``KRATOS_ROOT`` env var.
+        env var, config file, or monorepo auto-detect.
 
     Returns
     -------
@@ -144,17 +145,38 @@ def resolve_kratos_bin( kratos_root = None ):
     Raises
     ------
     FileNotFoundError
-        If the binary cannot be found, or if neither ``kratos_root``
-        nor ``KRATOS_ROOT`` is set.
+        If the binary cannot be found by any method.
     """
     if kratos_root is None:
         kratos_root = os.environ.get( 'KRATOS_ROOT' );
+
+    # Fallback 1: config file written by scripts/install.sh
+    if kratos_root is None:
+        cfg = os.path.expanduser( '~/.config/kratos_linerad/paths.conf' );
+        if os.path.isfile( cfg ):
+            import configparser;
+            cp = configparser.ConfigParser();
+            cp.read( cfg );
+            if cp.has_option( 'DEFAULT', 'kratos_root' ):
+                kratos_root = cp.get( 'DEFAULT', 'kratos_root' );
+
+    # Fallback 2: monorepo auto-detect (../kratos relative to this package)
+    if kratos_root is None:
+        pkg_dir = os.path.dirname( os.path.abspath( __file__ ) );
+        # Go up from core/ to pipeline/, then ../kratos
+        mono_root = os.path.join( os.path.dirname( pkg_dir ), '..', 'kratos' );
+        mono_bin = os.path.join( mono_root, 'bin', 'kratos' );
+        if os.path.isfile( mono_bin ):
+            kratos_root = mono_root;
+
     if kratos_root is None:
         raise FileNotFoundError(
             "Kratos root not set.  Set it via one of:\n"
-            "  Python:    rt = LineRt( kratos_root='/path/to/kratos_line_rt' )\n"
-            "  Notebook:  %env KRATOS_ROOT /path/to/kratos_line_rt\n"
-            "  Shell:     export KRATOS_ROOT=/path/to/kratos_line_rt\n"
+            "  Python:    rt = LineRt( kratos_root='/path/to/kratos' )\n"
+            "  Notebook:  %env KRATOS_ROOT /path/to/kratos\n"
+            "  Shell:     export KRATOS_ROOT=/path/to/kratos\n"
+            "  Config:    run scripts/install.sh /path/to/kratos\n"
+            "  Monorepo:  place kratos/ alongside pipeline/ (auto-detected)\n"
             "The path must contain bin/kratos (the compiled binary)." );
     kratos_root = os.path.expanduser( kratos_root );
 

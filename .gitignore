@@ -1,17 +1,23 @@
-__pycache__/
+# Kratos build artifacts
+kratos/obj/
+kratos/bin/
+
+# Extraction notes (references private dev tree paths)
+EXTRACTION_NOTES.md
+
+# Python
+**/__pycache__/
 *.pyc
-*.pyo
-*.so
-*.o
-*.bin
-*.par
-!pipeline/a0_test.par
-*.txt
-neufeld_pop_test/
-*/neufeld_pop_test/
-.ipynb_checkpoints/
-.DS_Store
 *.egg-info/
-dist/
-build/
-cont.json
+**/*.egg-info/
+
+# IDE
+.opencode/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Run artifacts (should never be committed)
+/dev/shm/line_rt/
