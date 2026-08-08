@@ -15,10 +15,11 @@ Geometry (rotated to match slab-source API which only supports +x/-x):
 
 For a->0, g=0:  R(x_out; x_pp, 0) = exp(-x_out^2) / sqrt(pi)
   (perpendicular scattering => no frequency memory, purely thermal)
-Opacity:  phi(k) = exp(-x_out(k)^2),  x_out = (v_chan + v_z) / b
-Intensity (thin):  I(k) = F * mfp_s * L_slab * exp(-2*x_out^2)
+The emissivity uses the line-CENTRE opacity (sigma at the incoming
+frequency, not the outgoing): j = mfp_s * s_cam.  No extra phi(x_out).
+Intensity (thin):  I(k) = F * mfp_s * L_slab * exp(-x_out^2)
                                 / (4*pi * b * sqrt(pi))
-Total:  int I dv = F * mfp_s * L_slab / (4*pi * sqrt(2))
+Total:  int I dv = F * mfp_s * L_slab / (4*pi)
 
 Usage:
   python3 usr_ext/line_rt/tests/test_imaging_spectrum.py \
@@ -122,12 +123,12 @@ def read_image( filename, n_chan, binary_io ):
 
 def analytic_spectrum( v_chans, v_bulk, b, mfp_s, L_slab, F ):
     x = ( v_chans + v_bulk ) / b;
-    return F * mfp_s * L_slab * exp( -2.0 * x ** 2 ) \
+    return F * mfp_s * L_slab * exp( -1.0 * x ** 2 ) \
            / ( 4.0 * pi * sqrt( pi ) * b );
 
 
 def analytic_total( b, mfp_s, L_slab, F ):
-    return F * mfp_s * L_slab / ( 4.0 * pi * sqrt( 2.0 ) );
+    return F * mfp_s * L_slab / ( 4.0 * pi );
 
 
 def channel_centers( n_chan, v_lo, v_hi ):
@@ -250,7 +251,7 @@ def generate_inputs( v_z_cgs, n_radiation, out_dir, tag,
         x_min = fmt3( x_min_arr ), x_max = fmt3( x_max_arr ),
         n_cells = fmt3i( n_cell ),
         n_radiation = n_radiation, ph_mode = ph_mode,
-        a_voigt = 0.0,
+        a_voigt = 0.01,
         field_file = os.path.basename( field_file ),
         photon_file = 'photons_%s.bin' % tag,
         b_sca_code = b_sca_code, tag = tag,
@@ -439,7 +440,7 @@ def make_figure( results, out_path ):
         ax.set_xlim( -5, 5 );
     fig.suptitle(
         'Thin-slab imaging spectrum: '
-        r'$I(v) \propto \exp(-2\,x_{\rm out}^2)$' );
+        r'$I(v) \propto \exp(-x_{\rm out}^2)$' );
     fig.tight_layout();
     fig.savefig( out_path, dpi = 150 );
     plt.close( fig );

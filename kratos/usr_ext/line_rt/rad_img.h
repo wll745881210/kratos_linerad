@@ -54,8 +54,9 @@ public:
         // and must NOT rebuild the USampler / Voigt tables
         // (the scattering integrator already built them on a
         // separate instance; a second build overflows the
-        // device const pool).  voigt_H falls back to the
-        // analytic form.
+        // device const pool).  The Voigt table pointers are
+        // shared from the scattering integrator in init()
+        // so voigt_H uses the smooth tabulated form.
         auto & itg = dynamic_cast< intg_t & >( * p_itg );
         itg.zero_s_cam = false;
         itg.build_tables = false;
@@ -78,6 +79,22 @@ public:
         // base_t::init() above, because intg_t::init() reads
         // worker_mode from par and would otherwise overwrite it.
         dynamic_cast< intg_t & >( * p_itg ).worker_mode = false;
+        // Share the Voigt table from the scattering integrator
+        // so voigt_H uses the smooth tabulated form instead of
+        // the max(gauss, lorentz) fallback (which has a
+        // derivative discontinuity at the crossover).  The
+        // scattering module is enrolled first (i_step 0), so
+        // its tables are built before this init() runs.
+        auto & rad = dynamic_cast< radiation_t & >
+            ( * q_mod.lock() );
+        auto & rad_itg = dynamic_cast< intg_t & >
+            ( * rad.p_itg );
+        auto & img_itg = dynamic_cast< intg_t & >
+            ( * p_itg );
+        if( rad_itg.ph_mode <= 1 )
+            img_itg.voigt_interp = rad_itg.voigt_interp;
+        else if( rad_itg.ph_mode == 2 )
+            img_itg.d_log_voigt_c = rad_itg.d_log_voigt_c;
         return;
     };
 

@@ -34,8 +34,46 @@ This registers the `line-rt` console script and makes `from line_rt import ...` 
 **Kratos binary location** is resolved at runtime by `core/pipeline.py:resolve_kratos_bin()` in this order:
 1. `kratos_root` kwarg: `LineRt(kratos_root=...)` / `iterate(kratos_root=...)` / `--kratos-root` CLI flag
 2. `KRATOS_ROOT` environment variable
+3. `~/.config/kratos_linerad/paths.conf` (written by `scripts/install.sh`)
+4. Monorepo auto-detect: `../kratos/bin/kratos` relative to the pipeline package
 
 There is NO default - you must set one of the above. If neither is set, a `FileNotFoundError` is raised with instructions (Python, notebook `%env`, shell `export`).
+
+---
+
+## Monorepo (canonical repository)
+
+The pipeline and Kratos source are published together as a monorepo at
+`github.com/wll745881210/kratos_linerad`. The local working copy is at:
+
+```
+~/Documents/kratos_linerad/
+├── pipeline/          # this codebase (Python frontend + docs)
+├── kratos/            # C++/CUDA backend (extracted subset)
+├── scripts/           # install.sh, extract_kratos.sh
+└── README.md
+```
+
+**When committing changes, ALWAYS sync to the monorepo and push from there.**
+Direct pushes to the old `line_rt.git` remote will fail (the remote has
+diverged). The workflow is:
+
+```bash
+# 1. Make changes in the dev repos:
+#    Pipeline:  ~/Seafile/seafile_sync/code/line_rt_pipeline/
+#    Kratos:    ~/apps/kratos_line_rt/usr_ext/line_rt/  (symlinked to ~/Seafile/.../kratos/usr_ext/)
+
+# 2. Sync to the monorepo (automated):
+cd ~/Documents/kratos_linerad && ./scripts/sync_monorepo.sh
+
+# 3. Commit and push from the monorepo:
+cd ~/Documents/kratos_linerad && git add -A && git commit -m "..." && git push
+```
+
+The Kratos dev build tree (`~/apps/kratos_line_rt/`) is NOT a git repo for
+the full system — only `usr_ext/` is tracked (separate repo at
+`~/Seafile/seafile_sync/code/kratos/usr_ext/`). The monorepo's `kratos/`
+directory is a curated extraction (no chemistry/dynamics/multigrid/cic).
 
 **Running without install** also works: `python3 cli.py ...` from the repo root (the `cli.py` sys.path bootstrap was removed; Python's default CWD-on-path handles it). For scripts and notebooks, use `line_rt.py` (public facade at the repo root) via `importlib.util.spec_from_file_location()` - works with symlinks too:
 

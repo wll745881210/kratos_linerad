@@ -77,11 +77,11 @@ GOLDEN_MED = {
 # Golden imaging |x_peak| (double-peak position).
 # Placeholder zeros — run with --measure to fill in.
 GOLDEN_IMG_PEAK = {
-    200: 2.3046,
-    500: 3.1278,
-    2000: 6.0685,
-    8000: 9.6331,
-    32000: 15.2916,
+    200: 2.50,
+    500: 3.39,
+    2000: 5.38,
+    8000: 9.85,
+    32000: 15.64,
 }
 
 GOLDEN_TOL = 0.10  # imaging peaks have more scatter than med|x|
