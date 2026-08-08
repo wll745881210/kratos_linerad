@@ -12,10 +12,13 @@
 // where dv_cam = v_chan[k] + dir_cam . v_bulk(i) is the
 // gas-frame offset that resonates at cell i for channel k.
 //
-// s_cam carries the TOTAL source function (line emissivity
-// + scattering), seeded with S_emiss = emiss/(mfp_sca*sqrt(pi)*b)
-// in init_cond and accumulated with the scattering source during
-// the MC pass.  No separate emiss term is needed here.
+// s_cam carries the SCATTERING source (accumulated during the MC
+// pass with sigma(v_in) * R * J).  The thermal (line emission)
+// source is added directly here as a per-channel emissivity
+// j_thermal(v) = emiss * H(a, v) / (sqrt(pi) * b), using the
+// Voigt profile at the OUTGOING (channel) frequency.  This
+// ensures frequency-dependent imaging even for optically thin
+// lines (where the scattering source is negligible).
 //
 // The imaging photon reuses the scattering integrator's
 // camera / channel configuration (intg_t.dir_cam, d_v_chan,
@@ -80,7 +83,9 @@ struct line_img_t
         for( int a = 0; a < 3; ++ a )
             vobs_cam += itg.dir_cam[ a ] * v_cc[ a ];
         const auto dl_seg = dl[ a_proc ];
-        const auto * s   = prx.rad.s_cam.at( i );
+        const auto * s     = prx.rad.s_cam.at( i );
+        const auto emiss_v = prx.rad.emiss.at( i )[ 0 ];
+        const auto inv_pb  = 0.5641895835477563f / b; // 1/(sqrt(pi)*b)
 
         const int nch = itg.n_chan;
         #pragma unroll 8
@@ -88,20 +93,17 @@ struct line_img_t
         {
             auto dv_cam  = itg.d_v_chan[ k ] + vobs_cam;
             auto u       = dv_cam / b;
-            auto alpha_t = mfp_s * itg.voigt_H( a_v, u )
-                         + mfp_a ;
+            auto prof    = itg.voigt_H( a_v, u );
+            auto alpha_t = mfp_s * prof + mfp_a ;
             if( alpha_t <= 0.f )
                 continue;          // optically negligible cell
             const auto dtau = alpha_t * dl_seg;
-            // The s_cam field already includes H(a, x_pp) in the
-            // accumulation (photon.h), so j = mfp_s * s_cam gives
-            //   j = sigma_0 * H(a, x_in) * R * J = sigma(v_in) * R * J
-            // which is the correct scattering emissivity.
-            // For Group 1 (emiss present) the thermal seed is a
-            // source function S = emiss/(mfp_s*sqrt(pi)*b);
-            // j_thermal = mfp_s * S is still correct (the
-            // mfp_s multiplication converts S -> j).
-            const auto j = mfp_s * s[ k ];
+            // Scattering emissivity (s_cam already includes
+            // sigma(v_in) = mfp_s * H(a, x_pp) from photon.h).
+            // Thermal emissivity: j = emiss * H(a, x_out) /
+            // (sqrt(pi) * b) — frequency-dependent via the Voigt
+            // profile at the outgoing (channel) frequency.
+            const auto j = mfp_s * s[ k ] + emiss_v * prof * inv_pb;
             if( dtau < 1e-4f )
                 I_chan[ k ] += j * dl_seg;
             else

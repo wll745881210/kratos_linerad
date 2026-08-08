@@ -41,30 +41,15 @@ __global__ void init_rad_fields_kernel
     for( int a = 0; a < 3; ++ a )
         p_v[ a ] = ini.f_vel[ a ]( x );
 
-    // When imaging is on, seed s_cam with the line emissivity
-    // source function.  For a two-level atom the source
-    // function is frequency-independent:
-    //   S(v) = j(v) / alpha(v)
-    //        = [emiss * phi_norm(v)] / [mfp_s * phi_unnorm(v)]
-    //        = emiss / (mfp_s * sqrt(pi) * b)     (Gaussian)
-    // where emiss = n_u*A_ul/(4*pi)  [photons cm^-3 s^-1 sr^-1]
-    // (per steradian, 4pi already included), phi_norm is the
-    // normalised profile (integral = 1), and phi_unnorm (peak=1)
-    // cancels with the 1/(sqrt(pi)*b) normalisation.  This is
-    // NOT a blackbody term — the line emissivity comes entirely
-    // from the Python-calculated emiss field, not from B_nu.
-    // The MC scattering pass then ADDS the scattering source on
+    // When imaging is on, s_cam is zeroed here.  The thermal
+    // (line emission) source is NOT seeded as a source function
+    // (frequency-independent) — instead it is added directly as a
+    // per-channel emissivity j(v) = emiss * H(a,v) / (sqrt(pi)*b)
+    // in photon_img.h::proc_phys.  This ensures the Voigt profile
+    // appears at the OUTGOING (channel) frequency, giving correct
+    // frequency-dependent imaging even for optically thin lines.
+    // The MC scattering pass accumulates the scattering source on
     // top via atomicAdd in proc_phys.
-    if( bdt.rad.imaging && bdt.rad.n_chan > 0 )
-    {
-        const auto mfp_s = bdt.rad.mfp_i_sca_0( i );
-        const auto b_val = bdt.rad.b_sca( i );
-        const auto s_emiss = ( mfp_s > 0 && b_val > 0 )
-            ? emiss / ( mfp_s * 1.77245385f * b_val ) : 0;
-        auto * s = bdt.rad.s_cam.at( i );
-        for( int k = 0; k < bdt.rad.n_chan; ++ k )
-            s[ k ] = s_emiss;
-    }
     return;
 }
 
