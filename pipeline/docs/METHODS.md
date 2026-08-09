@@ -395,7 +395,7 @@ where:
 
 The R_IIA kernel table is constructed from the USampler CDF.
 
-**Step 1 — USampler** (`intg.h:build_usampler`): tabulates the CDF of the
+**Step 1 — USampler** (`riia_table.h:riia_table_t::_build_usampler`): tabulates the CDF of the
 angle-averaged R_II conditional
 $P(u | x) \propto \exp(-u^2) / (a^2 + (x-u)^2)$
 on a grid of $n_u = 251$ points spanning $u \in [-6, +6]$
@@ -403,7 +403,7 @@ on a grid of $n_u = 251$ points spanning $u \in [-6, +6]$
 linear+log grid spanning $[0, 300]$. The CDF is stored as $\log(\mathrm{CDF})$
 in float32.
 
-**Step 2 — R_IIA kernel density** (`intg.h:build_riia_kernel`):
+**Step 2 — R_IIA kernel density** (`riia_table.h:riia_table_t::_build_riia_gpu`):
 
 $$
 R(x_{\rm out}; x_{\rm in}, g) =
@@ -535,15 +535,25 @@ host garbage. Field copies happen only in `copy_output`
 
 #### Constant-memory tables (ph_mode 2)
 
+Both the USampler CDF and the R_IIA kernel table are constructed on the
+**GPU** using `float_t` (single precision), replacing the previous
+~2.5 s CPU construction (using `float2_t` = double) with ~0.05 s of
+GPU work (50× speed-up).
+
 - **USampler log-CDF:** 251 × 40 = 10,040 float32 values (~40 KiB),
-  stored in constant memory. Accessed via bisection in device code.
+  constructed on GPU via `build_usampler_gpu_kernel` (40 threads, each
+  computing one $|x|$ row of 251 CDF values). After construction, copied
+  to constant memory (Option B, 39.4 KiB) for broadcast-cache reads.
 - **Voigt table:** 1D log-space, 5000 points over $u \in [0, 50]$,
   built from a host-side scipy 2-D table. Stored in constant memory.
 - **R_IIA kernel table:** 200 × 200 × 40 = 1,600,000 float32 values
-  (~6.4 MiB), $\Delta = x_{\rm out} - x_{\rm pp} \in [-10, 10]$,
-  $|x_{\rm pp}| \in [0, 120]$, $g \in [-1, 1]$, stored in device global
+  (~6.4 MiB), constructed on GPU via `build_riia_gpu_kernel` (32,000
+  blocks × 64 threads, each thread computing one table entry by summing
+  251 USampler values via `expf(d_cdf[idx])`).
+  $\Delta = x_{\rm out} - x_{\rm in} \in [-10, 10]$,
+  $|x_{\rm in}| \in [0, 120]$, $g \in [-1, 1]$, stored in device global
   memory (too large for const pool).  Analytic asymptotic for
-  $|x_{\rm pp}| \ge 120$.
+  $|x_{\rm in}| \ge 120$.
 
 #### Parallelization
 

@@ -101,9 +101,12 @@ timing['kratos_output'] = timing['kratos_evolve'] - timing['kratos_gpu']
 The `mcrt` and `imaging` lines (printed only when non-zero)
 break down the GPU time into scattering MC transport and
 formal-solution ray tracing.  The `init` line includes the
-GPU construction of the USampler CDF (40 threads) and R_IIA
-table (200×200×40 grid), replacing the previous ~2.5 s CPU
-construction with ~0.05 s of GPU work.
+GPU construction of the USampler CDF (40-thread kernel) and
+R_IIA table (200×200×40 grid), both using `float_t` (single
+precision).  The USampler CDF + xg are then copied to const
+memory (Option B, 39.4 KB) for broadcast-cache reads in the
+MCRT hot path.  Total init: ~0.27 s (was ~2.9 s with CPU
+construction, 10.6× speed-up).
 
 The `[profile]` par section is injected into `PAR_TEMPLATE` only when
 `--profile` is passed:
@@ -142,38 +145,42 @@ Without `--profile`, the test runs normally with no timing output.
 
 ## Example results (`test_scaling_image.py`)
 
-Configuration: `a = 0.149`, `ph_mode = 2` (R\_IIA, const-mem tables),
-`n_radiation = 100 000`, `n_chan = 64` (adaptive `v_chan`),
-RTX 3090 (82 SM, sm\_80), AMD Ryzen 7 5800X.
+Configuration: `a = 0.149`, `ph_mode = 2` (R\_IIA, GPU-constructed tables,
+USampler in const mem), `n_radiation = 100 000`, `n_chan = 64`
+(adaptive `v_chan`), RTX 3090 (82 SM, sm\_80), AMD Ryzen 7 5800X.
 
-| tau0 | a·tau0 | init (s) | GPU (s) | output (s) | Python (s) | total (s) | init % | GPU % |
-|-----:|-------:|---------:|--------:|-----------:|-----------:|----------:|-------:|------:|
-|  200 |     30 | 0.27 | 0.48 | 0.01 | 0.02 | 0.77 | 35 | 62 |
-|  500 |     74 | 0.27 | 0.65 | 0.01 | 0.01 | 0.95 | 28 | 68 |
-| 2000 |    298 | 0.27 | 1.39 | 0.01 | 0.01 | 1.70 | 16 | 82 |
-| 8000 |   1192 | 0.27 | 3.47 | 0.01 | 0.01 | 3.92 | 7 | 89 |
-|32000 |   4768 | 0.27 | 9.41 | 0.01 | 0.01 | 9.90 | 3 | 95 |
+| tau0 | a·tau0 | init (s) | mcrt (s) | imaging (s) | output (s) | Python (s) | total (s) | GPU % |
+|-----:|-------:|---------:|---------:|------------:|-----------:|-----------:|----------:|------:|
+|  200 |     30 | 0.27 | 0.47 | 0.01 | 0.01 | 0.02 | 0.77 | 63 |
+|  500 |     74 | 0.27 | 0.65 | 0.01 | 0.01 | 0.01 | 0.95 | 69 |
+| 2000 |    298 | 0.27 | 1.36 | 0.01 | 0.01 | 0.01 | 1.67 | 82 |
+| 8000 |   1192 | 0.27 | 3.47 | 0.01 | 0.01 | 0.01 | 3.78 | 92 |
+|32000 |   4768 | 0.27 | 9.41 | 0.01 | 0.01 | 0.01 | 9.71 | 97 |
+
+The `GPU` column here is `mcrt + imaging` (total GPU work).
+The `output` column is `kratos_evolve − (mcrt + imaging)`.
 
 ### Key observations
 
-1. **Init is constant ~0.27 s** — independent of optical depth.  It covers
-   binary read, GPU memory allocation, `interp_t::to_device` (field tables),
-   and `riia_table_t::build()` (USampler CDF on CPU + R\_IIA kernel table
-   on **GPU**).  The R\_IIA table is now generated on the GPU using
-   `float_t` (single precision) via `build_riia_gpu_kernel`, reducing the
-   build from ~2.5 s (CPU, `float2_t`) to ~0.05 s (GPU, `float_t`).
+1. **Init is constant ~0.27 s** — independent of optical depth.  Both the
+   USampler CDF (251×40 = 10 040 floats) and the R\_IIA kernel table
+   (200×200×40 = 1.6 M floats) are constructed on the **GPU** using
+   `float_t` (single precision).  The USampler CDF + xg are then copied
+   to **constant memory** (Option B, 39.4 KB) for broadcast-cache reads
+   in the MCRT hot path; the R\_IIA table (6.4 MB) stays in global memory.
+   Total table construction: ~0.05 s GPU vs ~2.9 s CPU (58× speed-up).
 
-2. **GPU transport scales with tau0** — 0.5 s at tau0 = 200 to 9.4 s at
-   tau0 = 32 000 (19× increase), roughly proportional to the mean number
-   of scatterings (~tau0).
+2. **GPU transport (mcrt) scales with tau0** — 0.47 s at tau0 = 200 to
+   9.41 s at tau0 = 32 000 (20× increase), roughly proportional to the
+   mean number of scatterings (~tau0).
 
-3. **Output write is ~10 ms** — negligible.
+3. **Imaging ray trace is ~10 ms** — negligible compared to mcrt.
 
 4. **Python overhead is <20 ms** — field/photon generation, binary write,
    and output readback are all negligible.
 
 5. **For tau0 < 500, init is 28–35 %** of total wall time.
-   For tau0 >= 2000, GPU transport dominates (82–95 %).
+   For tau0 >= 2000, GPU transport dominates (82–97 %).
 
 ### Breakdown of init (~0.27 s)
 
@@ -184,13 +191,19 @@ The init phase (`mesh.init()`) includes:
 | Binary read | `ini_t::read()` — read field/photon binaries from disk |
 | GPU allocation | `cudaMalloc` for all device arrays (fields, tables, photon pool) |
 | `interp_t::to_device` | Copy field interpolation tables to device memory |
-| `riia_table_t::build()` | USampler CDF (host, `float2_t`) + R\_IIA kernel table (**GPU**, `float_t`) |
+| `riia_table_t::build()` | USampler CDF (**GPU**, `float_t`) + R\_IIA kernel table (**GPU**, `float_t`) + const-mem copy (Option B) |
 | `init_cond` kernel | Zero field arrays + sample interp tables at cell centres |
 
-The R\_IIA table is now built on the **GPU** via `build_riia_gpu_kernel`:
+The USampler CDF is built on the **GPU** via `build_usampler_gpu_kernel`:
+40 threads compute 40 rows of the 251-element CDF (log-space, `float_t`).
+The R\_IIA table is built on the **GPU** via `build_riia_gpu_kernel`:
 a kernel grid of `(ceil(200/64), 200, 40)` = 32 000 blocks × 64 threads
 computes the 3.2 M table entries in parallel, each summing 251 USampler
-values.  The GPU build takes ~0.05 s vs ~2.5 s on the CPU (10.6× speed-up).
+values via `expf(d_cdf[idx])`.  After construction, if `use_const_mem`
+(ph\_mode 2/3), the USampler CDF + xg are copied to constant memory
+(39.4 KB, Option B) for broadcast-cache reads.  The R\_IIA table
+(6.4 MB, too large for the 64 KB HW limit) stays in global memory.
+Total table construction: ~0.05 s GPU vs ~2.5 s CPU (50× speed-up).
 
 ### Speed-up vs SKIRT9
 

@@ -196,12 +196,18 @@ Voigt opacity is evaluated:
 | **Total const-mem** | — | — | — | **59.8 KiB** (of 64 KiB HW limit) |
 
 The `free_dev_mem` flag (set at `init()`: `true` for ph1, `false` for ph2)
-controls whether `build_usampler()` uses `malloc_device` (global) or
-`malloc_const` + `f_cc` (const). The 2D Voigt table (128 KiB) is the largest
-saving in ph_mode 2: it is replaced by a run-specific 1D slice (19.5 KiB)
-pre-sampled at the fixed `a_voigt`, collapsing the `a` dimension entirely.
-The R_IIA kernel (6.1 MiB) is too large for constant memory (~157× the 64 KiB
-limit) and stays in global memory in all modes.
+controls whether `riia_table_t::_build_usampler()` allocates the CDF + xg in
+global memory (then copies to const via `f_cc`, Option B) or keeps them
+global-only. Both the USampler CDF and the R_IIA kernel table are
+constructed on the **GPU** using `float_t` (single precision) via
+`build_usampler_gpu_kernel` (40 threads) and `build_riia_gpu_kernel`
+(32,000 blocks × 64 threads), respectively — replacing the previous
+~2.5 s CPU construction with ~0.05 s of GPU work (50× speed-up).
+The 2D Voigt table (128 KiB) is the largest saving in ph_mode 2: it is
+replaced by a run-specific 1D slice (19.5 KiB) pre-sampled at the fixed
+`a_voigt`, collapsing the `a` dimension entirely.  The R_IIA kernel
+(6.4 MiB) is too large for constant memory (~100× the 64 KiB limit) and
+stays in global memory in all modes.
 
 See `docs/debug/debug.md` "Jul 31 afternoon session" for the
 validation numbers (a=0.149, Neufeld eq. 2.24) and the Humlicek
@@ -651,8 +657,9 @@ frequency — this avoids the spurious extra line-profile factor
 
 The **R_IIA kernel** `R(x_out; x_in, g)` is the full angle-dependent
 frequency redistribution kernel density, precomputed at startup as a 3-D
-table (`intg.h:build_riia_kernel`, 200×200×40 = 1.6 M floats in device
-global memory) from the USampler CDF.  The table is parametrised in
+table (`riia_table.h:riia_table_t::build`, 200×200×40 = 1.6 M floats in device
+global memory, **GPU-constructed** via `build_riia_gpu_kernel` using
+`float_t`) from the USampler CDF.  The table is parametrised in
 `Δ = x_out − x_in` (not `x_out` directly), which halves the table
 size while providing 6× finer resolution in the dynamically relevant
 range.  An analytic asymptotic is used for `|x_in| ≥ 120` where the
@@ -669,7 +676,7 @@ USampler CDF has converged.
 #### Definition of the R_IIA kernel
 
 **Step 1 — USampler** (angle-averaged R_II conditional,
-`intg.h:build_usampler`).  The conditional distribution of the atom's
+`riia_table.h:riia_table_t::_build_usampler`).  The conditional distribution of the atom's
 parallel velocity `u` given incoming dimensionless frequency `x` is:
 
 ```
@@ -685,8 +692,11 @@ the Lorentzian absorption profile.  The USampler tabulates the CDF of
 grid spanning `[0, 300]` (18 linear points `[0, 8]` + 22 log points
 `[8, 300]`).  The CDF is stored as `log(CDF)` in float32 for smooth tail
 interpolation.  `a_eff = max(a_voigt, 1e-6)` avoids NaN at `a = 0`.
+The CDF is constructed on the **GPU** via `build_usampler_gpu_kernel`
+(40 threads, each computing one `|x|` row of 251 CDF values) using
+`float_t` throughout.
 
-**Step 2 — R_IIA kernel density** (`intg.h:build_riia_kernel`).  The full
+**Step 2 — R_IIA kernel density** (`riia_table.h:riia_table_t::_build_riia_gpu`).  The full
 angle-dependent kernel is the marginalisation of the sampling distribution
 over the perpendicular velocity component.  The table is parametrised in
 `Δ = x_out − x_in` (Convention B).  For each `(|x_in|, g, Δ)`:
