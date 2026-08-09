@@ -48,8 +48,7 @@ float_t voigt_H( const float_t & a, const float_t & u )
 template< class derived_T = crtp::dummy_t >
 struct line_rt_photon_t
     : particle::radiation::photon::cart_t
-    < crtp::helper< line_rt_photon_t,
-      derived_T > >
+    < crtp::helper< line_rt_photon_t, derived_T > >
 {
     //  Types
     using super_t
@@ -174,23 +173,21 @@ struct line_rt_photon_t
             const float_t u_par
                 = itg.riia.sample_upar( x_freq );
             const float_t u_perp = r
-                * cosf( 6.283185307f * u2 )
-                / sqrt_2;
+                * cosf( 6.283185307f * u2 ) / sqrt_2;
             const float_t x_new = x_freq
-                + u_par * ( g - 1 )
-                + sin_g * u_perp;
+                + u_par * ( g - 1 ) + sin_g * u_perp;
             vel = x_new * b_sca;
         }
-        //  Convert gas-frame offset to
-        //  stored convention:
+        //  Convert gas-frame offset to stored convention:
         //  vel = dv_new - dir_new . v_bulk
         for( int a = 0; a < 3; ++ a )
             vel -= dir[ a ] * v_cc[ a ];
         sv = b_sca / sqrt_2;
         tau_remain = -logf( 1e-4f + 0.9999f
-            * device::rand_dev(  ) );
+                            * device::rand_dev(  ) );
         -- n_scat;
-    }
+        return;
+    };
 
     template< class x_T, class prx_T, class itg_T >
     __device__ __forceinline__ void proc_geo
@@ -202,22 +199,18 @@ struct line_rt_photon_t
         const auto * p_vc = prx.rad.vel.at( i );
         for( int a = 0; a < 3; ++ a )
         {
-            v_cc[ a ] = p_vc[ a ];
-            vel_obs += v_cc[ a ] * dir[ a ];
+            v_cc[ a ] = p_vc[ a ] ;
+            vel_obs  += v_cc[ a ] * dir[ a ];
         }
         const auto dv2 = ( vel + vel_obs )
             * ( vel + vel_obs );
 
-        auto mfp_i_s0
-            = prx.rad.mfp_i_sca_0.at( i )[ 0 ];
-        auto mfp_i_a0
-            = prx.rad.mfp_i_abs_0.at( i )[ 0 ];
-        auto b_sca
-            = prx.rad.b_sca.at( i )[ 0 ];
+        auto mfp_i_s0 = prx.rad.mfp_i_sca_0.at( i )[ 0 ];
+        auto mfp_i_a0 = prx.rad.mfp_i_abs_0.at( i )[ 0 ];
+        auto b_sca    = prx.rad.      b_sca.at( i )[ 0 ];
         b_sca = __max1( b_sca, 1e-19f );
 
-        auto u2 = ( dv2 > 0 ? dv2 : 0 )
-            / ( b_sca * b_sca );
+        auto u2 = ( dv2 > 0 ? dv2 : 0 ) / ( b_sca * b_sca );
         if( __isinf( u2 ) || __isnan( u2 ) )
             u2 = 1e32f;
         const auto u( sqrtf( u2 ) );
@@ -243,10 +236,8 @@ struct line_rt_photon_t
         {
             //  Rescale dl_a; also used in
             //  absorption.
-            dl_a *= tau_remain
-                / ( dtau_s + 1e-35f );
-            scat( dl_a, b_sca, vel_obs,
-                  v_cc, itg );
+            dl_a *= tau_remain / ( dtau_s + 1e-35f );
+            scat( dl_a, b_sca, vel_obs,  v_cc, itg );
         }
         else
         {
@@ -255,19 +246,16 @@ struct line_rt_photon_t
         }
 
         //  Absorption
-        const auto dtau_a
-            = __max1( dl_a * mfp_i_a0, 0 );
+        const auto dtau_a = __max1( dl_a * mfp_i_a0, 0 );
         const auto e_mtau = expf( -dtau_a );
-        const auto dsi = dl[ a_proc ]
-            / prx.geo.volume( i );
+        const auto dsi = dl[ a_proc ] / prx.geo.volume( i );
         const auto flx = proper * dsi
             * ( dtau_a > 1e-3f
-                ? ( 1 - e_mtau ) / dtau_a
-                : 1 );
+                ? ( 1 - e_mtau ) / dtau_a  : 1 );
 
         atomicAdd( prx.rad.flx.at( i ), flx );
         atomicAdd( prx.rad.excitation_flux.at( i ),
-            flx * H );
+                   flx * H );
         proper *= e_mtau;
 
         //  Imaging: accumulate j_cam per channel.  Note:
@@ -280,72 +268,55 @@ struct line_rt_photon_t
             //  domain).
             float_t vobs_cam( 0 );
             for( int a = 0; a < 3; ++ a )
-                vobs_cam
-                    += itg.dir_cam[ a ]
-                       * v_cc[ a ];
+                vobs_cam += itg.dir_cam[ a ] * v_cc[ a ];
 
             //  g = photon direction . camera direction
             float_t g_dot( 0 );
             for( int a = 0; a < 3; ++ a )
-                g_dot += dir[ a ]
-                    * itg.dir_cam[ a ];
+                g_dot += dir[ a ] * itg.dir_cam[ a ];
 
-            //  Photon gas-frame frequency
-            //  in b units
-            const auto x_pp
-                = ( vel + vel_obs ) / b_sca;
+            //  Photon gas-frame frequency in b units
+            const auto x_pp = ( vel + vel_obs ) / b_sca;
 
-            //  Extinction-in-cell correction
-            //  factor
+            //  Extinction-in-cell correction factor
             const auto d_tau_e = dl[ a_proc ]
-                * ( mfp_i_s + mfp_i_a0 );
+                     * ( mfp_i_s + mfp_i_a0 );
             float_t corr( 1 );
             if( d_tau_e > 1e-4f )
-                corr = ( 1 - expf( - d_tau_e ) )
-                    / d_tau_e;
-            //  base == F_pp / ( 4 * pi )
-            //  * correction
-            auto base = flx * corr
-                * 0.0795775f / b_sca;
-            //  b_sca on the denominator for
-            //  voigt_H dimension recovery
+                corr = ( 1 - expf( - d_tau_e ) ) / d_tau_e;
+            //  base == F_pp / ( 4 * pi ) * correction
+            auto base = flx * corr * 0.0795775f / b_sca;
+            //  b_sca on the denominator for voigt_H
+            //  dimension recovery
 
             auto * j = prx.rad.j_cam.at( i );
-            for( int k = 0; k < itg.n_chan;
-                 ++ k )
+            for( int k = 0; k < itg.n_chan; ++ k )
             {
-                //  Camera-resonant
-                //  frequency in b units
+                //  Camera-resonant frequency in b units
                 const auto x_out
-                    = ( itg.d_v_chan[ k ]
-                        + vobs_cam )
-                      / b_sca;
-                const auto R
-                    = itg.riia.lookup
+                    = ( itg.d_v_chan[ k ] + vobs_cam )
+                    / b_sca;
+                const auto R = itg.riia.lookup
                       ( x_out, x_pp, g_dot );
-                atomicAdd( j + k,
-                    mfp_i_s * base * R );
+                atomicAdd( j + k, mfp_i_s * base * R );
             }
-            //  mfp_i_s = mfp_i_s0 * H( a,
-            //  x_pp ), Voigt at the
-            //  photon's INCOMING frequency.
+            //  mfp_i_s = mfp_i_s0 * H( a, x_pp ), Voigt at
+            //  the photon's INCOMING frequency.
         }
 
         if( ! is_scattered )
-            super_t::proc_geo( a_proc, dl,
-                              g_l, prx, itg );
-        //  Absorption takes action
-        //  regardless of scattering
-    }
+            super_t::proc_geo( a_proc, dl, g_l, prx, itg );
+        //  Absorption takes action regardless of scattering
+        return;
+    };
 
     template< class bmp_T, class itg_T >
     __device__ __forceinline__ bool proc_step
     ( type::coord_t & dl, geo_loc_t   & g_l ,
       const bmp_T & bmap, const itg_T & itg )
     {
-        const auto proc_flag
-            = super_t::proc_step( dl, g_l,
-                                  bmap, itg );
+        const auto proc_flag = super_t::proc_step
+                             ( dl, g_l, bmap, itg );
         if( step <= 0 )
         {
             dest.i_rank = -1;
@@ -356,10 +327,8 @@ struct line_rt_photon_t
         //  proper_0 (set on intg_t, not on the photon, to
         //  save space).  proper_0 is set at generation
         //  (gen.h).  Disabled when proper_min_frac <= 0.
-        if( itg.proper_min_frac > 0.0f
-            && proper
-               < itg.proper_min_frac
-                 * proper_0 )
+        if( itg.proper_min_frac > 0.0f &&
+            proper < itg.proper_min_frac * proper_0 )
         {
             dest.todo = particle::to_rm;
             return false;

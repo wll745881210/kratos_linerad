@@ -40,13 +40,11 @@ public:  //  Data
     bool profile = false;
 
 protected:  //  Functions
-
     virtual void init_cond
     ( mesh::block::dual_t & d ) override
-    {
-        //  Fields already initialised by
-        //  radiation_t.
-    }
+    {   //  Fields already initialised by radiation_t.
+        return;
+    };
 
 public:
 
@@ -54,82 +52,45 @@ public:
     {
         enabled = args.get< bool >
             ( "imaging", "enabled", false );
-        enroll< prx_t, pol_img_t, gen_img_t, intg_t >
-            (  );
+        enroll< prx_t, pol_img_t, gen_img_t, intg_t >(  );
         //  Share the block map (and thus j_cam /
         //  fields) with the scattering module.
         p_map = dynamic_cast< radiation_t & >
             ( * q_mod.lock(  ) ).p_map;
-        //  The imaging integrator must NOT zero
-        //  j_cam in pre_proc (it consumes the
-        //  MC-accumulated source), and must NOT
-        //  rebuild the USampler / Voigt tables
-        //  (the scattering integrator already
-        //  built them on a separate instance; a
-        //  second build overflows the device
-        //  const pool).  The Voigt table
-        //  pointers are shared from the
-        //  scattering integrator in init() so
-        //  voigt_H uses the smooth tabulated
-        //  form.
-        auto & itg = dynamic_cast< intg_t & >
-            ( * p_itg );
-        itg.zero_j_cam  = false;
-        itg.zero_fields = false;
+        auto & itg = dynamic_cast< intg_t & >( * p_itg );
+        itg.zero_j_cam   = false;
+        itg.zero_fields  = false;
         itg.build_tables = false;
         profile = args.get< bool >
             ( "profile", "enabled", false );
-        return particle::radiation::base_t::read
-            ( args );
-    }
+        return particle::radiation::base_t::read( args );
+    };
 
     virtual void init
-    ( const input & args, mesh::mesh_t & mesh )
-        override
+    ( const input & args, mesh::mesh_t & mesh ) override
     {
-        //  Always run base init so sub-modules
-        //  (pool, gen, itg) are constructed and
-        //  finalized symmetrically; the actual
-        //  imaging work is gated in step() /
-        //  save().
-        particle::radiation::base_t::init
-            ( args, mesh );
-        //  Imaging ray tracing always uses
-        //  classic one-thread-per-photon
-        //  scheduling: each photon is one fixed
-        //  ray-march with no scattering and no
-        //  lifetime imbalance, so the worker
-        //  work-queue gives no benefit (and the
-        //  imaging photons are not designed for
-        //  it).  Must be set AFTER
-        //  base_t::init() above, because
-        //  intg_t::init() reads worker_mode
-        //  from par and would otherwise
-        //  overwrite it.
+        particle::radiation::base_t::init( args, mesh );
         dynamic_cast< intg_t & >
-            ( * p_itg ).worker_mode = false;
-        //  Share the Voigt table from the
-        //  scattering integrator so voigt_H
-        //  uses the smooth tabulated form
-        //  instead of the max( gauss, lorentz )
-        //  fallback (which has a derivative
-        //  discontinuity at the crossover).
-        //  The scattering module is enrolled
-        //  first (i_step 0), so its tables are
+                    ( * p_itg ).worker_mode = false;
+        //  Share the Voigt table from the scattering
+        //  integrator so voigt_H uses the smooth tabulated
+        //  form instead of the max( gauss, lorentz )
+        //  fallback (which has a derivative discontinuity
+        //  at the crossover).  The scattering module is
+        //  enrolled first (i_step 0), so its tables are
         //  built before this init() runs.
-        auto & rad = dynamic_cast< radiation_t & >
-            ( * q_mod.lock(  ) );
+        auto & rad     = dynamic_cast< radiation_t & >
+                       ( * q_mod.lock(  ) );
         auto & rad_itg = dynamic_cast< intg_t & >
-            ( * rad.p_itg );
+                       ( * rad.p_itg );
         auto & img_itg = dynamic_cast< intg_t & >
-            ( * p_itg );
+                       ( * p_itg );
         if( rad_itg.ph_mode <= 1 )
-            img_itg.voigt_interp
-                = rad_itg.voigt_interp;
+            img_itg.voigt_interp  = rad_itg.voigt_interp;
         else if( rad_itg.ph_mode == 2 )
-            img_itg.d_log_voigt_c
-                = rad_itg.d_log_voigt_c;
-    }
+            img_itg.d_log_voigt_c = rad_itg.d_log_voigt_c;
+        return;
+    };
 
     virtual void step( mesh::mesh_t & mesh ) override
     {
@@ -143,27 +104,24 @@ public:
             if( profile )
                 std::cout << "[profile] imaging: "
                     << std::chrono::duration< double >
-                    ( t1 - t0 ).count(  )
-                    << " s\n";
+                    ( t1 - t0 ).count(  ) << " s\n";
         }
-    }
+        return;
+    };
 
-    //  Skip the imaging-pool save entirely when
-    //  imaging is disabled: the pool was never
-    //  generated ( par == nullptr, n_par == 0 )
-    //  and the default f_par_save would
-    //  dereference it.  When enabled, defer to
-    //  the base save (which calls
-    //  pol_img_t::write, itself guarded by
-    //  `output`).
-    virtual void save
-    ( mesh::mesh_t & mesh,
-      binary_io::base_t & bio ) override
+    //  Skip the imaging-pool save entirely when imaging is
+    //  disabled: the pool was never generated ( par ==
+    //  nullptr, n_par == 0 ) and the default f_par_save
+    //  would dereference it.  When enabled, defer to the
+    //  base save (which calls pol_img_t::write, itself
+    //  guarded by `output`).
+    virtual void save( mesh::mesh_t & mesh,
+                       binary_io::base_t & bio ) override
     {
         if( enabled )
-            particle::radiation::base_t::save
-                ( mesh, bio );
-    }
+            particle::radiation::base_t::save( mesh, bio );
+        return;
+    };
 };
 
 }  //  namespace prob

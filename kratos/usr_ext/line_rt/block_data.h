@@ -177,8 +177,7 @@ struct block_data_t : mesh::block::base_data_t
                 ( tgt.rad.j_cam, f_cp );
     }
 
-    __host__ virtual void read
-    ( const f_read_t & f_r )
+    __host__ virtual void read( const f_read_t & f_r )
     {
         rad.b_sca.read
             ( f_r, rad.prefix(  )
@@ -203,48 +202,34 @@ struct block_data_t : mesh::block::base_data_t
               + "emiss_" );
     }
 
-    __host__ virtual void write
-    ( const f_write_t & f_w )
+    __host__ virtual void write( const f_write_t & f_w )
     {
         if( ! output )
             return;
         rad.mfp_i_sca_0.write
-            ( f_w, rad.prefix(  )
-              + "mfp_i_sca_0_" );
+            ( f_w, rad.prefix(  ) + "mfp_i_sca_0_" );
         rad.mfp_i_abs_0.write
-            ( f_w, rad.prefix(  )
-              + "mfp_i_abs_0_" );
-        rad.b_sca.write
-            ( f_w, rad.prefix(  )
-              + "b_sca_" );
-        rad.flx.write
-            ( f_w, rad.prefix(  )
-              + "flx_" );
+            ( f_w, rad.prefix(  ) + "mfp_i_abs_0_" );
+        rad.b_sca.write( f_w, rad.prefix(  ) + "b_sca_" );
+        rad.  flx.write( f_w, rad.prefix(  ) + "flx_"   );
         rad.excitation_flux.write
-            ( f_w, rad.prefix(  )
-              + "excitation_flux_" );
-        rad.vel.write
-            ( f_w, rad.prefix(  )
-              + "vel_" );
-        rad.emiss.write
-            ( f_w, rad.prefix(  )
-              + "emiss_" );
+            ( f_w, rad.prefix(  ) + "excitation_flux_"  );
+        rad.  vel.write( f_w, rad.prefix(  ) + "vel_"   );
+        rad.emiss.write( f_w, rad.prefix(  ) + "emiss_" );
         if( rad.ray_output )
         {
             rad.flx.write
-                ( f_w, rad.prefix(  )
-                  + "ray_flx_" );
+                ( f_w, rad.prefix(  ) + "ray_flx_"      );
             rad.excitation_flux.write
-                ( f_w, rad.prefix(  )
-                  + "ray_exc_flux_" );
+                ( f_w, rad.prefix(  ) + "ray_exc_flux_" );
         }
         if( rad.imaging )
             rad.j_cam.write
-                ( f_w, rad.prefix(  )
-                  + "j_cam_" );
+                ( f_w, rad.prefix(  ) + "j_cam_" );
         //  Diagnostic: dump the per-cell,
         //  per-channel scattering equivalent
         //  emissivity ( to camera )
+        return;
     }
 };
 
@@ -266,8 +251,7 @@ struct prx_t
     static auto d( const bdt_T & bdt )
     {
         const auto & b_d
-            = dynamic_cast< const bdt_t & >
-              ( bdt );
+            = dynamic_cast< const bdt_t & > ( bdt );
         prx_t res;
         res.rad = b_d.rad;
         res.geo = b_d.geo;
@@ -281,8 +265,7 @@ struct prx_t
     {
         auto & b_d( ref( d.d(  ) ) );
         rad = b_d.rad;
-        particle::proxy_base_t::setup
-            ( d, m_rank, mod );
+        particle::proxy_base_t::setup( d, m_rank, mod );
     }
 };
 

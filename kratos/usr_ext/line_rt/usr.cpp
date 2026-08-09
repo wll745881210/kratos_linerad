@@ -32,8 +32,7 @@
 namespace prob
 {
 
-void run
-( int argc, char * argv[] )
+void run( int argc, char * argv[  ] )
 {
     mesh::mesh_t mesh;
 
@@ -55,8 +54,7 @@ void run
 
     input args;
     args.set_comm( mesh.p_com );
-    cmd( argc, argv, args );
-
+    cmd    ( argc, argv, args );
     bool profile = args.get< bool >
         ( "profile", "enabled", false );
 
@@ -68,17 +66,16 @@ void run
 
     if( profile )
     {
-        auto t_init
-            = std::chrono::duration< double >
-                ( t1 - t0 ).count(  );
-        auto t_evolve
-            = std::chrono::duration< double >
-                ( t2 - t1 ).count(  );
+        auto t_init   = std::chrono::duration< double >
+                      ( t1 - t0 ).count(  );
+        auto t_evolve = std::chrono::duration< double >
+                      ( t2 - t1 ).count(  );
         std::cout << "[profile] init:   "
                   << t_init   << " s\n";
         std::cout << "[profile] evolve: "
                   << t_evolve << " s\n";
     }
+    return;
 }
 
 }  // namespace prob

@@ -39,14 +39,10 @@ __host__ void pol_img_t::write
     if( nch <= 0 )
         return;
 
-    std::vector< float_t > dir_h
-        ( n_par * 3 );
-    std::vector< float_t > x_h
-        ( n_par * 3 );
-    std::vector< int > i2d_h
-        ( n_par * 2 );
-    std::vector< float_t > l_h
-        ( n_par * nch );
+    std::vector< float_t > dir_h( n_par *   3 );
+    std::vector< float_t >   x_h( n_par *   3 );
+    std::vector< int     > i2d_h( n_par *   2 );
+    std::vector< float_t >   l_h( n_par * nch );
     auto * par_h = new par_t[ n_par ];
 
     f_cp( par_h, par, n_par * sizeof( par_t ) );
@@ -61,33 +57,24 @@ __host__ void pol_img_t::write
 
         for( int a = 0; a < 3; ++ a )
         {
-            dir_h[ 3 * j + a ]
-                = par_h[ i ].dir[ a ];
-            x_h[ 3 * j + a ]
-                = par_h[ i ].x[ a ];
+            dir_h[ 3 * j + a ] = par_h[ i ].dir   [ a ];
+            x_h  [ 3 * j + a ] = par_h[ i ].x     [ a ];
         }
         for( int a = 0; a < 2; ++ a )
-            i2d_h[ 2 * j + a ]
-                = par_h[ i ].i2d[ a ];
+            i2d_h[ 2 * j + a ] = par_h[ i ].i2d   [ a ];
         for( int k = 0; k < nch; ++ k )
-            l_h[ j * nch + k ]
-                = par_h[ i ].I_chan[ k ];
+            l_h[ j * nch + k ] = par_h[ i ].I_chan[ k ];
         ++ j;
     }
 
     const auto s_f( sizeof( float ) );
-    const auto s_i( sizeof( int ) );
-
-    f_w( dir_h.data(  ),  j * 3,
-         s_f, "_dir_img" );
-    f_w( x_h.data(  ),    j * 3,
-         s_f, "_x_img" );
-    f_w( i2d_h.data(  ),  j * 2,
-         s_i, "_i2d_img" );
-    f_w( l_h.data(  ),    j * nch,
-         s_f, "_l_img" );
-
-    delete[] par_h;
+    const auto s_i( sizeof( int   ) );
+    f_w( dir_h.data(  ),  j *   3, s_f, "_dir_img" );
+    f_w( x_h.data(  ),    j *   3, s_f,   "_x_img" );
+    f_w( i2d_h.data(  ),  j *   2, s_i, "_i2d_img" );
+    f_w( l_h.data(  ),    j * nch, s_f,   "_l_img" );
+    delete [  ] par_h;
+    return;
 }
 
 }  // namespace prob

@@ -18,13 +18,11 @@ struct pol_t : particle::pool_t< line_rt_photon_t<  > >
     using base_t = particle::pool_t< line_rt_photon_t<  > >;
 
     __host__ virtual void init
-    ( const input & args,
-      particle::base_t & mod ) override
+    ( const input & args, particle::base_t & mod ) override
     {
         output = args.get< bool >
             ( "particle", "output", false );
-        return particle::driver::base_t::init
-            ( args, mod );
+        return particle::driver::base_t::init( args, mod );
     }
 
     __host__ virtual bool set_mem
@@ -37,11 +35,11 @@ struct pol_t : particle::pool_t< line_rt_photon_t<  > >
         {
             work_counter
                 = mod.p_dev->malloc_device< int_t >( 1 );
-            mod.p_dev->f_mset
-                ( work_counter, 0,
-                  sizeof( int_t ), mod.stream );
+            mod.p_dev->f_mset( work_counter, 0, sizeof
+                               ( int_t ), mod.stream );
         }
-        return base_t::set_mem( mod, n_par, safe, keep_data );
+        return base_t::set_mem
+             ( mod, n_par, safe, keep_data );
     }
 
     __host__ virtual void finalize
@@ -66,9 +64,9 @@ struct pol_t : particle::pool_t< line_rt_photon_t<  > >
     }
 
     //  Server-worker: fetch next photon index from the
-    //  shared atomic counter.  Returns index (>= n_par
-    //  when the pool is depleted).  atomicAdd returns
-    //  the OLD value, so the first fetch yields `offset`.
+    //  shared atomic counter.  Returns index (>= n_par when
+    //  the pool is depleted).  atomicAdd returns the OLD
+    //  value, so the first fetch yields `offset`.
     __device__ __forceinline__
     int_t load_next( par_t & par, bool & flag ) const
     {
@@ -80,9 +78,8 @@ struct pol_t : particle::pool_t< line_rt_photon_t<  > >
         return i;
     }
 
-    __host__ void write
-    ( const mesh::f_cp_t   & f_cp,
-      const mesh::f_write_t & f_w )
+    __host__ void write( const mesh::f_cp_t    & f_cp,
+                         const mesh::f_write_t & f_w )
     {
         if( !output )
             return;
@@ -120,6 +117,7 @@ struct pol_t : particle::pool_t< line_rt_photon_t<  > >
         f_w( xls_h.data(  ), j * 3, s_f,
              "_x_last_scat" );
         delete[  ] par_h;
+        return;
     }
 };
 

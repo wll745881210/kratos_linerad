@@ -29,8 +29,7 @@ struct gen_t : particle::generate::base_t< gen_t >
     __host__ gen_t(  ) : data_h( nullptr ) {}
 
     __host__ virtual void init
-    ( const input & args,
-      particle::base_t & mod ) override
+    ( const input & args, particle::base_t & mod ) override
     {
         super_t::init( args, mod );
         n_scat    = args.get< int >
@@ -50,18 +49,15 @@ struct gen_t : particle::generate::base_t< gen_t >
             mod.p_dev->free_host( data_h );
     }
 
-    __host__ bool try_read_photon
-    ( const input & args )
+    __host__ bool try_read_photon( const input & args )
     {
-        const auto file
-            = args.get< std::string >
-              ( "line_rt", "photon_file", "" );
+        const auto file = args.get< std::string >
+                 ( "line_rt", "photon_file", "" );
         if( file.empty(  ) )
             return false;
 
-        const auto pref
-            = args.get< std::string >
-              ( "line_rt", "photon_pref", "par" );
+        const auto pref = args.get< std::string >
+                      ( "line_rt", "photon_pref", "par" );
         binary_io::default_t bio;
         try
         {
@@ -70,9 +66,8 @@ struct gen_t : particle::generate::base_t< gen_t >
         }
         catch( ... )
         {
-            std::cerr
-                << "Unable to open particle file "
-                << file << '\n';
+            std::cerr << "Unable to open particle file "
+                      << file << '\n';
             bio.close(  );
             return false;
         }
@@ -92,13 +87,11 @@ struct gen_t : particle::generate::base_t< gen_t >
             n_par = n_ph_read;
 
         data_h = malloc
-            ( size_t( ncol_ph ) * n_par
-              * sizeof( float ) );
+            ( size_t( ncol_ph ) * n_par * sizeof( float ) );
         if( bio.read( data_h, pref + "_par_dat" )
             != n_par * ncol_ph )
             throw std::runtime_error
-                ( "Incorrect particle data "
-                  "stride." );
+                ( "Incorrect particle data stride." );
 
         bio.close(  );
         std::cout << "Read " << n_par
@@ -108,8 +101,7 @@ struct gen_t : particle::generate::base_t< gen_t >
     }
 
     template< class par_T > __host__
-    void load_par
-    ( par_T & par, const size_t & i_par )
+    void load_par( par_T & par, const size_t & i_par )
     {
         auto * d_ph = ( float * )( data_h )
             + i_par * ncol_ph;
@@ -120,47 +112,38 @@ struct gen_t : particle::generate::base_t< gen_t >
         }
         par.proper = d_ph[ 6 ];
 
-        par.vel  = ( ncol_ph >= 8 )
-            ? d_ph[ 7 ] : 0.f;
-        par.sv   = ( ncol_ph >= 9 )
-            ? d_ph[ 8 ] : 0.f;
+        par.vel  = ( ncol_ph >= 8 ) ? d_ph[ 7 ] : 0.f;
+        par.sv   = ( ncol_ph >= 9 ) ? d_ph[ 8 ] : 0.f;
 
-        //  Initial proper weight (for
-        //  proper-weight culling)
+        //  Initial proper weight (for culling)
         par.proper_0 = par.proper;
-        //  Initial last-scatter position =
-        //  generation position
+        //  Initial last-scatter position = init position
         for( int a = 0; a < 3; ++ a )
             par.x_last_scat[ a ] = par.x[ a ];
 
         par.n_scat = n_scat;
         par.step   = n_step;
         par.tau_remain = -logf
-            ( 1e-4f + 0.9999f
-                * ( float( std::rand(  ) )
-                    / ( float( RAND_MAX )
-                        + 1.f ) ) );
+            ( 1e-4f + 0.9999f * ( float( std::rand(  ) )
+                         / ( float( RAND_MAX ) + 1 ) ) );
         par.dest.todo = particle::to_keep;
-    }
+        return;
+    };
 
-    template< class pol_T, class map_T >
-    __host__
-    void generate
-    ( pol_T & pool, const map_T & bmap,
-      particle::base_t & mod )
+    template< class pol_T, class map_T > __host__
+    void generate( pol_T & pool, const map_T & bmap,
+                   particle::base_t & mod )
     {
         using par_t = typename pol_T::par_t;
         generate_once( pool, mod );
         if( data_h != nullptr )
             mod.p_dev->a_cp
-                ( & pool[ 0 ], data_h, s_data,
-                  mod.stream );
+                ( & pool[ 0 ], data_h, s_data, mod.stream );
         mod.p_dev->sync_all_streams(  );
     }
 
     template< class pol_T > __host__ void
-    generate_once
-    ( pol_T & pool, particle::base_t & mod )
+    generate_once( pol_T & pool, particle::base_t & mod )
     {
         if( mod.p_mesh->p_com->is_root(  ) )
             std::cout
@@ -191,25 +174,21 @@ struct gen_t : particle::generate::base_t< gen_t >
             const auto & geo
                 ( mod.p_mesh->block( r ).geo );
             for( int a = 0; a < 3; ++ a )
-                par.i[ a ]
-                    = 1. / geo.dx0[ a ]
-                      * ( par.x[ a ]
-                          - geo.x_fc( a, 0 ) );
+                par.i[ a ] = 1. / geo.dx0[ a ]
+                      * ( par.x[ a ] - geo.x_fc( a, 0 ) );
             pool_h.push_back( par );
         }
         free( data_h );
         data_h = nullptr;
 
         pool.set_mem( mod, pool_h.size(  ) );
-        s_data = pool_h.size(  )
-            * sizeof( par_t );
-        data_h = mod.p_dev->f_malloc_host
-            ( s_data );
-        memcpy( data_h, pool_h.data(  ), s_data );
+        s_data = pool_h.size(  ) * sizeof(  par_t );
+        data_h = mod.p_dev->f_malloc_host( s_data );
+        memcpy( data_h, pool_h.data(  ),   s_data );
 
         if( mod.p_mesh->p_com->is_root(  ) )
-            std::cout << " Done."
-                      << std::endl;
+            std::cout << " Done." << std::endl;
+        return;
     }
 };  //  class gen_t
 

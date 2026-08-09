@@ -34,22 +34,21 @@ __global__ void init_rad_fields_kernel
 
     type::coord_t x;
     bdt.geo.x_cc( x, i );
-    bdt.rad.mfp_i_sca_0( i ) = utils::max
-        ( ini.f_mfp_i_sca_0( x ), 0 );
-    bdt.rad.mfp_i_abs_0( i ) = utils::max
-        ( ini.f_mfp_i_abs_0( x ), 0 );
-    bdt.rad.b_sca( i )
-        = utils::max( ini.f_b_sca( x ), 0 );
+    bdt.rad.mfp_i_sca_0( i )
+        = utils::max( ini.f_mfp_i_sca_0( x ), 0 );
+    bdt.rad.mfp_i_abs_0( i )
+        = utils::max( ini.f_mfp_i_abs_0( x ), 0 );
+    bdt.rad.b_sca( i ) = utils::max( ini.f_b_sca( x ), 0 );
     //  Emissivity field is optional:
     //  missing -> 0 everywhere.
     const auto emiss = ini.f_emiss
-        ? utils::max( ini.f_emiss( x ), 0 )
-          : 0;
+        ? utils::max( ini.f_emiss( x ), 0 ) : 0;
     bdt.rad.emiss( i ) = emiss;
 
     auto * p_v = bdt.rad.vel.at( i );
     for( int a = 0; a < 3; ++ a )
         p_v[ a ] = ini.f_vel[ a ]( x );
+    return;
 }
 
 ////////////////////////////////////////////////////////////
@@ -90,30 +89,24 @@ public:
                 "r" );
             bio.load(  );
 
-            f_mfp_i_sca_0.read_bin
-                ( bio, "mfp_i_sca_0_" );
-            f_mfp_i_abs_0.read_bin
-                ( bio, "mfp_i_abs_0_" );
-            f_emiss.read_bin
-                ( bio, "emiss_" );
+            f_mfp_i_sca_0.read_bin( bio, "mfp_i_sca_0_" );
+            f_mfp_i_abs_0.read_bin( bio, "mfp_i_abs_0_" );
+            f_emiss.read_bin      ( bio, "emiss_"       );
             f_mfp_i_sca_0.set_nearest(  );
             f_mfp_i_abs_0.set_nearest(  );
             f_emiss.set_nearest(  );
 
-            //  Read from field_fixed_file if
-            //  specified; otherwise fall back
-            //  to field_file (backward
-            //  compatibility with single-file
-            //  workflow).
+            //  Read from field_fixed_file if specified;
+            //  otherwise fall back to field_file (backward
+            //  compatibility with single-file workflow).
             const auto fixed_file
                 = args.get< std::string >
-                  ( "line_rt",
-                    "field_fixed_file", "" );
+                  ( "line_rt", "field_fixed_file", "" );
             if( ! fixed_file.empty(  ) )
             {
                 bio.close(  );
-                bio.open( fixed_file, "r" );
-                bio.load(  );
+                bio.open ( fixed_file, "r" );
+                bio.load (  );
             }
             f_b_sca.read_bin( bio, "b_sca_" );
             f_b_sca.set_nearest(  );
@@ -121,34 +114,26 @@ public:
             for( int a = 0; a < 3; ++ a )
             {
                 f_vel[ a ].read_bin
-                    ( bio, "vel_"
-                      + std::to_string( a )
-                      + "_" );
+                ( bio, "vel_" + std::to_string( a ) + "_" );
                 f_vel[ a ].set_nearest(  );
             }
             bio.close(  );
 
-            ray_output
-                = args.get< bool >
-                  ( "line_rt", "ray_output",
-                    false );
-            ray_id
-                = args.get< int >
+            ray_output = args.get< bool >
+                  ( "line_rt", "ray_output", false );
+            ray_id = args.get< int >
                   ( "line_rt", "ray_id", -1 );
 
-            imaging
-                = args.get< bool >
-                  ( "imaging", "enabled",
-                    false );
-            n_chan
-                = args.get< int >
+            imaging = args.get< bool >
+                  ( "imaging", "enabled", false );
+            n_chan  = args.get< int >
                   ( "imaging", "n_chan", 0 );
-        }
-
-        //  Move all interp_t tables to device
-        //  global memory.  Must be called
-        //  after p_dev is available, in
-        //  init(  ), NOT in read(  ).
+            return;
+        };
+        
+        //  Move all interp_t tables to device global
+        //  memory.  Must be called after p_dev is
+        //  available, in init( ), NOT in read( ).
         void to_device( device::base_t & dev )
         {
             f_mfp_i_sca_0.to_device( dev );
@@ -205,25 +190,21 @@ protected:
         f_null( b_d.rad.flx );
         f_null( b_d.rad.excitation_flux );
         f_null( b_d.rad.emiss );
-        //  j_cam is only allocated when
-        //  imaging is on; zero it
-        //  unconditionally (n_size == 0
-        //  -> no-op when off).
+        //  j_cam is only allocated when imaging is on; zero
+        //  it unconditionally (n_size == 0 -> no-op when
+        //  off).
         f_null( b_d.rad.j_cam );
 
-        const dim3 n_th
-            ( b_h.geo.n_ceff[ 0 ] );
-        const dim3 n_bl
-            ( b_h.geo.n_ceff[ 1 ],
-              b_h.geo.n_ceff[ 2 ] );
+        const dim3 n_th( b_h.geo.n_ceff[ 0 ] );
+        const dim3 n_bl( b_h.geo.n_ceff[ 1 ] ,
+                         b_h.geo.n_ceff[ 2 ] );
 
-        dev.launch( init_rad_fields_kernel,
-                    n_bl, n_th, 0, d.stream,
-                    b_d, ini );
+        dev.launch( init_rad_fields_kernel, n_bl, n_th, 0,
+                    d.stream, b_d, ini );
         dev.sync_stream( d.stream );
 
         //  Set scalar flags on both host and
-        //  device blocks so they propagate
+        //  device blocksq so they propagate
         //  to the device proxy at step time.
         b_d.rad.ray_output = ini.ray_output;
         b_d.rad.ray_id     = ini.ray_id;
@@ -262,18 +243,12 @@ public:
         //  the right n_int and the device
         //  proxy sees the flags.
         auto base_yield = this->block_yield;
-        this->block_yield =
-            [ this, base_yield ]
-            ( mesh::block_t & b,
-              mesh::mesh_t & m )
-            -> std::shared_ptr
-               < mesh::block::dual_t >
+        this->block_yield = [ this, base_yield ]
+            ( mesh::block_t & b, mesh::mesh_t & m )
         {
-            auto p = base_yield( b, m );
-            auto & b_h
-                = prx_t::ref( p->h(  ) );
-            auto & b_d
-                = prx_t::ref( p->d(  ) );
+            auto     p = base_yield( b, m );
+            auto & b_h = prx_t::ref( p->h(  ) );
+            auto & b_d = prx_t::ref( p->d(  ) );
             b_h.rad.imaging = ini.imaging;
             b_h.rad.n_chan  = ini.n_chan;
             b_d.rad.imaging = ini.imaging;
@@ -283,24 +258,19 @@ public:
         particle::radiation::base_t::read( args );
     }
 
-    virtual void init
-    ( const input & args,
-      mesh::mesh_t & mesh ) override
+    virtual void init( const  input & args ,
+                       mesh::mesh_t & mesh ) override
     {
         mesh.p_dev->prep_rng
-            ( args.get< int >
-              ( "line_rt", "num_rng",
-                16381 ) );
-        //  Move field interpolation tables
-        //  to device global memory before
-        //  init_cond
+        ( args.get< int > ( "line_rt", "num_rng", 16381 ) );
+        //  Move field interpolation tables to device global
+        //  memory before init_cond
         ini.to_device( * mesh.p_dev );
-        particle::radiation::base_t::init
-            ( args, mesh );
-    }
+        particle::radiation::base_t::init( args, mesh );
+        return;
+    };
 
-    virtual void finalize
-    ( mesh::mesh_t & mesh ) override
+    virtual void finalize( mesh::mesh_t & mesh ) override
     {
         //  Free device-resident interp_t
         //  tables once field initialization
@@ -309,30 +279,23 @@ public:
         particle::base_t::finalize( mesh );
     }
 
-    virtual void step
-    ( mesh::mesh_t & mesh ) override
+    virtual void step( mesh::mesh_t & mesh ) override
     {
-        mesh.p_cyc->redc_dt_start( mesh );
+        mesh.p_cyc->redc_dt_start ( mesh );
         mesh.p_cyc->redc_dt_finish( mesh );
         for( auto & d : ( * this ) )
-            d.d(  ).dt
-                = ( * mesh.p_cyc->p_dt_h );
-        auto t0
-            = std::chrono::steady_clock
-              ::now(  );
+            d.d(  ).dt = ( * mesh.p_cyc->p_dt_h );
+        auto t0 = std::chrono::steady_clock::now(  );
         particle::base_t::step( mesh );
-        auto t1
-            = std::chrono::steady_clock
-              ::now(  );
+        auto t1 = std::chrono::steady_clock::now(  );
         if( profile )
         {
             std::cout << "[profile] mcrt:   "
-                << std::chrono::duration
-                   < double >
-                   ( t1 - t0 ).count(  )
-                << " s\n";
+                << std::chrono::duration< double >
+                   ( t1 - t0 ).count(  )<< " s\n";
         }
-    }
+        return;
+    };
 };
 
 }  //  namespace prob
