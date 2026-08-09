@@ -1,4 +1,5 @@
 #include <cstring>
+#include <chrono>
 #pragma once
 
 #include "../../src/utilities/mapping/loop.h"
@@ -144,6 +145,7 @@ public:                         // Type
     };
 protected:                      // Data
     ini_t ini;
+    bool profile = false;
 
 protected:
     virtual void init_cond
@@ -199,6 +201,8 @@ public:
     {
         enroll< prx_t, pol_t, gen_t, intg_t >(  );
         ini.read( args );
+        profile = args.get< bool >
+                ( "profile", "enabled", false );
         // When imaging is on, the scattering integrator must
         // NOT zero j_cam in pre_proc each step: 
         if( ini.imaging )
@@ -252,7 +256,14 @@ public:
         mesh.p_cyc->redc_dt_finish( mesh );
         for( auto & d : ( * this ) )
             d.d(  ).dt = ( * mesh.p_cyc->p_dt_h );
-        return particle::base_t::step( mesh );
+        auto t0 = std::chrono::steady_clock::now();
+        particle::base_t::step( mesh );
+        auto t1 = std::chrono::steady_clock::now();
+        if( profile )
+            std::cout << "[profile] mcrt:   "
+                      << std::chrono::duration<double>
+                             ( t1 - t0 ).count() << " s\n";
+        return;
     }
 };
 

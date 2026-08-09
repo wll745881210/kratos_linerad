@@ -32,6 +32,9 @@
 using type::  float_t;
 using type:: float2_t;
 
+//////////////////////////////////////////////////////////
+// GPU kernel: build R_IIA table from device-resident
+
 struct riia_table_t
 {
     ////// Device pointers //////
@@ -226,7 +229,42 @@ struct riia_table_t
     __host__ void _build_riia_gpu  ( device::base_t & dev );
 };
 
-////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////
+// GPU kernel: build USampler log(CDF) on device.
+// Each thread computes one row (one xg value) of the
+// CDF: P(u|x) ~ exp(-u²)/(a²+(x-u)²), cumulative sum,
+// normalize, log.  All float_t (single precision).
+// Grid: 1 block of n_xg (40) threads.
+////////////////////////////////////////////////////////
+
+static __global__ void build_usampler_gpu_kernel
+( riia_table_t riia )
+{
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    if( j >= riia.n_xg ) return;
+
+    float_t xg = riia.d_xg[ j ];
+    float_t a_eff = riia.a_voigt > 1e-6f
+        ? riia.a_voigt : 1e-6f;
+    float_t a2 = a_eff * a_eff;
+
+    float_t cdf[ 251 ];
+    float_t cum = 0;
+    for( int k = 0; k < riia.n_u; ++k )
+    {
+        float_t uk   = -riia.u_max + riia.du * float_t( k );
+        float_t diff = xg - uk;
+        cum += expf( -uk * uk ) / ( a2 + diff * diff );
+        cdf[ k ] = cum;
+    }
+    float_t inv_sum = 1.f / cum;
+    float_t * row = riia.d_cdf + j * riia.n_u;
+    for( int k = 0; k < riia.n_u; ++k )
+        row[ k ] = logf
+            ( fmaxf( cdf[ k ] * inv_sum, 1e-38f ) );
+}
+
+//////////////////////////////////////////////////////////
 // GPU kernel: build R_IIA table from device-resident
 // USampler log(CDF) + x grid.  Uses float_t (single
 // precision) throughout.  Each thread computes one
@@ -323,11 +361,8 @@ inline __host__ void riia_table_t::build
 inline __host__ void riia_table_t::_build_usampler
 ( device::base_t & dev, float_t a_voigt )
 {
-    const size_t n_total = size_t( n_u ) * n_xg;
-    float2_t * h_cdf = new float2_t[ n_total ];
-    float_t  * h_xg  = new float_t [ n_xg    ];
-
-    // xg grid: 18 linear [0,8] + 22 log [8,300]
+    // Build xg grid on host (40 values, trivial).
+    float_t * h_xg = new float_t[ n_xg ];
     const int   n_lin     = 18;
     const int   n_log     = n_xg - n_lin;
     const float_t x_lin_max = 8.f;
@@ -336,62 +371,25 @@ inline __host__ void riia_table_t::_build_usampler
         h_xg[ j ] = j / float_t( n_lin - 1 ) * x_lin_max;
     for( int j = 0; j < n_log; ++j )
         h_xg[ n_lin + j ] = x_lin_max
-            * pow( x_max / x_lin_max,
-                   float_t( j + 1 ) / n_log );
+            * powf( x_max / x_lin_max,
+                    float_t( j + 1 ) / n_log );
 
-    // Clamp a > 0: at a = 0 the xg = 0 row is 1/(0+0)=NaN.
-    const float_t a_eff = a_voigt > 1e-6f
-        ? a_voigt : 1e-6f;
-    const float2_t a2 = float2_t( a_eff * a_eff );
-    for( int j = 0; j < n_xg; ++j )
-    {
-        const float2_t xg = float2_t( h_xg[ j ] );
-        float2_t * row_cdf = h_cdf + j * n_u;
-        for( int k = 0; k < n_u; ++k )
-        {
-            const float2_t uk = float2_t
-                ( -u_max + du * float_t( k ) );
-            const float2_t diff = xg - uk;
-            row_cdf[ k ] = exp( -double( uk * uk ) )
-                / ( a2 + double( diff * diff ) );
-        }
-        float2_t cum = 0;
-        for( int k = 0; k < n_u; ++k )
-        {
-            cum += row_cdf[ k ];
-            row_cdf[ k ] = cum;
-        }
-        const float2_t inv_sum = 1.0 / cum;
-        for( int k = 0; k < n_u; ++k )
-            row_cdf[ k ] *= inv_sum;
-    }
+    // Allocate d_cdf + d_xg in global memory (Option A:
+    // always global, not const mem — simpler, L2-cached,
+    // negligible perf difference for 40 KB).
+    const size_t n_total = size_t( n_u ) * n_xg;
+    d_cdf = dev.malloc_device< float_t >( n_total );
+    d_xg  = dev.malloc_device< float_t >( n_xg    );
+    dev.cp( d_xg, h_xg, n_xg );
 
-    // Store log(CDF) in float for smooth interpolation
-    // in the tails (where the CDF is nearly flat).
-    float_t * h_logcdf = new float_t[ n_total ];
-    for( size_t i = 0; i < n_total; ++i )
-        h_logcdf[ i ] = log( fmax
-            ( float_t( h_cdf[ i ] ), 1e-38f ) );
+    // Launch GPU kernel to build CDF (40 threads, each
+    // computes one row of 251 values).
+    dim3 block( n_xg, 1, 1 );
+    dim3 grid ( 1, 1, 1 );
+    dev.launch( build_usampler_gpu_kernel, grid, block, 0,
+                (const void *)0, *this );
+    dev.sync_all_streams();
 
-    if( !use_const_mem )
-    {
-        d_cdf = dev.malloc_device< float_t >( n_total );
-        d_xg  = dev.malloc_device< float_t >( n_xg    );
-        dev.cp( d_cdf, h_logcdf, n_total );
-        dev.cp( d_xg,  h_xg,        n_xg );
-    }
-    else
-    {
-        d_cdf = dev.malloc_const< float_t >( n_total );
-        d_xg  = dev.malloc_const< float_t >( n_xg    );
-        dev.f_cc( d_cdf, h_logcdf,
-                  n_total * sizeof( float_t ) );
-        dev.f_cc( d_xg,  h_xg,
-                  n_xg    * sizeof( float_t ) );
-    }
-
-    delete[] h_logcdf;
-    delete[] h_cdf;
     delete[] h_xg;
 }
 

@@ -25,6 +25,7 @@
 #include "radiation.h"
 #include "pool_img.h"
 #include "photon_gen_img.h"
+#include <chrono>
 
 namespace prob
 {
@@ -33,6 +34,7 @@ class rad_img_t : public particle::radiation::base_t
 {
 public:                         // Data
     bool enabled = false;
+    bool profile = false;
 protected:                      // Functions
     virtual void init_cond
     ( mesh::block::dual_t & d ) override
@@ -61,6 +63,8 @@ public:
         itg.  zero_j_cam = false;
         itg. zero_fields = false;
         itg.build_tables = false;
+        profile = args.get< bool >
+                ( "profile", "enabled", false );
         return particle::radiation::base_t::read ( args );
     };
 
@@ -101,7 +105,15 @@ public:
     virtual void step( mesh::mesh_t & mesh ) override
     {
         if( enabled )
+        {
+            auto t0 = std::chrono::steady_clock::now();
             particle::radiation::base_t::step( mesh );
+            auto t1 = std::chrono::steady_clock::now();
+            if( profile )
+                std::cout << "[profile] imaging: "
+                          << std::chrono::duration<double>
+                                 ( t1 - t0 ).count() << " s\n";
+        }
         return;
     };
 

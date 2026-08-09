@@ -382,6 +382,11 @@ def _print_timing(t):
     print(f"    [profile] kratos_wall:     {t.get('kratos_wall',0):.3f} s")
     print(f"    [profile]   kratos_init:   {t.get('kratos_init',0):.3f} s")
     print(f"    [profile]   kratos_gpu:    {t.get('kratos_gpu',0):.3f} s")
+    mcrt    = t.get('kratos_mcrt',    0)
+    imaging = t.get('kratos_imaging', 0)
+    if mcrt or imaging:
+        print(f"    [profile]     mcrt:       {mcrt:.3f} s")
+        print(f"    [profile]     imaging:   {imaging:.3f} s")
     print(f"    [profile]   kratos_output: {t.get('kratos_output',0):.3f} s")
     print(f"    [profile] read_output:    {t.get('read_output',0):.3f} s")
     print(f"    [profile] TOTAL:           {total:.3f} s")
@@ -418,6 +423,8 @@ def run_one(tau0_fid, a_voigt, n_radiation, out_dir, tag,
     timing['kratos_gpu']    = _parse_float_log(result.stdout, r'Duration = ([\d.eE+-]+) s')
     timing['kratos_init']   = _parse_float_log(result.stdout, r'\[profile\] init:\s+([\d.eE+-]+) s')
     timing['kratos_evolve'] = _parse_float_log(result.stdout, r'\[profile\] evolve:\s+([\d.eE+-]+) s')
+    timing['kratos_mcrt']   = _parse_float_log(result.stdout, r'\[profile\] mcrt:\s+([\d.eE+-]+) s')
+    timing['kratos_imaging']= _parse_float_log(result.stdout, r'\[profile\] imaging:\s+([\d.eE+-]+) s')
     timing['kratos_output'] = timing.get('kratos_evolve', 0) - timing.get('kratos_gpu', 0)
 
     out_files = sorted(Path(out_dir).glob(f'img_{tag}_*.bin'))

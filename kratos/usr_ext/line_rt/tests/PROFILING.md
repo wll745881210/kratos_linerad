@@ -53,6 +53,8 @@ lines give the full `init` and `evolve` phases, so:
 |---|---|
 | `init` | `[profile] init:` |
 | GPU transport | `Duration =` |
+| MC scattering | `[profile] mcrt:` |
+| Imaging ray trace | `[profile] imaging:` |
 | Output write | `[profile] evolve:` − `Duration =` |
 
 ### Python side (`test_scaling_image.py`)
@@ -85,14 +87,23 @@ timing['kratos_output'] = timing['kratos_evolve'] - timing['kratos_gpu']
 `_print_timing()` prints the full breakdown:
 
 ```
-    [profile] gen_inputs:      0.015 s
-    [profile] kratos_wall:     14.589 s
-    [profile]   kratos_init:   2.973 s
-    [profile]   kratos_gpu:    11.452 s
+    [profile] gen_inputs:      0.009 s
+    [profile] kratos_wall:     11.471 s
+    [profile]   kratos_init:   0.270 s
+    [profile]   kratos_gpu:    10.985 s
+    [profile]     mcrt:       10.979 s
+    [profile]     imaging:     0.006 s
     [profile]   kratos_output: 0.010 s
     [profile] read_output:    0.000 s
-    [profile] TOTAL:           14.605 s
+    [profile] TOTAL:           11.480 s
 ```
+
+The `mcrt` and `imaging` lines (printed only when non-zero)
+break down the GPU time into scattering MC transport and
+formal-solution ray tracing.  The `init` line includes the
+GPU construction of the USampler CDF (40 threads) and R_IIA
+table (200×200×40 grid), replacing the previous ~2.5 s CPU
+construction with ~0.05 s of GPU work.
 
 The `[profile]` par section is injected into `PAR_TEMPLATE` only when
 `--profile` is passed:
