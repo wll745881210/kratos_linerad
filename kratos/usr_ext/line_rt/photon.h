@@ -144,7 +144,7 @@ struct line_rt_photon_t
             const float_t sin_g
                 = sqrtf( fmaxf( 0, 1 - g * g ) );
 
-            const float_t u_par = itg.sample_upar( x_freq );
+            const float_t u_par = itg.riia.sample_upar( x_freq );
             const float_t u_perp = r
                 * cosf( 6.283185307f * u2 ) / sqrt_2;
             const float_t x_new = x_freq
@@ -265,7 +265,7 @@ struct line_rt_photon_t
             {   // Camera-resonant frequency in b units                
                 const auto x_out =
                    ( itg.d_v_chan[ k ] + vobs_cam ) / b_sca;
-                const auto R = itg.riia_kernel
+                const auto R = itg.riia.lookup
                                 ( x_out, x_pp, g_dot );
                 atomicAdd( j + k, mfp_i_s * base * R );
             }   // mfp_i_s = mfp_i_s0 * H( a, x_pp ), Voigt 

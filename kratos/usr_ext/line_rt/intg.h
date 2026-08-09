@@ -2,6 +2,7 @@
 
 #include "../../usr/extension/algo/interp.h"
 #include "voigt_table_data.h"
+#include "riia_table.h"
 
 namespace prob
 {
@@ -26,17 +27,12 @@ struct intg_t : particle::integrate::base_t< intg_t >
     int        ph_mode;
     bool  free_dev_mem;   // On const mem--no need to free
 
-    ////////// CDF sampler //////////
-    // USampler: P(u|x) ~ exp(-u^2) / (a^2 + (x-u)^2).
-    // log( CDF ) is stored for smooth interpolation.
-    // ph_mode=1: global device memory (freed in finalize);
-    // ph_mode=2/3: constant memory (pool, never freed).
-    int                   n_u;
-    int                  n_xg;
-    float_t                du;    
-    float_t             u_max;
-    float_t *            d_xg;
-    float_t *           d_cdf;
+    ////////// R_IIA + USampler (standalone struct) //////////
+    // riia_table_t owns: R_IIA 3-D table + USampler CDF
+    // + x grid + all grid/USampler params + device-side
+    // lookup/sampling functions + GPU construction kernel.
+    // See riia_table.h for details.
+    riia_table_t        riia;
 
     ////////// Voigt profile //////////
     float_t       voigt_a_min;
@@ -53,25 +49,6 @@ struct intg_t : particle::integrate::base_t< intg_t >
     int                  n_vu;
     float_t          du_voigt;
     float_t       u_voigt_max;
-
-    ////////// R_IIA redistribution kernel //////////
-    // 3-D table R(x_out; |x_pp|, g) giving the
-    // probability density of scattering from incoming
-    // frequency x_pp (b units, sign restored via
-    // symmetry R(-xo;-xp,g)=R(xo;xp,g)) and direction
-    // angle g=cos(theta) to outgoing frequency x_out.
-    // Built from the USampler CDF + Gaussian (u_perp)
-    // at the end of build_usampler().  Stored in
-    // global device memory; ∫R dx_out = 1.
-    float_t *         d_riia;
-    int          n_riia_xo;        // # x_out points
-    int          n_riia_xp;        // # |x_pp| points
-    int           n_riia_g;        // # g points
-    float_t      riia_xo_max;      // x_out range [−xo,xo]
-    float_t      riia_xp_max;      // |x_pp| range [0,xp]
-    float_t        riia_dxo;
-    float_t        riia_dxp;
-    float_t          riia_dg;
 
     ////////// Imaging (camera + velocity channels) //////////
     //   dir_cam : camera LOS direction, pointing INTO the
@@ -155,20 +132,8 @@ struct intg_t : particle::integrate::base_t< intg_t >
 
     __host__ intg_t(  ) : super_t(  )
     {
-        d_cdf         =    nullptr;
-        d_xg          =    nullptr;
-        n_u           =        251;
-        n_xg          =         40;
-        u_max         =          6;
-        du            =      0.048;
+        // riia_table_t has its own constructor with defaults.
         free_dev_mem  =      false;
-
-        d_riia        =    nullptr;
-        n_riia_xo     =        200;
-        n_riia_xp     =        200;
-        n_riia_g      =         40;
-        riia_xo_max   =         10.f;
-        riia_xp_max   =        120.f;
 
         d_log_voigt_c =    nullptr;
         n_vu          =       5000;
@@ -332,7 +297,8 @@ struct intg_t : particle::integrate::base_t< intg_t >
             voigt_interp.setup( x0, dx, n, copy );
             voigt_interp.to_device( * mod.p_dev );
             free_dev_mem = true;
-            build_usampler  ( * mod.p_dev );
+            riia.use_const_mem = false;
+            riia.build       ( * mod.p_dev, a_voigt );
         }
         else if( ph_mode == 2 )
         {   // Set up 2D Voigt table on HOST only (to sample
@@ -354,14 +320,16 @@ struct intg_t : particle::integrate::base_t< intg_t >
             voigt_interp.setup( x0, dx, n, copy );
 
             free_dev_mem = false;
-            build_usampler( * mod.p_dev );
+            riia.use_const_mem = true;
+            riia.build       ( * mod.p_dev, a_voigt );
             build_voigt_1d( * mod.p_dev );
         }   // NO to_device() - host-only for 1D sampling.
         else if( ph_mode == 3 )
         {   // Const-mem USampler only;
             // transport uses photon.h voigt_H approx.
             free_dev_mem = false;
-            build_usampler( * mod.p_dev );
+            riia.use_const_mem = true;
+            riia.build       ( * mod.p_dev, a_voigt );
         }
         }
         // else: imaging integrator reuses the scattering
@@ -373,30 +341,14 @@ struct intg_t : particle::integrate::base_t< intg_t >
     __host__ void finalize( particle::base_t & mod )
     {
         auto & dev = * mod.p_dev;
-        if( free_dev_mem )
-        {
-            if( d_cdf )
-            {
-                dev.free_device( d_cdf );
-                d_cdf = nullptr;
-            }
-            if( d_xg )
-            {
-                dev.free_device( d_xg  );
-                d_xg  = nullptr;
-            }
-        } // Const-mem pointers ( free_dev_mem == false )
-          // are NOT freed: the const is a system-managed
-          // pool ( device.cpp : 45--54 ).
+        // riia_table_t frees dat (always global) + d_cdf/d_xg
+        // (only if !use_const_mem).  Const-mem pointers are
+        // NOT freed: the const is a system-managed pool.
+        riia.free( dev );
         if( d_v_chan )
         {
             dev.free_device( d_v_chan );
             d_v_chan = nullptr;
-        }
-        if( d_riia )
-        {
-            dev.free_device( d_riia );
-            d_riia = nullptr;
         }
         return;
     };
@@ -486,179 +438,6 @@ struct intg_t : particle::integrate::base_t< intg_t >
     }
 
     //////////////////////////////////////////////////
-    // USampler: log(CDF) table.  Allocated in global
-    // device memory (free_dev_mem) or constant memory
-    // (bump pool, never freed).
-
-    __host__ void build_usampler( device::base_t & dev )
-    {
-        const size_t n_total = size_t( n_u ) * n_xg;
-        float2_t * h_cdf = new float2_t [ n_total ];
-        float_t  * h_xg  = new float_t  [ n_xg    ];
-
-        const int n_lin = 18;
-        const int n_log = n_xg - n_lin;
-        const float_t x_lin_max = 8.f;
-        const float_t x_max     = 300.f;
-
-        for( int j = 0; j < n_lin; ++ j )
-            h_xg[ j ] = j
-                      / float_t( n_lin - 1 ) * x_lin_max;
-        for( int j = 0; j < n_log; ++ j )
-            h_xg[ n_lin + j ] = x_lin_max
-                * pow( x_max  / x_lin_max,
-                       float_t( j + 1 ) / n_log );
-
-        // Clamp a > 0: at a = 0 the xg = 0 row is
-        // 1/(0+0)=NaN.
-        const float_t a_eff = a_voigt > float_t( 1e-6 )
-            ? a_voigt : float_t( 1e-6 );
-        const float2_t a2 = float2_t( a_eff * a_eff );
-        for( int j = 0; j < n_xg; ++ j )
-        {
-            const float2_t xg = float2_t( h_xg[ j ] );
-            float2_t * row_cdf = h_cdf + j * n_u;
-            for( int k = 0; k < n_u; ++ k )
-            {
-                const float2_t uk = float2_t
-                    ( -u_max + du * float_t( k ) );
-                const float2_t diff = xg - uk;
-                row_cdf[ k ] = exp( -double( uk * uk ) )
-                    / ( a2 + double( diff * diff ) );
-            }
-            float2_t cum = 0;
-            for( int k = 0; k < n_u; ++ k )
-            {
-                cum += row_cdf[ k ];
-                row_cdf[ k ] = cum;
-            }
-            const float2_t inv_sum = 1.0 / cum;
-            for( int k = 0; k < n_u; ++ k )
-                row_cdf[ k ] *= inv_sum;
-        }
-
-        // Store log(CDF) in float for smooth interpolation
-        // in the tails (where the CDF is nearly flat).
-        float_t * h_logcdf = new float_t[ n_total ];
-        for( size_t i = 0; i < n_total; ++ i )
-            h_logcdf[ i ] = log( fmax
-                    ( float_t( h_cdf[ i ] ), 1e-38f ) );
-
-        if( free_dev_mem )
-        {
-            d_cdf = dev.malloc_device< float_t >( n_total );
-            d_xg  = dev.malloc_device< float_t >( n_xg    );            
-            dev.cp( d_cdf, h_logcdf, n_total );
-            dev.cp( d_xg,  h_xg,        n_xg );
-        }
-        else
-        {
-            d_cdf = dev.malloc_const< float_t >( n_total );
-            d_xg  = dev.malloc_const< float_t >( n_xg    );
-            dev.f_cc( d_cdf, h_logcdf,
-                      n_total * sizeof( float_t ) );
-            dev.f_cc( d_xg, h_xg,
-                      n_xg    * sizeof( float_t ) );
-        }
-        build_riia_kernel( dev, h_cdf, h_xg );
-
-        delete[  ] h_logcdf;
-        delete[  ] h_cdf;
-        delete[  ] h_xg;
-        return;
-    }
-
-    //////////////////////////////////////////////////
-    // R_IIA redistribution kernel 3-D table:
-    // R(x_out; |x_pp|, g) = Σ_k pdf[k]
-    // * G(x_out-x_pp-u_k(g-1); sin_g/√2)
-     // where pdf is the discrete USampler PDF
-    //   and G is a Gaussian.  ∫R dx_out = 1 (normalised
-    //   probability density in x-space).
-
-    __host__ void build_riia_kernel
-    ( device::base_t & dev,
-      const float2_t * h_cdf,
-      const float_t  * h_xg )
-    {
-        const int n_xo = n_riia_xo;
-        const int n_xp = n_riia_xp;
-        const int n_g  = n_riia_g;
-        const float_t xo_max = riia_xo_max;
-        const float_t xp_max = riia_xp_max;
-        riia_dxo = ( 2.f * xo_max ) / float_t( n_xo - 1 );
-        riia_dxp = xp_max / float_t( n_xp - 1 );
-        riia_dg  = 2.f / float_t( n_g - 1 );
-
-        const size_t n_tab = size_t( n_xo ) * n_xp * n_g;
-        float_t * h_tab = new float_t[ n_tab ]();
-        const float2_t sqrt_pi = float2_t( 1.7724538509 );
-        const float2_t u_min = -float2_t( u_max );
-
-        for( int jp = 0; jp < n_xp; ++ jp )
-        {
-            const float2_t xpp = float2_t( jp * riia_dxp );
-
-            int jxg = 0;
-            for( int lo = 0, hi = n_xg - 1; lo <= hi; )
-            {
-                int mid = ( lo + hi ) >> 1;
-                if( h_xg[ mid ] <= xpp )
-                {
-                    jxg = mid ;
-                    lo  = mid + 1;
-                }
-                else hi = mid - 1;
-            }
-            if( jxg < 0 ) jxg = 0;
-            if( jxg >= n_xg - 1 ) jxg = n_xg - 2;
-            const float2_t * row = h_cdf + jxg * n_u;
-
-            float2_t pdf[ 256 ];
-            pdf[ 0 ] = row[ 0 ];
-            for( int k = 1; k < n_u; ++ k )
-                pdf[ k ] = row[ k ] - row[ k - 1 ];
-            float2_t pdf_sum = 0;
-            for( int k = 0; k < n_u; ++ k )
-                pdf_sum += pdf[ k ];
-
-            for( int ig = 0; ig < n_g; ++ ig )
-            {
-                const float2_t g = -1.
-                    + float2_t( ig ) * float2_t( riia_dg );
-                float2_t sin_g = sqrt
-                    ( fmax( 1. - g * g, 0. ) );
-                sin_g = fmax( sin_g, 1e-3 );
-                const float2_t gm1 = g - 1.;
-                const float2_t inv_sg = 1. / sin_g;
-
-                for( int io = 0; io < n_xo; ++ io )
-                {
-                    const float2_t xo = -float2_t( xo_max )
-                        + float2_t( io ) * float2_t( riia_dxo );
-                    float2_t R = 0;
-                    for( int k = 0; k < n_u; ++ k )
-                    {
-                        const float2_t uk = u_min
-                            + float2_t( du ) * float2_t( k );
-                        const float2_t y = xo - uk * gm1;
-                        R += pdf[ k ]
-                            * exp( -y * y * inv_sg * inv_sg )
-                            * inv_sg / sqrt_pi;
-                    }
-                    h_tab[ ( ( io * n_xp ) + jp ) * n_g + ig ]
-                        = float_t( R );
-                }
-            }
-        }
-
-        d_riia = dev.malloc_device< float_t >( n_tab );
-        dev.cp( d_riia, h_tab, n_tab );
-        delete[  ] h_tab;
-        return;
-    }
-
-    //////////////////////////////////////////////////
     // 1D Voigt table (ph_mode=2): constant memory,
     // log-space
 
@@ -693,163 +472,6 @@ struct intg_t : particle::integrate::base_t< intg_t >
         delete[  ] h_log_voigt;
     }
 
-    //////////////////////////////////////////////////
-    // Inverse CDF: log-space (table stores log(CDF))
-
-    __device__ __forceinline__ float_t _invcdf
-    ( const float_t * log_cdf, const float_t & r ) const
-    {
-        const float_t log_r = logf( fmaxf( r, 1e-38f ) );
-        int  k = 0;
-        for( int lo = 0, hi = n_u - 1; lo <= hi; )
-        {
-            const int mid = ( lo + hi ) >> 1;
-            if( log_cdf[ mid ] <= log_r )
-            {
-                k  = mid ;
-                lo = mid + 1;
-            }
-            else
-                hi = mid - 1;
-        }
-        k = utils::max( utils::min( k, n_u - 2 ), 1 );
-        const float_t denom = utils::max
-            ( log_cdf[ k ] - log_cdf[ k - 1 ], 1e-35f ) ;
-        const float_t frac = ( log_r - log_cdf[ k - 1 ] )
-                           / denom;
-        float_t u = ( -u_max + du * float_t( k - 1 ) )
-                  + frac * du;
-        return utils::max( utils::min( u, u_max ), -u_max );
-    };  // Clamp to table range to avoid NaN
-
-    //////////////////////////////////////////////////
-    // Sample u_par for a given xa (|xa| with sign
-    // restored): binary search on the xg grid, then
-    // interp between adjacent rows of the log(CDF) table.
-    __device__ __forceinline__
-    float_t sample_upar( const float_t & xa ) const
-    {
-        const float_t sgn = ( xa >= 0.f ) ? 1.f : -1.f;
-        const float_t ax  = fabsf( xa );
-
-        int j = n_xg - 2;
-        for( int lo = 0, hi = n_xg - 1; lo <= hi; )
-        {
-            const int mid = ( lo + hi ) >> 1;
-            if( d_xg[ mid ] <= ax )
-            {
-                j = mid;
-                lo = mid + 1;
-            }
-            else
-                hi = mid - 1;
-        }
-        if( j < 0 )
-            j = 0;
-        else if( j >= n_xg - 1 )
-            j = n_xg - 2;
-
-        const float_t f = ( ax - d_xg[ j ] )
-            / ( d_xg[ j + 1 ] - d_xg[ j ] );
-        const float_t r = device::rand_dev(  );
-
-        const float_t u0 = _invcdf
-            ( d_cdf + j * n_u, r );
-        const float_t u1 = _invcdf
-            ( d_cdf + ( j + 1 ) * n_u, r );
-        return sgn * ( u0 + f * ( u1 - u0 ) );
-    };
-
-    //////////////////////////////////////////////////
-    // R_IIA redistribution kernel density lookup:
-    //   R(x_out; x_pp, g)  [x-space, ∫R dx = 1]
-    // Uses the 3-D table built by build_riia_kernel().
-    // The table is parametrised in Δ = x_out - x_pp
-    // (symmetry: R(Δ; -x_pp, g) = R(-Δ; x_pp, g)),
-    // so the device lookup computes t_delta = Δ*sgn.
-    //
-    // For |x_pp| >= riia_xp_max the USampler CDF has
-    // converged to the asymptotic form pdf_∞ ∝ exp(-u²),
-    // giving the analytic kernel:
-    //   R_∞(Δ; g) = exp(-Δ²/((g-1)²+sin²_g)) /
-    //               (√π × √((g-1)²+sin²_g))
-    // which is used directly (no table lookup needed).
-    __device__ __forceinline__
-    float_t riia_kernel
-    ( float_t x_out, float_t x_pp, float_t g ) const
-    {
-        const float_t ax_pp = fabsf( x_pp );
-
-        // Asymptotic for |x_pp| >= riia_xp_max
-        if( ax_pp >= riia_xp_max )
-        {
-            float_t sin_g = sqrtf
-                ( fmaxf( 1.f - g * g, 1e-6f ) );
-            float_t gm1 = g - 1.f;
-            float_t denom = gm1 * gm1 + sin_g * sin_g;
-            float_t Delta = x_out - x_pp;
-            return expf( -Delta * Delta / denom )
-                 / ( 1.7724538509f * sqrtf( denom ) );
-        }
-
-        // For |g| > (1 - riia_dg) — the last 2 grid points on
-        // each side — the R_IIA kernel collapses to a narrow
-        // Gaussian (delta-function limit as g -> ±1).  Trilinear
-        // interpolation between a broad Gaussian (g=0.949,
-        // σ≈0.22) and a delta spike (g=1.0, σ≈0) cannot capture
-        // the qualitative shape change, so use the analytic form
-        // R = Gauss(Δ; σ=sin_g/√π) instead.  This is exact for
-        // g=±1 and a good approximation for |g|>0.949 (u_k shifts
-        // ≪ sin_g for typical u_k).
-        if( fabsf( g ) > 0.99f )
-        {
-            float_t sin_g = sqrtf
-                ( fmaxf( 1.f - g * g, 1e-6f ) );
-            float_t Delta = x_out - x_pp;
-            return expf( -Delta * Delta / ( sin_g * sin_g ) )
-                 / ( sin_g * 1.7724538509f );
-        }
-
-        const float_t sgn = ( x_pp >= 0.f ) ? 1.f : -1.f;
-        const float_t t_delta = ( x_out - x_pp ) * sgn;
-
-        // Kernel negligible for |Δ| > xo_max
-        if( fabsf( t_delta ) > riia_xo_max )
-            return 0.f;
-
-        const float_t xo_max = riia_xo_max;
-
-        int ixp = int( ax_pp / riia_dxp );
-        ixp = utils::max( utils::min( ixp, n_riia_xp - 2 ), 0 );
-        float_t fxp = ( ax_pp - ixp * riia_dxp ) / riia_dxp;
-        fxp = utils::max( utils::min( fxp, 1.f ), 0.f );
-
-        int ixo = int( ( t_delta + xo_max ) / riia_dxo );
-        ixo = utils::max( utils::min( ixo, n_riia_xo - 2 ), 0 );
-        float_t fxo = ( t_delta + xo_max - ixo * riia_dxo ) / riia_dxo;
-        fxo = utils::max( utils::min( fxo, 1.f ), 0.f );
-
-        int ig = int( ( g + 1.f ) / riia_dg );
-        ig = utils::max( utils::min( ig, n_riia_g - 2 ), 0 );
-        float_t fg = ( g + 1.f - ig * riia_dg ) / riia_dg;
-        fg = utils::max( utils::min( fg, 1.f ), 0.f );
-
-        const int n_xp = n_riia_xp, n_g = n_riia_g;
-        #define _RIIA(io,jp,ig)  d_riia[ ((io)*n_xp+(jp))*n_g + (ig) ]
-        const auto c00 = _RIIA(ixo,ixp,ig)*(1.f-fg)
-                          + _RIIA(ixo,ixp,ig+1)*fg;
-        const auto c01 = _RIIA(ixo,ixp+1,ig)*(1.f-fg)
-                          +_RIIA(ixo,ixp+1,ig+1)*fg;
-        const auto c10 = _RIIA(ixo+1,ixp,ig)*(1.f-fg)
-                          + _RIIA(ixo+1,ixp,ig+1)*fg;
-        const auto c11 = _RIIA(ixo+1,ixp+1,ig)*(1.f-fg)
-                          +_RIIA(ixo+1,ixp+1,ig+1)*fg;
-        #undef _RIIA
-        const auto c0 = c00 * ( 1.f - fxp ) + c01 * fxp;
-        const auto c1 = c10 * ( 1.f - fxp ) + c11 * fxp;
-        return c0 * ( 1.f - fxo ) + c1 * fxo;
-    };
-    
     //////////////////////////////////////////////////
     // Launch-grid override (host).  In classic mode this
     // matches the trunk (one thread per active photon).  In
