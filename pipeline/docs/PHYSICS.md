@@ -618,11 +618,14 @@ for channel k:
     dv_cam  = v_chan[k] + dir_cam·v_bulk(i)          (gas-frame offset
                                                       toward the camera)
     x_out   = dv_cam / b_sca
-    x_pp    = (vel + vel_obs) / b_sca               (photon's own freq)
+    x_in    = (vel + vel_obs) / b_sca               (photon's gas-frame
+                                                      incoming freq)
+    # Note: the code variable is named "x_pp" but is actually x_in
+    # (gas-frame, NOT atom-frame); see §12.2 Convention B.
     g_dot   = dir_photon · dir_cam                  (directional correlation)
-    prof_s  = H(a_voigt, x_pp)                       (Voigt profile at the
+    prof_s  = H(a_voigt, x_in)                       (Voigt profile at the
                                                       photon's INCOMING freq)
-    R       = R_IIA_kernel(x_out, |x_pp|, g_dot)  (precomputed 3-D table)
+    R       = R_IIA_kernel(x_out, |x_in|, g_dot)  (precomputed 3-D table)
     s_cam[i,k] += base · R · prof_s
 ```
 
@@ -632,9 +635,12 @@ opacity `mfp_i_sca_0`), and the `(1−e^−dτ_e)/dτ_e` factor is the
 escape-probability-per-unit-length that weights the segment by the chance
 the packet scatters within the cell.
 
-The `prof_s = H(a, x_pp)` factor is the Voigt profile evaluated at the
-photon's **incoming** frequency `x_pp = (vel + vel_obs)/b_sca`.  Including
-it makes `s_cam` an **emissivity** (`j = σ(v_in) × R × J`), not a source
+The `prof_s = H(a, x_in)` factor is the Voigt profile evaluated at the
+photon's **incoming** gas-frame frequency `x_in = (vel + vel_obs)/b_sca`.
+Note: the code variable is named `x_pp` but is actually `x_in` (gas-frame,
+not atom-frame); this follows Convention B (Dijkstra 2017 Saas-Fee), where
+the kick is `Δ = x_out − x_in` with Gaussian center `u_∥(g−1)` — see §12.2.
+Including it makes `s_cam` an **emissivity** (`j = σ(v_in) × R × J`), not a source
 function.  The imaging pass (§12.4) multiplies by `mfp_s` (line-centre
 opacity scale `σ₀ × n_l`) to recover the full emissivity
 `j = σ₀ × H(a, x_in) × R × J = σ(v_in) × R × J`.  The opacity is at the
@@ -643,14 +649,22 @@ frequency — this avoids the spurious extra line-profile factor
 `H(a, x_out)` that would produce a double-Gaussian spectrum
 (see `docs/debug/imaging_source_term.md`).
 
-The **R_IIA kernel** `R(x_out; x_pp, g)` is the full angle-dependent
+The **R_IIA kernel** `R(x_out; x_in, g)` is the full angle-dependent
 frequency redistribution kernel density, precomputed at startup as a 3-D
 table (`intg.h:build_riia_kernel`, 200×200×40 = 1.6 M floats in device
 global memory) from the USampler CDF.  The table is parametrised in
-`Δ = x_out − x_pp` (not `x_out` directly), which halves the table
+`Δ = x_out − x_in` (not `x_out` directly), which halves the table
 size while providing 6× finer resolution in the dynamically relevant
-range.  An analytic asymptotic is used for `|x_pp| ≥ 120` where the
+range.  An analytic asymptotic is used for `|x_in| ≥ 120` where the
 USampler CDF has converged.
+
+> **Convention B** (Dijkstra 2017, Saas-Fee Eq. 71): the kernel is
+> expressed in the **gas-frame** incoming frequency `x_in` (fixed per
+> photon), with kick `Δ = x_out − x_in` and Gaussian center
+> `u_∥(g−1)`.  This conserves the outgoing frequency `x_out` (verified:
+> `∫R dΔ = 1`, `⟨x_out⟩ = x_in`).  The alternative Convention A
+> (atom-frame `x_pp` with center `u_∥g`) conserves the atom-frame
+> frequency instead — physically wrong as a redistribution kernel.
 
 #### Definition of the R_IIA kernel
 
@@ -675,28 +689,28 @@ interpolation.  `a_eff = max(a_voigt, 1e-6)` avoids NaN at `a = 0`.
 **Step 2 — R_IIA kernel density** (`intg.h:build_riia_kernel`).  The full
 angle-dependent kernel is the marginalisation of the sampling distribution
 over the perpendicular velocity component.  The table is parametrised in
-`Δ = x_out − x_pp`.  For each `(|x_pp|, g, Δ)`:
+`Δ = x_out − x_in` (Convention B).  For each `(|x_in|, g, Δ)`:
 
 ```
-R(Δ; x_pp, g) = Σ_k  pdf[k] × Gauss( y_k ; σ = sin_g / √2 )
+R(Δ; x_in, g) = Σ_k  pdf[k] × Gauss( y_k ; σ = sin_g / √2 )
 
     y_k    = Δ − u_k × (g − 1)
     sin_g  = √( max(1 − g², 0) )       (clamped to ≥ 1e-3)
     pdf[k] = CDF[k] − CDF[k−1]          (discrete probabilities from the
-                                         USampler CDF row at |x_pp|)
+                                         USampler CDF row at |x_in|)
     Gauss(y; σ) = exp(−y² / sin_g²) / (sin_g √π)
 ```
 
-The table covers `Δ ∈ [−10, +10]` (200 points), `|x_pp| ∈ [0, 120]`
+The table covers `Δ ∈ [−10, +10]` (200 points), `|x_in| ∈ [0, 120]`
 (200 points), `g ∈ [−1, +1]` (40 points), total 1.6 M float32 values.
 Device-side lookup (`intg.h:riia_kernel`) uses trilinear interpolation with
 edge clamping (no extrapolation).  **Symmetry:**
-`R(Δ; −x_pp, g) = R(−Δ; x_pp, g)` — the table stores only `|x_pp| ≥ 0`;
-the sign is restored at lookup time via `sgn = sign(x_pp)`,
-`t_Δ = (x_out − x_pp) × sgn`.
+`R(Δ; −x_in, g) = R(−Δ; x_in, g)` — the table stores only `|x_in| ≥ 0`;
+the sign is restored at lookup time via `sgn = sign(x_in)`,
+`t_Δ = (x_out − x_in) × sgn`.
 
-**Asymptotic for `|x_pp| ≥ 120`:** the USampler CDF converges to
-`pdf_∞ ∝ exp(−u²)` (independent of `x_pp` and `a`), giving the
+**Asymptotic for `|x_in| ≥ 120`:** the USampler CDF converges to
+`pdf_∞ ∝ exp(−u²)` (independent of `x_in` and `a`), giving the
 analytic kernel:
 
 ```
@@ -719,7 +733,7 @@ same USampler table:
   `u_perp ~ N(0, 1/√2)` (Box–Muller).  This produces a single random
   outgoing frequency per scattering event.
 - **Density path** (imaging source function, `photon.h:proc_phys`):
-  evaluates the kernel density `R(x_out; x_pp, g)` via trilinear
+  evaluates the kernel density `R(x_out; x_in, g)` via trilinear
   interpolation of the precomputed table.  This gives the probability
   density of scattering into each camera channel, marginalised over the
   perpendicular velocity — the analytic integral of the sampling kernel.
@@ -785,7 +799,7 @@ per channel k, per path segment:
 
 The emissivity `j = mfp_s × s_cam` uses the line-centre opacity scale
 `mfp_s = σ₀ × n_l` (NOT the frequency-dependent `α_s = mfp_s × H(a, x_out)`).
-This is correct because `s_cam` already includes `prof_s = H(a, x_pp)` in
+This is correct because `s_cam` already includes `prof_s = H(a, x_in)` in
 the MC accumulation (§12.2), so
 `j = mfp_s × [base × R × H(a, x_in)] = σ₀ × n_l × H(a, x_in) × R × J = σ(v_in) × R × J`.
 Using `α_s = mfp_s × H(a, x_out)` instead would introduce a spurious
@@ -1000,7 +1014,7 @@ excited and collisions must be included for accurate populations.
  23. **LAMDA embedded files are stripped**: the embedded species files in `molecular/embedded/` have NO collision partners (stripped for size). `fetch_species()` prefers the downloaded full LAMDA file (cache -> download -> embedded fallback).
  24. **LAMDA collision rates array shape**: after parsing, `collision_partners[i]['rates']` has shape `(n_trans, n_temps)` - rate-only columns (trans#/upper/lower are stripped). The `trans_indices` array holds the 0-based `[upper, lower]` pairs separately.
  25. **Collisional destruction opacity**: when colliders are configured, `mfp_i_abs_0` must include the line destruction term `n_lower·σ₀·ε` where `ε = C_ul·n_coll/(A_ul+C_ul·n_coll)`. Without it, subthermally excited lines are treated as pure scattering (no thermalisation).
-  26. **Imaging: s_cam normalization** (RESOLVED): the earlier CRD-like approximation used the normalised profile `φ_norm = exp(−u²)/(√π·b)` in the scattering accumulation, while the emissivity seed used the unnormalised profile (peak=1). This has been replaced by the full **R_IIA kernel** `R(x_out; x_pp, g)` (precomputed 3-D table), which correctly captures the angle–frequency correlation and is normalised in the dimensionless variable (`∫R dx = 1`). Both the emission seed and scattering accumulation now produce the same source function `S = j/α` for a two-level atom in LTE. The `1/b_sca` factor (replacing the old `1/(√π·b_sca)`) converts from dimensionless `x` to velocity-space density.
+  26. **Imaging: s_cam normalization** (RESOLVED): the earlier CRD-like approximation used the normalised profile `φ_norm = exp(−u²)/(√π·b)` in the scattering accumulation, while the emissivity seed used the unnormalised profile (peak=1). This has been replaced by the full **R_IIA kernel** `R(x_out; x_in, g)` (precomputed 3-D table, Convention B: gas-frame `x_in` with `(g−1)` center), which correctly captures the angle–frequency correlation and is normalised in the dimensionless variable (`∫R dx = 1`). Both the emission seed and scattering accumulation now produce the same source function `S = j/α` for a two-level atom in LTE. The `1/b_sca` factor (replacing the old `1/(√π·b_sca)`) converts from dimensionless `x` to velocity-space density.
   27. **Imaging: voigt_H Lorentzian fallback** (RESOLVED): when the imaging integrator has `build_tables=false` (to avoid const-memory pool overflow), `voigt_H` falls back to a Gaussian-core + Lorentzian-wing blend `H = max(exp(−u²), a/(√π·(u²+a²)))`. The earlier pure-Gaussian fallback vanished for `u > 5`, making the imaging opacity zero at wing channels and producing a zero image. The Lorentzian wing is essential for the broad double-peaked imaging spectrum.
   28. **Imaging: channel grid bin centres** (RESOLVED): the channel grid now uses bin centres `v_chan[k] = v_min + (k+0.5)·dv` (not linspace endpoints `v_min + k·(v_max−v_min)/(n_chan−1)`). The endpoint convention caused a half-bin shift and edge aliasing when comparing to the test's bin-centre convention.
   29. **Imaging: s_cam corr clamping** (RESOLVED): the escape-probability correction `(1−e^−dτ_e)/dτ_e` was clamped by `dτ_e = max(dτ_e, 1)`, suppressing s_cam by 37% for thin cells (dτ_e ≪ 1). Fixed to `max(dτ_e, 1e-10f)` (only prevents division by zero).

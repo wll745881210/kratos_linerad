@@ -378,15 +378,17 @@ where:
 
 - $F_{\rm pp} = w_{\rm pp} \times \mathrm{d}l / V$ = photon flux
   contribution (proper weight × path length / cell volume)
-- $R_{\rm IIA}(x_{\rm out}; |x_{\rm pp}|, g)$ = the R_IIA
-  redistribution kernel density, precomputed as a 3-D table
-  (200 × 200 × 40 points for $\Delta = x_{\rm out} - x_{\rm pp} \in [-10, 10]$,
-  $|x_{\rm pp}| \in [0, 120]$, $g \in [-1, 1]$, with analytic
-  asymptotic for $|x_{\rm pp}| \ge 120$)
+- $R_{\rm IIA}(x_{\rm out}; |x_{\rm in}|, g)$ = the R_IIA
+  redistribution kernel density (Convention B: gas-frame $x_{\rm in}$,
+  precomputed as a 3-D table
+  (200 × 200 × 40 points for $\Delta = x_{\rm out} - x_{\rm in} \in [-10, 10]$,
+   $|x_{\rm in}| \in [0, 120]$, $g \in [-1, 1]$, with analytic
+   asymptotic for $|x_{\rm in}| \ge 120$)
 - $x_{\rm out} = (v_k + \hat{n}_{\rm cam} \cdot \mathbf{v}_{\rm bulk}) / b$
   = resonant gas-frame frequency for the camera LOS at cell $i$
-- $x_{\rm pp} = (\mathrm{vel} + \hat{n}_{\rm pp} \cdot \mathbf{v}_{\rm bulk}) / b$
-  = photon's gas-frame frequency
+- $x_{\rm in} = (\mathrm{vel} + \hat{n}_{\rm pp} \cdot \mathbf{v}_{\rm bulk}) / b$
+  = photon's gas-frame incoming frequency (note: the code variable is
+  named `x_pp` but is actually $x_{\rm in}$, not the atom-frame frequency)
 - $g = \hat{n}_{\rm pp} \cdot \hat{n}_{\rm cam}$ = directional correlation
 - $\mathrm{d}\tau_e = (\lambda_{\rm sca}^{-1} + \lambda_{\rm abs}^{-1}) \mathrm{d}l$
   = extinction optical depth of the path segment
@@ -404,23 +406,30 @@ in float32.
 **Step 2 — R_IIA kernel density** (`intg.h:build_riia_kernel`):
 
 $$
-R(x_{\rm out}; x_{\rm pp}, g) =
+R(x_{\rm out}; x_{\rm in}, g) =
 \sum_k \mathrm{pdf}[k] \,
-\frac{\exp\!\left(-\frac{(x_{\rm out} - x_{\rm pp} - u_k(g-1))^2}{\sin^2\theta_g}\right)}
+\frac{\exp\!\left(-\frac{(x_{\rm out} - x_{\rm in} - u_k(g-1))^2}{\sin^2\theta_g}\right)}
 {\sin\theta_g \sqrt{\pi}}
 $$
 
 where $\mathrm{pdf}[k] = \mathrm{CDF}[k] - \mathrm{CDF}[k{-}1]$ are discrete
-probabilities from the USampler CDF row at $|x_{\rm pp}|$,
+probabilities from the USampler CDF row at $|x_{\rm in}|$,
 $u_k$ are the USampler grid points, and
 $\sin\theta_g = \sqrt{\max(1-g^2,\, 0)}$ (clamped to $\geq 10^{-3}$).
 The Gaussian has $\sigma = \sin\theta_g / \sqrt{2}$.
 
+> **Convention B** (Dijkstra 2017, Saas-Fee Eq. 71): the kernel is
+> expressed in the gas-frame incoming frequency $x_{\rm in}$, with kick
+> $\Delta = x_{\rm out} - x_{\rm in}$ and center $u_k(g{-}1)$.  This
+> conserves the outgoing frequency $x_{\rm out}$.  The alternative
+> Convention A (atom-frame $x_{\rm pp}$ with center $u_k g$) conserves
+> the atom-frame frequency — physically wrong.
+
 **Normalisation:** $\int R \, \mathrm{d}x_{\rm out} = 1$ by construction
 ($\sum \mathrm{pdf} = 1$, $\int \mathrm{Gauss} = 1$).
 
-**Symmetry:** $R(x_{\rm out}; -x_{\rm pp}, g) = R(-x_{\rm out}; x_{\rm pp}, g)$
-— the table stores only $|x_{\rm pp}| \geq 0$; sign is restored at lookup
+**Symmetry:** $R(x_{\rm out}; -x_{\rm in}, g) = R(-x_{\rm out}; x_{\rm in}, g)$
+— the table stores only $|x_{\rm in}| \geq 0$; sign is restored at lookup
 time.
 
 **Two paths, one table:** the USampler CDF serves both the *sampling*
@@ -428,7 +437,7 @@ path (actual photon scattering in `photon.h:scat()`, drawing $u_{\rm par}$
 via inverse-CDF lookup then computing
 $x_{\rm new} = x + u_{\rm par}(g-1) + \sin\theta_g \cdot u_\perp$) and the
 *density* path (imaging source function in `photon.h:proc_phys`,
-evaluating $R(x_{\rm out}; x_{\rm pp}, g)$ via trilinear interpolation).
+evaluating $R(x_{\rm out}; x_{\rm in}, g)$ via trilinear interpolation).
 The density is the analytic marginalisation of the sampling kernel over
 the perpendicular velocity component $u_\perp$.
 

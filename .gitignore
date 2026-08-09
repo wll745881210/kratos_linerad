@@ -25,3 +25,4 @@ EXTRACTION_NOTES.md
 # Run artifacts (should never be committed)
 /dev/shm/line_rt/
 pipeline/.gitignore
+.ipynb_checkpoints/
