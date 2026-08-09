@@ -374,9 +374,7 @@ inline __host__ void riia_table_t::_build_usampler
             * powf( x_max / x_lin_max,
                     float_t( j + 1 ) / n_log );
 
-    // Allocate d_cdf + d_xg in global memory (Option A:
-    // always global, not const mem — simpler, L2-cached,
-    // negligible perf difference for 40 KB).
+    // Allocate d_cdf + d_xg in global memory.
     const size_t n_total = size_t( n_u ) * n_xg;
     d_cdf = dev.malloc_device< float_t >( n_total );
     d_xg  = dev.malloc_device< float_t >( n_xg    );
@@ -389,6 +387,21 @@ inline __host__ void riia_table_t::_build_usampler
     dev.launch( build_usampler_gpu_kernel, grid, block, 0,
                 (const void *)0, *this );
     dev.sync_all_streams();
+
+    // Option B: copy USampler CDF + xg to const memory
+    // for broadcast-cache reads in the MCRT hot path.
+    // R_IIA table (dat) stays in global (too large).
+    if( use_const_mem )
+    {
+        float_t * d_cdf_c =
+            dev.malloc_const< float_t >( n_total );
+        float_t * d_xg_c  =
+            dev.malloc_const< float_t >( n_xg    );
+        dev.f_cc( d_cdf_c, d_cdf, n_total * sizeof( float_t ) );
+        dev.f_cc( d_xg_c,  d_xg,  n_xg    * sizeof( float_t ) );
+        dev.free_device( d_cdf );  d_cdf = d_cdf_c;
+        dev.free_device( d_xg  );  d_xg  = d_xg_c;
+    }
 
     delete[] h_xg;
 }

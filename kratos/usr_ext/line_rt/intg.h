@@ -297,7 +297,7 @@ struct intg_t : particle::integrate::base_t< intg_t >
             voigt_interp.setup( x0, dx, n, copy );
             voigt_interp.to_device( * mod.p_dev );
             free_dev_mem = true;
-            riia.use_const_mem = false;
+            riia.use_const_mem = !free_dev_mem;
             riia.build       ( * mod.p_dev, a_voigt );
         }
         else if( ph_mode == 2 )
@@ -320,7 +320,7 @@ struct intg_t : particle::integrate::base_t< intg_t >
             voigt_interp.setup( x0, dx, n, copy );
 
             free_dev_mem = false;
-            riia.use_const_mem = false;
+            riia.use_const_mem = !free_dev_mem;
             riia.build       ( * mod.p_dev, a_voigt );
             build_voigt_1d( * mod.p_dev );
         }   // NO to_device() - host-only for 1D sampling.
@@ -328,7 +328,7 @@ struct intg_t : particle::integrate::base_t< intg_t >
         {   // Const-mem USampler only;
             // transport uses photon.h voigt_H approx.
             free_dev_mem = false;
-            riia.use_const_mem = false;
+            riia.use_const_mem = !free_dev_mem;
             riia.build       ( * mod.p_dev, a_voigt );
         }
         }
