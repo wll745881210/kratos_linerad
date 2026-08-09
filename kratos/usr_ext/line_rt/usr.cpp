@@ -36,39 +36,49 @@ void run
 ( int argc, char * argv[] )
 {
     mesh::mesh_t mesh;
-    mesh.enroll_device     <    device_t >(  );
+
+    mesh.enroll_device< device_t >(  );
+
 #ifdef    __MPI__
-    using binary_io_t = binary_io::mpi_t ;
-    mesh.enroll_comm       < comm::mpi_t >(  );
-    mesh.enroll_binary_io  < binary_io_t >(  );
+    using binary_io_t = binary_io::mpi_t;
+    mesh.enroll_comm< comm::mpi_t >(  );
+    mesh.enroll_binary_io< binary_io_t >(  );
 #endif
+
     auto p = mesh.enroll_module< radiation_t >(  );
-    // Imaging module (parasite of radiation_t): only active
-    // when [imaging] enabled=true in the par file.
-    auto q = mesh.enroll_module< rad_img_t   >(  );
+
+    //  Imaging module (parasite of radiation_t):
+    //  only active when [imaging] enabled=true
+    //  in the par file.
+    auto q = mesh.enroll_module< rad_img_t >(  );
     q->parasite( p );
 
     input args;
     args.set_comm( mesh.p_com );
-    cmd ( argc, argv,    args );
+    cmd( argc, argv, args );
 
-    bool profile = args.get<bool>("profile", "enabled", false);
+    bool profile = args.get< bool >
+        ( "profile", "enabled", false );
 
-    auto t0 = std::chrono::steady_clock::now();
-    mesh. init         ( args );
-    auto t1 = std::chrono::steady_clock::now();
-    mesh. evolve       (      );
-    auto t2 = std::chrono::steady_clock::now();
+    auto t0 = std::chrono::steady_clock::now(  );
+    mesh.init( args );
+    auto t1 = std::chrono::steady_clock::now(  );
+    mesh.evolve(  );
+    auto t2 = std::chrono::steady_clock::now(  );
 
     if( profile )
     {
-        double t_init   = std::chrono::duration<double>( t1 - t0 ).count();
-        double t_evolve = std::chrono::duration<double>( t2 - t1 ).count();
-        std::cout << "[profile] init:   " << t_init   << " s\n";
-        std::cout << "[profile] evolve: " << t_evolve << " s\n";
+        auto t_init
+            = std::chrono::duration< double >
+                ( t1 - t0 ).count(  );
+        auto t_evolve
+            = std::chrono::duration< double >
+                ( t2 - t1 ).count(  );
+        std::cout << "[profile] init:   "
+                  << t_init   << " s\n";
+        std::cout << "[profile] evolve: "
+                  << t_evolve << " s\n";
     }
-    
-    return;
 }
 
-}
+}  // namespace prob
