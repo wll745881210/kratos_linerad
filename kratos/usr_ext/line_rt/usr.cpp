@@ -3,6 +3,7 @@
 #include <iostream>
 #include <iomanip>
 #include <csignal>
+#include <chrono>
 
 #include "../../src/device/general.h"
 #ifdef    __MPI__
@@ -50,8 +51,22 @@ void run
     input args;
     args.set_comm( mesh.p_com );
     cmd ( argc, argv,    args );
+
+    bool profile = args.get<bool>("profile", "enabled", false);
+
+    auto t0 = std::chrono::steady_clock::now();
     mesh. init         ( args );
+    auto t1 = std::chrono::steady_clock::now();
     mesh. evolve       (      );
+    auto t2 = std::chrono::steady_clock::now();
+
+    if( profile )
+    {
+        double t_init   = std::chrono::duration<double>( t1 - t0 ).count();
+        double t_evolve = std::chrono::duration<double>( t2 - t1 ).count();
+        std::cout << "[profile] init:   " << t_init   << " s\n";
+        std::cout << "[profile] evolve: " << t_evolve << " s\n";
+    }
     
     return;
 }

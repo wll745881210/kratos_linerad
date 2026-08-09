@@ -37,7 +37,7 @@ Usage
 
 Exit code: 0 = all points within tolerance, 1 = any point outside.
 """
-import argparse, importlib, os, shutil, subprocess, sys, tempfile
+import argparse, importlib, os, re, shutil, subprocess, sys, tempfile, time
 import numpy as np
 from pathlib import Path
 
@@ -226,13 +226,16 @@ dir_cam_phi    = {dir_cam_phi:.10e}
 v_chan_min     = {v_chan_min:.10e}
 v_chan_max     = {v_chan_max:.10e}
 step_max       = 65535
+
+[profile]
+enabled = {profile_enabled}
 """
 
 
 def generate_kratos_inputs(tau0_fid, a_voigt, n_radiation, out_dir, tag,
                            n_cell=128, L_slab=UNIT_L0,
                            t_lim=1800.0, seed=42, ph_mode=2, binary_io=None,
-                           n_chan=32, v_chan_cgs=1e6):
+                           n_chan=32, v_chan_cgs=1e6, profile=False):
     """Generate Kratos field/photon/par files for mean depth tau0_fid."""
     L_slab_code = L_slab / UNIT_L0
     nx = n_cell
@@ -279,6 +282,7 @@ def generate_kratos_inputs(tau0_fid, a_voigt, n_radiation, out_dir, tag,
         n_chan=n_chan,
         dir_cam_theta=np.pi / 2.0, dir_cam_phi=0.0,
         v_chan_min=v_chan_min_code, v_chan_max=v_chan_max_code,
+        profile_enabled=int(profile),
     )
     with open(par_path, 'w') as fp:
         fp.write(par_content)
@@ -368,32 +372,62 @@ def find_imaging_peak(x, I):
 
 # -- Run one configuration ------------------------------------------
 
+def _parse_float_log(log, pattern, default=0.0):
+    m = re.search(pattern, log)
+    return float(m.group(1)) if m else default
+
+def _print_timing(t):
+    total = t.get('gen_inputs', 0) + t.get('kratos_wall', 0) + t.get('read_output', 0)
+    print(f"    [profile] gen_inputs:      {t.get('gen_inputs',0):.3f} s")
+    print(f"    [profile] kratos_wall:     {t.get('kratos_wall',0):.3f} s")
+    print(f"    [profile]   kratos_init:   {t.get('kratos_init',0):.3f} s")
+    print(f"    [profile]   kratos_gpu:    {t.get('kratos_gpu',0):.3f} s")
+    print(f"    [profile]   kratos_output: {t.get('kratos_output',0):.3f} s")
+    print(f"    [profile] read_output:    {t.get('read_output',0):.3f} s")
+    print(f"    [profile] TOTAL:           {total:.3f} s")
+
+
 def run_one(tau0_fid, a_voigt, n_radiation, out_dir, tag,
             ph_mode=2, kratos_bin=None, binary_io=None,
-            n_chan=32, v_chan_cgs=1e6, t_lim=1800.0):
+            n_chan=32, v_chan_cgs=1e6, t_lim=1800.0, profile=False):
     """Run Kratos for one tau0, return dict with escaped + imaging results."""
     print(f"  Kratos: tau0={tau0_fid:.0f}, a={a_voigt}, n={n_radiation},"
           f" ph_mode={ph_mode}")
 
+    timing = {}
+
+    t0 = time.perf_counter()
     par_path, n_step = generate_kratos_inputs(
         tau0_fid, a_voigt, n_radiation, out_dir, tag,
         ph_mode=ph_mode, binary_io=binary_io,
-        n_chan=n_chan, v_chan_cgs=v_chan_cgs, t_lim=t_lim)
+        n_chan=n_chan, v_chan_cgs=v_chan_cgs, t_lim=t_lim,
+        profile=profile)
+    timing['gen_inputs'] = time.perf_counter() - t0
 
+    t0 = time.perf_counter()
     result = subprocess.run(
         [str(kratos_bin), os.path.basename(par_path)],
         cwd=out_dir, capture_output=True, text=True, timeout=1800,
     )
+    timing['kratos_wall'] = time.perf_counter() - t0
+
     if result.returncode != 0:
         print(f"    FAILED: {result.stderr[-300:]}")
         return None
+
+    timing['kratos_gpu']    = _parse_float_log(result.stdout, r'Duration = ([\d.eE+-]+) s')
+    timing['kratos_init']   = _parse_float_log(result.stdout, r'\[profile\] init:\s+([\d.eE+-]+) s')
+    timing['kratos_evolve'] = _parse_float_log(result.stdout, r'\[profile\] evolve:\s+([\d.eE+-]+) s')
+    timing['kratos_output'] = timing.get('kratos_evolve', 0) - timing.get('kratos_gpu', 0)
 
     out_files = sorted(Path(out_dir).glob(f'img_{tag}_*.bin'))
     if not out_files:
         print("    FAILED: no output file")
         return None
 
+    t0 = time.perf_counter()
     phot, img = read_output(str(out_files[-1]), binary_io)
+    timing['read_output'] = time.perf_counter() - t0
 
     # ---- Escaped spectrum ----
     b_sca_code = B_SCA_CGS * UNIT_T0 / UNIT_L0
@@ -427,6 +461,9 @@ def run_one(tau0_fid, a_voigt, n_radiation, out_dir, tag,
         ratio_0 = float('nan')
         print("    IMAGING: no image data")
 
+    if profile:
+        _print_timing(timing)
+
     return {
         'med_x': med_x,
         'x_peak_esc': x_peak_esc,
@@ -436,6 +473,7 @@ def run_one(tau0_fid, a_voigt, n_radiation, out_dir, tag,
         'I_avg': I_avg,
         'I0_ratio': ratio_0,
         'x_freq': x_freq if vel is not None else None,
+        'timing': timing,
     }
 
 
@@ -479,6 +517,8 @@ def main():
     p.add_argument('--measure', action='store_true',
                    help='print golden values and exit (no regression)')
     p.add_argument('--keep-dir', action='store_true')
+    p.add_argument('--profile', action='store_true',
+                   help='print per-step timing breakdown')
     args = p.parse_args()
 
     kratos_root, kratos_bin, binary_io = resolve_kratos_root(args.kratos_root)
@@ -513,7 +553,7 @@ def main():
                 ph_mode=args.ph_mode, kratos_bin=kratos_bin,
                 binary_io=binary_io,
                 n_chan=nc, v_chan_cgs=vc,
-                t_lim=args.t_lim)
+                t_lim=args.t_lim, profile=args.profile)
             measured[tau0_fid] = res
 
         if args.measure:
