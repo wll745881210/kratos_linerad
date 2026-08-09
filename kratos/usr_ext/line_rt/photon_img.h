@@ -8,11 +8,11 @@
 //     tau_k = ( mfp_i_sca_0 * H(a, dv_cam/b)
 //             + mfp_i_abs_0 ) * dl,
 //     S_k   = ( mfp_i_sca_0 * H(a, dv_cam/b) / alpha_tot )
-//               * s_cam[ i, k ],
+//               * j_cam[ i, k ],
 // where dv_cam = v_chan[k] + dir_cam . v_bulk(i) is the
 // gas-frame offset that resonates at cell i for channel k.
 //
-// s_cam carries the SCATTERING source (accumulated during the MC
+// j_cam carries the SCATTERING source (accumulated during the MC
 // pass with sigma(v_in) * R * J).  The thermal (line emission)
 // source is added directly here as a per-channel emissivity
 // j_thermal(v) = emiss * H(a, v) / (sqrt(pi) * b), using the
@@ -23,7 +23,7 @@
 // The imaging photon reuses the scattering integrator's
 // camera / channel configuration (intg_t.dir_cam, d_v_chan,
 // n_chan, img_*).  It does NOT scatter and does NOT
-// accumulate flx / excitation_flux / s_cam.
+// accumulate flx / excitation_flux / j_cam.
 
 #include "../../src/modules/particle/radiation/photon.h"
 
@@ -43,7 +43,7 @@ struct line_img_t
     using geo_loc_t = particle::geo_loc_t;
     __crtp_def_self__( line_img_t, derived_T );
 
-    ////////// Data (beyond super_t:: x, i, dir, ib_l, step, dest, id) //////////
+    ////////// Data //////////
     using super_t::     x;
     using super_t::     i;
     using super_t::   dir;
@@ -64,7 +64,7 @@ struct line_img_t
     void move( line_img_t & tgt ) { tgt = ( * this ); };
 
     // ---- Transfer integration (replaces the scattering
-    // proc_phys).  No flx / excitation_flux / s_cam
+    // proc_phys).  No flx / excitation_flux / j_cam
     // accumulation; only the per-channel formal solution.
     template< class x_T, class prx_T, class itg_T >
     __device__ __forceinline__ void proc_phys
@@ -72,45 +72,44 @@ struct line_img_t
       const geo_loc_t & g_l   , const prx_T & prx,
       const     itg_T & itg   )
     {
-        const auto b      = prx.rad.b_sca.at( i )[ 0 ];
-        const auto mfp_s  = prx.rad.mfp_i_sca_0.at( i )[ 0 ];
-        const auto mfp_a  = prx.rad.mfp_i_abs_0.at( i )[ 0 ];
-        const auto * v_cc = prx.rad.vel.at( i );
-        const auto a_v    = itg.a_voigt;
+        const auto b   = prx.rad.      b_sca.at( i )[ 0 ];
+        auto  mfp_i_s0 = prx.rad.mfp_i_sca_0.at( i )[ 0 ];
+        auto  mfp_i_a0 = prx.rad.mfp_i_abs_0.at( i )[ 0 ];
+        const auto * v_cc  = prx.rad.    vel.at( i );
+        
         // dir_cam . v_bulk : the gas bulk projected onto the
         // camera LOS (dir_cam points INTO the domain).
         float_t vobs_cam( 0 );
         for( int a = 0; a < 3; ++ a )
             vobs_cam += itg.dir_cam[ a ] * v_cc[ a ];
+        
         const auto dl_seg = dl[ a_proc ];
-        const auto * s     = prx.rad.s_cam.at( i );
+        const auto * j     = prx.rad.j_cam.at( i );
         const auto emiss_v = prx.rad.emiss.at( i )[ 0 ];
-        const auto inv_pb  = 0.5641895835477563f / b; // 1/(sqrt(pi)*b)
+        const auto inv_pb  = 0.5641895835477563f / b;
+        // 1 / ( sqrt( pi ) * b )
 
         const int nch = itg.n_chan;
-        #pragma unroll 8
         for( int k = 0; k < nch; ++ k )
         {
             auto dv_cam  = itg.d_v_chan[ k ] + vobs_cam;
             auto u       = dv_cam / b;
-            auto prof    = itg.voigt_H( a_v, u );
-            auto alpha_t = mfp_s * prof + mfp_a ;
-            if( alpha_t <= 0.f )
-                continue;          // optically negligible cell
+            auto H       = itg.voigt_H( itg.a_voigt, u );
+            auto alpha_t = mfp_i_s0 * H + mfp_i_a0;
+            if( alpha_t <= 0 )
+                continue;    // optically negligible cell
             const auto dtau = alpha_t * dl_seg;
-            // Scattering emissivity (s_cam already includes
-            // sigma(v_in) = mfp_s * H(a, x_pp) from photon.h).
-            // Thermal emissivity: j = emiss * H(a, x_out) /
-            // (sqrt(pi) * b) — frequency-dependent via the Voigt
-            // profile at the outgoing (channel) frequency.
-            const auto j = mfp_s * s[ k ] + emiss_v * prof * inv_pb;
+            // Intrinsic line emissivity in Voigt profile:
+            // j = emiss * H(a, x_out) / (sqrt(pi) * b)
+            const auto j_rad = emiss_v * H * inv_pb;
+            const auto j_tot = j[ k ]      +  j_rad;
             if( dtau < 1e-4f )
-                I_chan[ k ] += j * dl_seg;
+                I_chan[ k ] += j_tot * dl_seg;
             else
             {
                 const auto edtau = expf( - dtau );
-                I_chan[ k ] = I_chan[ k ] * edtau
-                            + ( j / alpha_t ) * ( 1.f - edtau );
+                I_chan[ k ] = I_chan[ k ]   * edtau
+                    + j_tot / alpha_t * ( 1 - edtau );
             }
         }
         return;
@@ -126,8 +125,8 @@ struct line_img_t
     {
         const auto j = utils::th_id< int >(  );
         // Pixel index from the linear thread id.
-        i2d[ 0 ] = j % itg.img_n[ 0 ];
         i2d[ 1 ] = j / itg.img_n[ 0 ];
+        i2d[ 0 ] = j - i2d[ 1 ] * itg.img_n[ 0 ];
         if( i2d[ 1 ] >= itg.img_n[ 1 ] )
         {
             dest.i_rank = -2;       // off-image: skip write
@@ -147,7 +146,8 @@ struct line_img_t
         // Ray direction = camera LOS (into the domain).  In the
         // camera frame the LOS is +z, which q_cam maps to
         // dir_cam in the domain frame.
-        for( int a = 0; a < 3; ++ a ) dir[ a ] = itg.dir_cam[ a ];
+        for( int a = 0; a < 3; ++ a )
+            dir[ a ] = itg.dir_cam[ a ];
 
         // Initialise per-channel intensities.
         for( int k = 0; k < n_chan_local; ++ k )
@@ -185,7 +185,11 @@ struct line_img_t
                 if( x[ a ] < xa || x[ a ] > xb )
                 { inside = false; break; }
             }
-            if( inside ) { ib_l = ib; break; }
+            if( inside )
+            {
+                ib_l = ib;
+                break;
+            }
         }
         if( ib_l < 0 )
         {

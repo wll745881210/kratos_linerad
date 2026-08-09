@@ -5,7 +5,7 @@
 // Enrolled alongside radiation_t in usr.cpp via
 //   q->parasite(p);
 // Shares the block_data (p_map) with radiation_t so the
-// imaging rays see the MC-accumulated s_cam and the
+// imaging rays see the MC-accumulated  j_cam and the
 // field arrays.  Runs its own (non-scattering) photon pool
 // (pol_img_t) over the image-plane pixels after the
 // scattering MC step.
@@ -13,7 +13,7 @@
 // The imaging integrator (intg_t) reuses the same par keys
 // as the scattering one (it rebuilds the Voigt / USampler
 // tables, which is a small one-off cost) but its pre_proc
-// is a no-op w.r.t. s_cam so it does not wipe the MC
+// is a no-op w.r.t.  j_cam so it does not wipe the MC
 // accumulation.
 
 #include "photon.h"
@@ -45,11 +45,11 @@ public:
         enabled = args.get< bool >
                  ( "imaging", "enabled", false );
         enroll< prx_t, pol_img_t, gen_img_t, intg_t >(  );
-        // Share the block map (and thus s_cam / fields) with
+        // Share the block map (and thus  j_cam / fields) with
         // the scattering module.
         p_map = dynamic_cast< radiation_t & >
             ( * q_mod.lock(  ) ).p_map;
-        // The imaging integrator must NOT zero s_cam in
+        // The imaging integrator must NOT zero  j_cam in
         // pre_proc (it consumes the MC-accumulated source),
         // and must NOT rebuild the USampler / Voigt tables
         // (the scattering integrator already built them on a
@@ -58,9 +58,9 @@ public:
         // shared from the scattering integrator in init()
         // so voigt_H uses the smooth tabulated form.
         auto & itg = dynamic_cast< intg_t & >( * p_itg );
-        itg.zero_s_cam = false;
+        itg.  zero_j_cam = false;
+        itg. zero_fields = false;
         itg.build_tables = false;
-        itg.zero_fields = false;
         return particle::radiation::base_t::read ( args );
     };
 

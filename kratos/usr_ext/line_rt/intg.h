@@ -105,11 +105,11 @@ struct intg_t : particle::integrate::base_t< intg_t >
     float_t        img_dx[ 2 ];
     int            img_n[ 2 ];
     int            img_step_max;
-    // When false, pre_proc does NOT zero s_cam (used by the
-    // imaging integrator, which must consume the s_cam
+    // When false, pre_proc does NOT zero j_cam (used by the
+    // imaging integrator, which must consume the j_cam
     // accumulated by the scattering MC pass rather than wipe
     // it).
-    bool       zero_s_cam = true;
+    bool       zero_j_cam = true;
     // When false, skip building the USampler / Voigt tables
     // (used by the imaging integrator, which only needs
     // voigt_H for the per-channel source/opacity evaluation
@@ -185,11 +185,16 @@ struct intg_t : particle::integrate::base_t< intg_t >
         v_chan_min   =          0;
         v_chan_max   =          0;
         v_chan_dv    =          0;
-        for( int a = 0; a < 3; ++ a ) dir_cam[ a ] = 0;
+        img_step_max =      65535;
+        for( int a = 0; a < 3; ++ a )
+            dir_cam[ a ] = 0;
         dir_cam[ 2 ] = 1.f;            // face-on by default
         for( int a = 0; a < 2; ++ a )
-        { img_x0[ a ] = 0; img_dx[ a ] = 0; img_n[ a ] = 0; }
-        img_step_max =      65535;
+        {
+            img_x0[ a ] = 0;
+            img_dx[ a ] = 0;
+            img_n[ a ] = 0;
+        }
         return;
     };
 
@@ -415,10 +420,10 @@ struct intg_t : particle::integrate::base_t< intg_t >
                     ( rad.excitation_flux.dat, 0,
                       rad.excitation_flux.n_size, d.stream );
             }
-            if( rad.imaging && zero_s_cam )
+            if( rad.imaging && zero_j_cam )
                 dev.f_mset
-                    ( rad.s_cam.dat, 0,
-                      rad.s_cam.n_size, d.stream );
+                    ( rad.j_cam.dat, 0,
+                      rad.j_cam.n_size, d.stream );
             mod.p_dev->event_record( d.event, d.stream );
         }
         return;

@@ -29,24 +29,22 @@ struct rad_t
     mesh::dat_3d_t< float_t > excitation_flux;
     mesh::dat_3d_t< float_t >             vel;
 
-    // Imaging (Task: line-RT imaging).
-    //   s_cam : per-cell, per-velocity-channel scattering source
-    //            function toward the camera, accumulated during the
-    //            MC pass.  n_int = n_chan.  Only allocated when
-    //            imaging is enabled (n_chan > 0).
-    //   emiss  : per-cell line-centre emissivity j0 = n_u*A_ul /
-    //            (4*pi*sqrt(pi)*b), read from the field file
-    //            (Python-computed from populations).  The imaging
-    //            pass forms j(dv) = emiss * H(a, dv/b).
-    mesh::dat_3d_t< float_t >         s_cam;
-    mesh::dat_3d_t< float_t >           emiss;
+    // Imaging-related
+    // j_cam : per-cell, per-velocity-channel scattering
+    // equivalent emissivity.
+    // emiss : per-cell line-center intrinsic emissivity
+    // j0 = n_u*A_ul / (4*pi*sqrt(pi)*b), 
+    // The imaging pass forms j(dv) = emiss * H(a, dv/b).
+    mesh::dat_3d_t< float_t >          j_cam;
+    mesh::dat_3d_t< float_t >          emiss;
 
     bool ray_output = false;
     int  ray_id     =    -1;
 
-    // Imaging configuration (mirrored on host & device blocks via
-    // block_yield; rad.imaging gates s_cam zeroing / accumulation
-    // / write so non-imaging runs pay no cost).
+    // Imaging configuration (mirrored on host & device
+    // blocks via block_yield; rad.imaging gates j_cam
+    // zeroing / accumulation / write so non-imaging runs
+    // pay no cost).
     bool imaging = false;
     int   n_chan =        0;
 
@@ -107,7 +105,7 @@ struct block_data_t : mesh::block::base_data_t
         // Per-channel scattering source toward the camera; only
         // allocated when imaging is enabled (n_chan > 0).
         const int n_chan_img = rad.imaging ? rad.n_chan : 0;
-        rad.s_cam.init( f_n, geo.n_ceff, n_gh, n_chan_img );
+        rad.j_cam.init( f_n, geo.n_ceff, n_gh, n_chan_img );
         return;
     }
 
@@ -119,7 +117,7 @@ struct block_data_t : mesh::block::base_data_t
         rad.            flx.free( f_f );
         rad.excitation_flux.free( f_f );
         rad.          emiss.free( f_f );
-        rad.        s_cam.free( f_f );
+        rad.        j_cam.free( f_f );
         return      rad.vel.free( f_f );
     }
 
@@ -147,7 +145,7 @@ struct block_data_t : mesh::block::base_data_t
         rad.  vel.cp_to( tgt.rad.  vel, f_cp );
         rad. emiss.cp_to( tgt.rad. emiss, f_cp );
         if( rad.imaging )
-            rad.s_cam.cp_to( tgt.rad.s_cam, f_cp );
+            rad.j_cam.cp_to( tgt.rad.j_cam, f_cp );
         return;
     };
 
@@ -163,13 +161,7 @@ struct block_data_t : mesh::block::base_data_t
             ( f_r, rad.prefix(  ) + "excitation_flux_" );
         rad.vel.read
             ( f_r, rad.prefix(  ) + "vel_"             );
-        // Line-centre emissivity is part of the field file
-        // (line-dependent, written per cycle by the pipeline).
         rad.emiss.read( f_r, rad.prefix(  ) + "emiss_" );
-        // s_cam is NOT read from file: it is accumulated on the
-        // GPU during the MC pass and read back via the output
-        // stream (diagnostic) or consumed in-memory by the
-        // imaging module.
         return;
     };
 
@@ -199,12 +191,10 @@ struct block_data_t : mesh::block::base_data_t
                 ( f_w, rad.prefix(  ) + "ray_exc_flux_" );
         }
         if( rad.imaging )
-        {
-            // Diagnostic: dump the per-cell, per-channel
-            // scattering source function toward the camera.
-            rad.s_cam.write
-                ( f_w, rad.prefix(  ) + "s_cam_"       );
-        }
+            rad.j_cam.write
+                ( f_w, rad.prefix(  ) + "j_cam_"       );
+        // Diagnostic: dump the per-cell, per-channel
+        // scattering equivalent emissivity ( to camera )
         return;
     };
 };

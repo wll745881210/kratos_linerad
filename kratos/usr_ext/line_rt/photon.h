@@ -92,34 +92,7 @@ struct line_rt_photon_t
     ( const       int & a_proc, const   x_T &  dl,
       const geo_loc_t & g_l   , const prx_T & prx,
       const     itg_T & itg   )
-    {
-        // Quantities here in the proc_phys function,
-        // including fluxes and overlap integrals, have
-        // nothing to do with the emergent photon spectra.
-        // const auto dsi = dl[ a_proc ] / prx.geo.volume( i );
-        // const auto flx = proper * dsi;
-        // atomicAdd( prx.rad.flx.at( i ), flx );
-
-        // const auto *v_cc = prx.rad.vel.at(i);
-        // float_t vel_obs( 0 );
-        // for( int a = 0; a < 3; ++ a )
-        //     vel_obs += dir[ a ] * v_cc[ a ];
-        // const auto b  = prx.rad.b_sca.at( i )[ 0 ];
-        // const auto dv = vel + vel_obs;
-        // const auto s2 = b * b + 2.f * sv * sv;
-        // const auto intg_overlap
-        //     = expf(-dv * dv / s2) * b / sqrtf( s2 );
-        // atomicAdd( prx.rad.excitation_flux.at( i ),
-        //            flx * intg_overlap );
-
-
-        // ---- Imaging is handled inside proc_geo (see the
-        // "Imaging" block below), not here.  The old per-
-        // channel camera-profile approach has been replaced
-        // by a CRD (complete redistribution) estimator that
-        // uses the photon's own frequency (prof_s) and applies
-        // the same J_bar to all channels.  See the comment
-        // block in proc_geo for the full derivation.
+    {   // All operations moved to proc_geo, no-op here
         return;
     };
 
@@ -206,30 +179,29 @@ struct line_rt_photon_t
         const auto dv2 = ( vel + vel_obs )
                        * ( vel + vel_obs );
 
-        auto mfp_i_s = prx.rad.mfp_i_sca_0.at( i )[ 0 ];
-        auto mfp_i_a = prx.rad.mfp_i_abs_0.at( i )[ 0 ];
-        auto   b_sca = prx.rad.      b_sca.at( i )[ 0 ];
-        b_sca        = __max1( b_sca, 1e-19f );
+        auto mfp_i_s0 = prx.rad.mfp_i_sca_0.at( i )[ 0 ];
+        auto mfp_i_a0 = prx.rad.mfp_i_abs_0.at( i )[ 0 ];
+        auto    b_sca = prx.rad.      b_sca.at( i )[ 0 ];
+        b_sca         = __max1( b_sca, 1e-19f );
         
         auto u2 = ( dv2 > 0 ? dv2 : 0 ) / ( b_sca * b_sca );
         if( __isinf( u2 ) || __isnan( u2 ) )
             u2 = 1e32f;
-        float_t prof_s( 0 );
+        const auto u( sqrtf( u2 ) );
+        
+        float_t H( 0 ); // The voigt H function value
         if( itg.a_voigt > 1e-6f )
         {
             if( itg.ph_mode == 3 )
-                prof_s = voigt_H
-                    ( itg.a_voigt, sqrtf( u2 ) );
+                H =     voigt_H( itg.a_voigt, u );
             else 
-                prof_s = itg.voigt_H
-                    ( itg.a_voigt, sqrtf( u2 ) );
+                H = itg.voigt_H( itg.a_voigt, u );
         }
         else if( u2 < 1e2f )
-            prof_s = expf( -u2 );
-        mfp_i_s *= prof_s;
-
-        auto         dl_a = dl  [ a_proc ];
-        const auto dtau_s = dl_a * mfp_i_s;
+            H = expf( - u2 );
+        const auto mfp_i_s = mfp_i_s0   * H;
+        auto          dl_a = dl  [ a_proc ];
+        const auto  dtau_s = dl_a * mfp_i_s;
 
         bool is_scattered( true );
         // n_scat takes action here!!!
@@ -246,10 +218,7 @@ struct line_rt_photon_t
 
         //////////////////////////////////////////////////
         // Absorption
-        // Quantities here in the proc_phys function,
-        // including fluxes and overlap integrals, have
-        // nothing to do with the emergent photon spectra.
-        const auto dtau_a = __max1( dl_a * mfp_i_a, 0 );
+        const auto dtau_a = __max1( dl_a * mfp_i_a0, 0 );
         const auto e_mtau =   expf( -dtau_a );
         const auto dsi = dl[ a_proc ] / prx.geo.volume( i );
         const auto flx = proper * dsi *
@@ -257,56 +226,50 @@ struct line_rt_photon_t
 
         atomicAdd( prx.rad.flx.at( i ), flx );
         atomicAdd( prx.rad.excitation_flux.at( i ),
-                   flx * prof_s );
+                   flx * H );
         proper *= e_mtau;
 
         //////////////////////////////////////////////////
-        // Imaging: accumulate the per-cell, per-channel
-        // s_cam accumulates the scattering source function
-        // toward the camera.  The imaging pass converts it to
-        // emissivity via j = mfp_s * s_cam (line-centre
-        // opacity, NOT the frequency-dependent alpha_sca).
-        // See photon_img.h for details.
-        //
-        // This is NOT a blackbody term — the line emissivity
-        // comes from the Python emiss field (seeded in
-        // init_cond), not from B_nu * mfp_abs.
+        // Imaging: accumulate j_cam per channel.
+        // Note: This is NOT a blackbody term! The line
+        // emissivity comes from the input emiss field.
         if( itg.imaging && itg.n_chan > 0 )
         {
-            auto d_tau_e = dl[ a_proc ]
-                 * ( mfp_i_s + mfp_i_a );
-            d_tau_e = __max1( d_tau_e, 1e-10f );
-            float_t corr( 1 );
-            if( d_tau_e > 1e-4f )
-                corr = ( 1 - expf( - d_tau_e ) ) / d_tau_e;
-            // dir_cam . v_bulk  (gas bulk projected onto the
+            // dir_cam . v_bulk (gas bulk projected onto the
             // camera LOS; dir_cam points INTO the domain).
             float_t vobs_cam( 0 );
             for( int a = 0; a < 3; ++ a )
                 vobs_cam += itg.dir_cam[ a ] * v_cc[ a ];
+            
             // g = photon direction . camera direction
             float_t g_dot( 0 );
             for( int a = 0; a < 3; ++ a )
                 g_dot += dir[ a ] * itg.dir_cam[ a ];
+            
             // Photon gas-frame frequency in b units
             const auto x_pp = ( vel + vel_obs )  / b_sca;
-            auto  *  s = prx.rad.s_cam.at( i );
+
+            // Extinction-in-cell correction factor            
+            const auto d_tau_e = dl[ a_proc ]
+                   *   ( mfp_i_s + mfp_i_a0 );
+            float_t corr( 1 );
+            if( d_tau_e > 1e-4f )
+                corr = ( 1 - expf( - d_tau_e ) ) / d_tau_e;
+            // base == F_pp / ( 4 * pi ) * correction
             auto  base = flx * corr * 0.0795775f / b_sca;
+            // b_sca on the denominator for voigh_H
+            // dimension recovery
+
+            auto  *  j = prx.rad.j_cam.at( i );
             for( int k = 0; k < itg.n_chan; ++ k )
-            {
-                // Camera-resonant freq in b units
+            {   // Camera-resonant frequency in b units                
                 const auto x_out =
-                  ( itg.d_v_chan[ k ] + vobs_cam ) / b_sca;
-                // prof_s = H(a, x_pp) is the Voigt profile at the
-                // photon's INCOMING frequency.  Including it makes
-                // s_cam an emissivity (j = sigma(v_in) * R * J),
-                // so the imaging pass uses j = mfp_s * s_cam
-                // (line-centre opacity scale) without an extra
-                // H(a, x_out) factor.
-                atomicAdd( s + k, base * itg.riia_kernel
-                         ( x_out, x_pp, g_dot ) * prof_s );
-            }
-        }       
+                   ( itg.d_v_chan[ k ] + vobs_cam ) / b_sca;
+                const auto R = itg.riia_kernel
+                                ( x_out, x_pp, g_dot );
+                atomicAdd( j + k, mfp_i_s * base * R );
+            }   // mfp_i_s = mfp_i_s0 * H( a, x_pp ), Voigt 
+        }       // at the photon's INCOMING frequency.
 
         if( ! is_scattered )
             super_t::proc_geo( a_proc, dl, g_l, prx, itg );
