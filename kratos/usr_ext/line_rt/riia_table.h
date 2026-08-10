@@ -197,41 +197,34 @@ struct riia_table_t
             float_t denom = gm1 * gm1
                 + sin_g * sin_g;
             float_t Delta = x_out - x_pp;
-            return expf( - Delta * Delta
-                         / denom )
-                / ( 1.7724538509f
-                    * sqrtf( denom ) );
+            return expf( - Delta * Delta / denom )
+                / ( 1.7724538509f * sqrtf( denom ) );
         }
 
-        //  g ~ +/-1 fallback (last 2
-        //  grid points each side)
+        //  g ~ +/-1 fallback (last 2 grid points each side)
         if( fabsf( g ) > 1.f - dg )
         {
-            float_t sin_g = sqrtf
-                ( fmaxf( 1.f - g * g,
-                         1e-6f ) );
+            float_t sin_g =
+                sqrtf( fmaxf( 1.f - g * g,  1e-6f ) );
             float_t Delta = x_out - x_pp;
             return expf( - Delta * Delta
-                / ( sin_g * sin_g ) )
-                / ( sin_g
-                    * 1.7724538509f );
+                         / ( sin_g * sin_g ) )
+                   / ( sin_g * 1.7724538509f );
         }
 
-        const float_t sgn
-            = ( x_pp >= 0.f )
-              ? 1.f : -1.f;
-        const float_t t_delta
-            = ( x_out - x_pp ) * sgn;
+        const float_t sgn = ( x_pp >= 0.f )
+                          ? 1.f : -1.f;
+        const float_t t_delta = ( x_out - x_pp ) * sgn;
 
-        //  Kernel negligible for |delta|
-        //  > xo_max
+        //  Kernel negligible for |delta| > xo_max
         if( fabsf( t_delta ) > xo_max )
             return 0.f;
 
         int ixp = int( ax_pp / dxp );
         if( ixp > n_xp - 2 )
             ixp = n_xp - 2;
-        if( ixp < 0 ) ixp = 0;
+        if( ixp < 0 )
+            ixp = 0;
         float_t fxp
             = ( ax_pp - ixp * dxp ) / dxp;
         if( fxp > 1.f ) fxp = 1.f;

@@ -10,12 +10,11 @@ namespace prob
 //  Types and constants
 ////////////////////////////////////////////////////////////
 
-using type::idx_t;
+using type::  idx_t;
 using type::float_t;
 using type::coord_t;
 
-constexpr type::float_t sqrt_2
-    ( 1.4142135623731 );
+constexpr type::float_t sqrt_2( 1.4142135623731 );
 
 ////////////////////////////////////////////////////////////
 //  Utility function for Voigt sampling
@@ -28,14 +27,11 @@ float_t voigt_H( const float_t & a, const float_t & u )
     const float_t u2 = u * u;
     if( a < 1e-6f )
         return expf( -u2 );
-    const float_t wing
-        = a / ( u2 + a * a + 1e-38f )
-        * float_t( 0.5641895835477563 );
-
+    const float_t wing = a / ( u2 + a * a + 1e-38f )
+                       * float_t( 0.5641895835477563 );
     const float_t core = expf( -u2 );
-    const float_t u0 = sqrtf( logf(
-        core > 1e-38f ? wing / core + 1
-        : 1e36f ) );
+    const float_t u0 = sqrtf
+        ( logf( core > 1e-38f ? wing / core + 1 : 1e36f ) );
     const float_t w = 0.5f + 0.5f
         * tanhf( ( sqrtf( u2 ) - u0 ) * 2 );
     return core * ( 1 - w ) + wing * w;
@@ -50,39 +46,29 @@ struct line_rt_photon_t
     : particle::radiation::photon::cart_t
     < crtp::helper< line_rt_photon_t, derived_T > >
 {
-    //  Types
-    using super_t
-        = particle::radiation::photon::cart_t
+    ////////// Types //////////
+    using super_t = particle::radiation::photon::cart_t
           < crtp::helper< line_rt_photon_t, derived_T > >;
     using geo_loc_t = particle::geo_loc_t;
     __crtp_def_self__( line_rt_photon_t, derived_T );
 
-    //  Data
-    using super_t::x;
-    using super_t::i;
-    using super_t::dir;
-    using super_t::ib_l;
-    using super_t::step;
-    using super_t::dest;
+    ////////// Data //////////
+    using super_t::     x;
+    using super_t::     i;
+    using super_t::   dir;
+    using super_t::  ib_l;
+    using super_t::  step;
+    using super_t::  dest;
     using super_t::proper;
 
-    int       n_scat;
-    float_t   sv;
-    float_t   vel;
-    float_t   amplitude;
-    float_t   tau_remain;
-    //  Initial proper weight (set at
-    //  generation; used by the
-    //  proper-weight culling in
-    //  proc_step).
-    float_t   proper_0;
-    //  Position of the last scattering
-    //  event (initialised to the
-    //  generation position; updated
-    //  in scat(  )).
-    float_t   x_last_scat[ 3 ];
+    int            n_scat;
+    float_t            sv;
+    float_t           vel;
+    float_t      proper_0;
+    float_t    tau_remain;
+    coord_t   x_last_scat;
 
-    //  Functions
+    ////////// Functions //////////
     __host__ __device__ __forceinline__
     void load( line_rt_photon_t & src )
     {
@@ -120,10 +106,9 @@ struct line_rt_photon_t
         const float_t dir_old[ 3 ]
             = { dir[ 0 ], dir[ 1 ], dir[ 2 ] };
 
-        //  Record the last-scattering
-        //  position BEFORE moving (the
-        //  scattering happens at the
-        //  current position).
+        //  Record the last-scattering position BEFORE
+        //  moving (the scattering happens at the current
+        //  position).
         for( int a = 0; a < 3; ++ a )
             x_last_scat[ a ] = x[ a ];
 
@@ -142,19 +127,13 @@ struct line_rt_photon_t
 
         const auto u1 = device::rand_dev(  );
         const auto u2 = device::rand_dev(  );
-        const auto r
-            = sqrtf( -2 * logf( u1 + 1e-35f ) );
-        //  Redistribution is done in
-        //  the gas rest frame, so the
-        //  new vel is first set to the
-        //  gas-frame outgoing frequency
-        //  offset dv_new, then
-        //  converted to the stored
-        //  convention
-        //  vel = dv_new - vel_obs_new
-        //  (where vel_obs_new =
-        //  dir_new . v_bulk) so that
-        //  later dv = vel + vel_obs
+        const auto r  = sqrtf( -2 * logf( u1 + 1e-35f ) );
+        //  Redistribution is done in the gas rest frame, so
+        //  the new vel is first set to the gas-frame
+        //  outgoing frequency offset dv_new, then converted
+        //  to the stored convention vel = dv_new -
+        //  vel_obs_new (where vel_obs_new = dir_new
+        //  . v_bulk) so that later dv = vel + vel_obs
         //  recovers dv_new.
         if( itg.ph_mode == 0 )
             vel = r * cosf( 6.283185307f * u2 )
@@ -167,14 +146,14 @@ struct line_rt_photon_t
             float_t g( 0 );
             for( int a = 0; a < 3; ++ a )
                 g += dir_old[ a ] * dir[ a ];
-            const float_t sin_g
+            const auto sin_g
                 = sqrtf( fmaxf( 0, 1 - g * g ) );
 
-            const float_t u_par
+            const auto u_par
                 = itg.riia.sample_upar( x_freq );
-            const float_t u_perp = r
+            const auto u_perp = r
                 * cosf( 6.283185307f * u2 ) / sqrt_2;
-            const float_t x_new = x_freq
+            const auto x_new = x_freq
                 + u_par * ( g - 1 ) + sin_g * u_perp;
             vel = x_new * b_sca;
         }
@@ -194,7 +173,7 @@ struct line_rt_photon_t
     ( const int & a_proc, const x_T & dl,  geo_loc_t & g_l,
       const prx_T &  prx, const itg_T & itg )
     {
-        coord_t v_cc;
+        coord_t         v_cc;
         float_t vel_obs( 0 );
         const auto * p_vc = prx.rad.vel.at( i );
         for( int a = 0; a < 3; ++ a )
@@ -203,7 +182,7 @@ struct line_rt_photon_t
             vel_obs  += v_cc[ a ] * dir[ a ];
         }
         const auto dv2 = ( vel + vel_obs )
-            * ( vel + vel_obs );
+                       * ( vel + vel_obs );
 
         auto mfp_i_s0 = prx.rad.mfp_i_sca_0.at( i )[ 0 ];
         auto mfp_i_a0 = prx.rad.mfp_i_abs_0.at( i )[ 0 ];
@@ -322,12 +301,7 @@ struct line_rt_photon_t
             dest.i_rank = -1;
             return false;
         }
-        //  Proper-weight culling: kill the photon when its
-        //  weight has decayed below proper_min_frac *
-        //  proper_0 (set on intg_t, not on the photon, to
-        //  save space).  proper_0 is set at generation
-        //  (gen.h).  Disabled when proper_min_frac <= 0.
-        if( itg.proper_min_frac > 0.0f &&
+        if( itg.proper_min_frac > 0 &&
             proper < itg.proper_min_frac * proper_0 )
         {
             dest.todo = particle::to_rm;

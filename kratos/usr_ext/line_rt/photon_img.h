@@ -1,72 +1,42 @@
 #pragma once
 
-//  Line-RT imaging photon: a non-scattering
-//  ray that marches from the far boundary toward
-//  the camera and integrates the scalar transfer
-//  equation
-//      dI_k / dtau_k = -I_k + S_k
-//  per velocity channel k, with
-//      tau_k = ( mfp_i_sca_0 * H(a, dv_cam/b)
-//              + mfp_i_abs_0 ) * dl,
-//      S_k   = ( mfp_i_sca_0 * H(a, dv_cam/b)
-//               / alpha_tot )
-//               * j_cam[ i, k ],
-//  where dv_cam = v_chan[k] + dir_cam . v_bulk(i)
-//  is the gas-frame offset that resonates at
-//  cell i for channel k.
-//
-//  j_cam carries the SCATTERING source
-//  (accumulated during the MC pass with
-//  sigma(v_in) * R * J).  The thermal (line
-//  emission) source is added directly here as
-//  a per-channel emissivity
-//  j_thermal(v) = emiss * H(a, v) / (sqrt(pi) * b),
-//  using the Voigt profile at the OUTGOING
-//  (channel) frequency.  This ensures
-//  frequency-dependent imaging even for
-//  optically thin lines (where the scattering
-//  source is negligible).
-//
-//  The imaging photon reuses the scattering
-//  integrator's camera / channel configuration
-//  (intg_t.dir_cam, d_v_chan, n_chan, img_*).
-//  It does NOT scatter and does NOT accumulate
-//  flx / excitation_flux / j_cam.
-
 #include "../../src/modules/particle/radiation/photon.h"
 
 namespace prob
 {
+////////////////////////////////////////////////////////////
+//
 
 constexpr int MAX_N_CHAN = 256;
+
+////////////////////////////////////////////////////////////
+// Imaging photons
 
 template< class derived_T = crtp::dummy_t >
 struct line_img_t : particle::radiation::photon::cart_t
                   < crtp::helper< line_img_t, derived_T > >
 {
-    //  Types
+    ////////// Types //////////
     using super_t = particle::radiation::photon::cart_t
                   < crtp::helper< line_img_t, derived_T > >;
     using geo_loc_t = particle::geo_loc_t;
     __crtp_def_self__( line_img_t, derived_T );
 
-    //  Data
-    using super_t::x;
-    using super_t::i;
-    using super_t::dir;
-    using super_t::ib_l;
-    using super_t::step;
-    using super_t::dest;
+    ////////// Data //////////
+    using super_t::     x;
+    using super_t::     i;
+    using super_t::   dir;
+    using super_t::  ib_l;
+    using super_t::  step;
+    using super_t::  dest;
     using super_t::proper;
 
-    //  pixel index (ix, iy)
-    int        i2d[ 2 ];
-    //  per-channel intensity (per unit
-    //  velocity)
-    float_t    I_chan[ MAX_N_CHAN ];
-    //  cached n_chan for save/load
-    int        n_chan_local;
+    int          i2d[ 2 ]; //  pixel index (ix, iy)
+    int      n_chan_local;
+    float_t  I_chan[ MAX_N_CHAN ];
+    //  per-channel intensity (per unit velocity)
 
+    ////////// Functions //////////
     __host__ __device__ __forceinline__
     void load( line_img_t & src )
     {
@@ -121,10 +91,8 @@ struct line_img_t : particle::radiation::photon::cart_t
             if( alpha_t <= 0 )
                 continue;  //  negligible
             const auto dtau = alpha_t * dl_seg;
-            //  Intrinsic line emissivity in
-            //  Voigt profile:
-            //  j = emiss * H(a, x_out)
-            //      / (sqrt(pi) * b)
+            //  Intrinsic line emissivity in Voigt profile:
+            //  j = emiss * H(a, x_out) / (sqrt(pi) * b)
             const auto j_rad = emiss_v * H * inv_pb;
             const auto j_tot = j[ k ] + j_rad;
             if( dtau < 1e-4f )
@@ -170,8 +138,8 @@ struct line_img_t : particle::radiation::photon::cart_t
 
         //  Initialise per-channel intensities.
         for( int k = 0; k < n_chan_local; ++ k )
-            I_chan[ k ] = 0.f;
-        proper = 0.f;
+            I_chan[ k ] = 0;
+        proper = 0;
         dest.todo = particle::to_keep;
 
         //  Start position: the far boundary along dir_cam.
@@ -200,9 +168,8 @@ struct line_img_t : particle::radiation::photon::cart_t
             bool inside( true );
             for( int a = 0; a < 3; ++ a )
             {
-                const auto xa = geo.x_fc( a, 0 );
-                const auto xb
-                    = geo.x_fc( a, geo.n_ceff[ a ] );
+                auto xa = geo.x_fc( a, 0 );
+                auto xb = geo.x_fc( a, geo.n_ceff[ a ] );
                 if( x[ a ] < xa || x[ a ] > xb )
                 {
                     inside = false;
@@ -227,9 +194,8 @@ struct line_img_t : particle::radiation::photon::cart_t
             i[ a ] = ( x[ a ] - geo0.x_fc( a, 0 ) )
                    / geo0.dx0[ a ];
         step = itg.img_step_max;
-        //  Run the inherited ray-march loop.
         return super_t::proc( bmap, itg );
-    }
+    };  //  Run the inherited ray-march loop.
 };
 
 }  //  namespace prob

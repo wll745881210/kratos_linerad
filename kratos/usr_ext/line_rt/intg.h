@@ -7,135 +7,76 @@
 
 namespace prob
 {
-
 ////////////////////////////////////////////////////////////
 //  Types
 ////////////////////////////////////////////////////////////
 
-using type::idx_t;
-using type::float_t;
-using type::coord_t;
+using type::   idx_t;
+using type:: float_t;
+using type:: coord_t;
 using type::float2_t;
 
 ////////////////////////////////////////////////////////////
 //  Integrator type
 ////////////////////////////////////////////////////////////
 
-struct intg_t
-    : particle::integrate::base_t< intg_t >
+struct intg_t : particle::integrate::base_t< intg_t >
 {
-    //  Types
-    using super_t
-        = particle::integrate::base_t< intg_t >;
-    using intp2_t
-        = ::extension::interp_t< float_t, 2 >;
+    ////////// Types //////////
+    using super_t = particle::integrate::base_t< intg_t >;
+    using intp2_t = ::extension::interp_t  < float_t, 2 >;
 
-    //  Data
-    int   ph_mode;
-    //  On const mem -- no need to free
-    bool  free_dev_mem;
+    ////////// Data //////////
+    int         ph_mode;
+    bool   free_dev_mem;  // On const mem: no need to free
 
     //  R_IIA + USampler (standalone struct) riia_table_t
-    riia_table_t riia;
+    riia_table_t   riia;
 
     //  Voigt profile
     float_t voigt_a_min;
     float_t voigt_a_max;
     float_t voigt_u_min;
     float_t voigt_u_max;
-    float_t a_voigt;
+    float_t     a_voigt;
 
     //  1D Voigt table (ph_mode=2): constant memory,
     //  log-space.  a_voigt is fixed per run, so 1D
     //  H(a_fixed, u) suffices.
     intp2_t voigt_interp{ 2 };
-    float_t * d_log_voigt_c;
-    int     n_vu;
-    float_t du_voigt;
-    float_t u_voigt_max;
+    float_t *   d_log_voigt_c;
+    int                  n_vu;
+    float_t          du_voigt;
+    float_t       u_voigt_max;
 
-    //  Imaging (camera + velocity channels)
-    //  dir_cam : camera LOS direction, pointing INTO the
-    //    domain (imaging photons march along +dir_cam from
-    //    the far boundary toward the camera).  Spherical
-    //    (theta, phi) read from par, stored as a unit
-    //    Cartesian vector.
-    //  v_chan : observed-velocity channel grid [code
-    //    units], dv>0 = redshift.  Linear grid from
-    //    v_chan_min to v_chan_max, n_chan points
-    //    (inclusive).  Allocated on host and copied to
-    //    device constant memory (d_v_chan) for the MC pass
-    //    and the imaging pass.
-    //  img_x0 / img_dx / img_n :
-    //    image-plane grid (first two
-    //    mesh axes by default),
-    //    cell-centred.
     bool     imaging  = false;
     int      n_chan   = 0;
-    float_t  dir_cam[ 3 ];
-    //  Camera rotation quaternion q_cam: rotates a vector
-    //  in the camera frame (LOS = +z, image plane = x-y)
-    //  into the domain frame, so that
-    //  q_cam.rot3vec(v_domain, v_camera).
-    // Built from dir_cam (the LOS) in init( ).
-    float_t  q_cam[ 4 ];
-    float_t  v_chan_min;
-    float_t  v_chan_max;
-    float_t  v_chan_dv;
-    //  device copy of channel grid
-    float_t * d_v_chan;
+    
+    float_t dir_cam[ 3 ];
+
+    // Quaternion-based camera rotation
+    float_t   q_cam[ 4 ];
+    float_t   v_chan_min;
+    float_t   v_chan_max;
+    float_t    v_chan_dv;
+    float_t   * d_v_chan;
     //  Image-plane grid (used by the imaging photon;
     //  harmless when imaging is off).
-    float_t  img_x0[ 2 ];
-    float_t  img_dx[ 2 ];
-    int      img_n[ 2 ];
-    int      img_step_max;
+    float_t img_x0 [ 2 ];
+    float_t img_dx [ 2 ];
+    int     img_n  [ 2 ];
+    int     img_step_max;
     //  When false, pre_proc does NOT zero j_cam (used by
     //  the imaging integrator, which must consume the j_cam
     //  accumulated by the scattering MC pass rather than
     //  wipe it).
     bool  zero_j_cam = true;
-    //  When false, skip building the USampler / Voigt
-    //  tables (used by the imaging integrator, which only
-    //  needs voigt_H for the per-channel source/opacity
-    //  evaluation and can reuse the analytical voigt_H
-    //  fallback for a_voigt ~ 0; the scattering
-    //  integrator's tables are on a separate instance).
-    //  Avoids a duplicate device alloc that overflows the
-    //  const pool.
-    bool  build_tables = true;
-    //  When false, pre_proc does NOT zero flx /
-    //  excitation_flux (used by the imaging integrator,
-    //  which must leave the scattering-accumulated flx
-    //  intact instead of wiping it; the imaging pass never
-    //  re-accumulates flx).
-    bool  zero_fields = true;
+    bool  build_tables = true; // Imaging needs not builds
+    bool  zero_fields  = true; // Imaging needs fields
 
-    //  Proper-weight culling threshold (0 = disabled).
-    //  When a photon's proper drops below proper_min_frac *
-    //  proper_0 (initial weight at generation), the photon
-    //  is removed.  Read from par [line_rt]
-    //  proper_min_frac.
     float_t proper_min_frac = 0.0f;
-
-    //  Server-worker mode (0 = classic 1-thread-per-photon,
-    //  1 = workers fetch photons from a shared atomic
-    //  counter until the pool is depleted).  Read from par
-    //  [line_rt] worker_mode.  Default ON: it gives ~1.9x
-    //  speedup over classic for photon-dominated workloads
-    //  (high tau0, many photons) by balancing the highly
-    //  variable per-photon lifetimes across a fixed worker
-    //  grid.  Bit-identical to classic when n_worker >=
-    //  n_par (each thread then grabs exactly one photon).
+    
     bool  worker_mode = true;
-
-    //  Number of persistent worker threads launched in
-    //  worker_mode.  Must be SMALLER than n_par for work
-    //  stealing to occur (otherwise each thread grabs
-    //  exactly one photon and the mode degenerates to
-    //  classic).  Default 32768 (empirically optimal on the
-    //  RTX 30xx GPUs: ~6 blocks/SM x 82 SMs x 64 threads).
-    //  Read from par [line_rt] n_worker.
     int   n_worker = 32768;
 
     //  Host-side interfaces
@@ -160,7 +101,7 @@ struct intg_t
         d_v_chan = nullptr;
         v_chan_min = 0;
         v_chan_max = 0;
-        v_chan_dv = 0;
+        v_chan_dv  = 0;
         img_step_max = 65535;
         for( int a = 0; a < 3; ++ a )
             dir_cam[ a ] = 0;
@@ -235,8 +176,8 @@ struct intg_t
                 //  identity (or 180 about x)
                 q_cam[ 0 ] = cz >= 0.f ? 1.f : 0.f;
                 q_cam[ 1 ] = cz >= 0.f ? 0.f : 1.f;
-                q_cam[ 2 ] = 0.f;
-                q_cam[ 3 ] = 0.f;
+                q_cam[ 2 ] = 0;
+                q_cam[ 3 ] = 0;
             }
             else
             {
@@ -273,11 +214,11 @@ struct intg_t
             for( int a = 0; a < 2; ++ a )
             {
                 img_dx[ a ]  = ( x_max[ a ] - img_x0[ a ] )
-                             / float_t( img_n[ a ] );
-                img_x0[ a ] += img_dx[ a ] * 0.5f;
+                             /   img_n[ a ] ;
+                img_x0[ a ] += img_dx[ a ] * 0.5;
             }
             img_step_max = args.get< int >
-            ( "imaging", "step_max", 65535 );
+                         ( "imaging", "step_max", 65535 );
 
             //  Copy the channel grid to device memory.
             std::vector< float_t > h_vchan( n_chan );
@@ -317,12 +258,10 @@ struct intg_t
             }
             else if( ph_mode == 2 )
             {
-                //  Set up 2D Voigt table on
-                //  HOST only (to sample the
-                //  1D table).  Not copied to
-                //  device but const -- much
-                //  faster than the global
-                //  memory.
+                //  Set up 2D Voigt table on HOST only (to
+                //  sample the 1D table).  Not copied to
+                //  device but const -- much faster than the
+                //  global memory.
                 const float_t x0[ 2 ]
                     = { log( VOIGT_A_MIN ), VOIGT_U_MIN };
                 const float_t dx[ 2 ]
@@ -338,18 +277,17 @@ struct intg_t
                 std::memcpy( copy, voigt_table_data, nb );
                 voigt_interp.setup( x0, dx, n, copy );
 
-                free_dev_mem = false;
+                free_dev_mem       =          false;
                 riia.use_const_mem = ! free_dev_mem;
-                riia.build( * mod.p_dev, a_voigt );
+                riia.build( * mod.p_dev,  a_voigt );
                 build_voigt_1d( * mod.p_dev );
             }
             else if( ph_mode == 3 )
-            {
-                //  Const-mem USampler only; transport uses
+            {   //  Const-mem USampler only; transport uses
                 //  photon.h voigt_H approx.
-                free_dev_mem = false;
+                free_dev_mem        =          false;
                 riia.use_const_mem  = ! free_dev_mem;
-                riia.build( * mod.p_dev, a_voigt );
+                riia.build( * mod.p_dev,   a_voigt );
             }
         }
         // else: imaging integrator reuses the scattering
@@ -360,18 +298,12 @@ struct intg_t
 
     __host__ void finalize( particle::base_t & mod )
     {
-        auto & dev = * mod.p_dev;
-        //  riia_table_t frees dat (always global) +
-        //  d_cdf/d_xg (only if !use_const_mem).  Const-mem
-        //  pointers are NOT freed: the const is a
-        //  system-managed pool.
-        riia.free( dev );
-        if( d_v_chan )
+        if( d_v_chan != nullptr )
         {
-            dev.free_device( d_v_chan );
-            d_v_chan = nullptr;
+            mod.p_dev->free_device( d_v_chan );
+            d_v_chan  = nullptr ;
         }
-        return;
+        return riia.free( * mod.p_dev );
     };
 
     template< class pol_T, class map_T, class com_T >
@@ -382,10 +314,8 @@ struct intg_t
         auto & dev( * mod.p_dev );
         for( auto & d : mod )
         {
-            using prx_t
-                = typename map_T::prx_t;
-            const auto & rad
-                = prx_t::d( d.d(  ) ).rad;
+            using        prx_t = typename   map_T::prx_t;
+            const auto & rad   = prx_t::d( d.d(  ) ).rad;
             if( zero_fields )
             {
                 dev.f_mset ( rad.flx.dat, 0, rad.flx.n_size,
@@ -402,10 +332,8 @@ struct intg_t
         return;
     };
 
-    template< class f_T >
-    __host__ __device__
-    f_T voigt_H( const f_T & a,
-                 const f_T & u ) const
+    template< class f_T > __host__ __device__
+    f_T voigt_H( const f_T & a, const f_T & u ) const
     {
         if( a < 1e-10f )
             return expf( -u * u );
@@ -430,7 +358,7 @@ struct intg_t
         }
         //  Fallback (imaging module without Voigt table):
         //  blend Gaussian Core with Lorentzian wing.
-        const auto au    = utils::abs( u );
+        const auto au    = utils::abs ( u );
         const auto gauss = expf( -au * au );
         const auto lor   = a
             / ( 1.7724539f * ( au * au + a * a ) );
@@ -453,16 +381,11 @@ struct intg_t
         const float_t vy = v_cam[ 1 ];
         const float_t vz = v_cam[ 2 ];
         //  q * v
-        const float_t a1 = q0 * vx
-            + q2 * vz - q3 * vy;
-        const float_t a2 = q0 * vy
-            + q3 * vx - q1 * vz;
-        const float_t a3 = q0 * vz
-            + q1 * vy - q2 * vx;
-        const float_t a0 = - q1 * vx
-            - q2 * vy - q3 * vz;
-        //  (q*v) * q.conj(  )
-        //  (conj = (q0,-q1,-q2,-q3))
+        const float_t a1 =  q0 * vx + q2 * vz - q3 * vy;
+        const float_t a2 =  q0 * vy + q3 * vx - q1 * vz;
+        const float_t a3 =  q0 * vz  + q1 * vy - q2 * vx;
+        const float_t a0 = -q1 * vx - q2 * vy - q3 * vz;
+        //  (q*v) * q.conj( ) (conj = (q0,-q1,-q2,-q3))
         v_dom[ 0 ] = a0 * q1 + a1 * q0
                    + a2 * q3 - a3 * q2;
         v_dom[ 1 ] = a0 * q2 - a1 * q3
@@ -483,7 +406,7 @@ struct intg_t
         for( int k = 0; k < n_vu; ++ k )
         {
             const float_t u = k * du_voigt;
-            float_t h;
+            float_t h( 0 );
             if( a_eff < float_t( 1e-10 ) )
                 h = expf( -u * u );
             else
@@ -503,27 +426,19 @@ struct intg_t
         delete [  ] h_log_voigt;
     }
 
-    //  Launch-grid override (host).  In classic mode this
-    //  matches the trunk (one thread per active photon).
-    //  In worker_mode the grid is capped at a fixed number
-    //  of persistent workers so that, when n_par_eff
-    //  exceeds the cap, threads loop over the shared atomic
-    //  work counter (load_next) and process multiple
-    //  photons each.
     template< class pol_T >
     __host__ std::tuple< dim3, dim3, int >
     resource( const pol_T & pool ) const
     {
         int n_launch = pool.n_par_eff(  );
         if( worker_mode )
-        {
-            //  n_worker <= 0 falls back to 32768
+        {   //  n_worker <= 0 falls back to 32768
             int cap( n_worker > 0 ? n_worker : 32768 );
             if( n_launch > cap )
-                n_launch = cap;
+                n_launch = cap ;
         }
         if( n_launch < 1 )
-            n_launch = 1;
+            n_launch = 1 ;
         dim3 n_bl( ( n_launch + n_th - 1 ) / n_th );
         return std::make_tuple( n_bl, dim3 ( n_th ), 0 );
     }
@@ -538,16 +453,9 @@ struct intg_t
         typename pol_T::par_t par;
 
         if( worker_mode )
-        {
-            //  Server-worker: keep fetching photons from
-            //  the shared atomic counter until the pool is
-            //  depleted.  Each worker processes photons in
-            //  a loop instead of the classic
-            //  1-thread-1-photon.
             while( true )
             {
-                const auto i_par = pool.load_next
-                                 ( par, flag );
+                auto i_par = pool.load_next( par, flag );
                 if( ! flag ||
                     par.dest.todo != particle::to_keep )
                     return;
@@ -559,21 +467,20 @@ struct intg_t
                 else
                     par.save( pool[ i_par ] );
             }
-        }
         else
         {
             auto i_par = pool.load( par, flag );
-            par.id = i_par;
+            par.id     = i_par;
             if( ! flag )
                 return;
-            const auto i_rank
-                = par.proc( bmap, get_self(  ) );
+            auto i_rank = par.proc( bmap, get_self(  ) );
             if( i_rank >= 0 )
                 comm.reg( i_par, i_rank );
             else
                 par.save( pool[ i_par ] );
         }
-    }
+        return;
+    };
 };
 
 }  //  namespace prob
