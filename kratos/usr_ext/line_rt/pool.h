@@ -2,7 +2,6 @@
 
 namespace prob
 {
-
 ////////////////////////////////////////////////////////////
 //  Particle pool that has particle I/O
 ////////////////////////////////////////////////////////////
@@ -13,10 +12,13 @@ struct pol_t : particle::pool_t< line_rt_photon_t<  > >
     //  in pre_proc; each worker atomically fetches the
     //  next photon index via load_next(  ) until n_par
     //  is reached.
-    int_t * work_counter = nullptr;
+    int_t * work_counter;
 
     using base_t = particle::pool_t< line_rt_photon_t<  > >;
 
+    __host__ pol_t(  ) : base_t(  ),
+                         work_counter( nullptr ) {  };
+    
     __host__ virtual void init
     ( const input & args, particle::base_t & mod ) override
     {
@@ -26,10 +28,9 @@ struct pol_t : particle::pool_t< line_rt_photon_t<  > >
     }
 
     __host__ virtual bool set_mem
-    ( particle::base_t & mod,
-      const int_t & n_par,
-      const type::float2_t & safe = 1.1,
-      const bool & keep_data = true ) override
+    ( particle::base_t & mod, const int_t & n_par,
+      const type::float2_t  & safe = 1.1,
+      const bool  & keep_data = true ) override
     {
         if( work_counter == nullptr )
         {
@@ -57,9 +58,8 @@ struct pol_t : particle::pool_t< line_rt_photon_t<  > >
     ( particle::base_t & mod ) override
     {
         if( work_counter != nullptr )
-            mod.p_dev->f_mset
-                ( work_counter, 0,
-                  sizeof( int_t ), mod.stream );
+            mod.p_dev->f_mset( work_counter, 0, sizeof
+                               ( int_t ), mod.stream );
         return base_t::pre_proc( mod );
     }
 
@@ -110,12 +110,11 @@ struct pol_t : particle::pool_t< line_rt_photon_t<  > >
             ++ j;
         }
         const auto s_f( sizeof( float_t ) );
-        f_w( dir_h.data(  ), j * 3, s_f, "_dir" );
-        f_w( vel_h.data(  ), j,     s_f, "_vel" );
-        f_w( x_h  .data(  ), j * 3, s_f, "_x"   );
-        f_w( l_h  .data(  ), j,     s_f, "_l"   );
-        f_w( xls_h.data(  ), j * 3, s_f,
-             "_x_last_scat" );
+        f_w( dir_h.data(  ), j * 3, s_f,         "_dir" );
+        f_w( vel_h.data(  ), j,     s_f,         "_vel" );
+        f_w( x_h  .data(  ), j * 3, s_f,           "_x" );
+        f_w( l_h  .data(  ), j,     s_f,           "_l" );
+        f_w( xls_h.data(  ), j * 3, s_f, "_x_last_scat" );
         delete[  ] par_h;
         return;
     }

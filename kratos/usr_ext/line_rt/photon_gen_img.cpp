@@ -11,8 +11,7 @@ namespace prob
 ////////////////////////////////////////////////////////////
 
 __host__ void gen_img_t::init
-( const input & args,
-  particle::base_t & mod )
+( const input & args, particle::base_t & mod )
 {
     super_t::init( args, mod );
     auto p_itg = dynamic_cast< rad_img_t & >( mod ).p_itg;

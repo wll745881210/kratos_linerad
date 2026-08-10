@@ -1,5 +1,20 @@
 #pragma once
 
+#include <chrono>
+
+#include "photon.h"
+#include "photon_img.h"
+#include "block_data.h"
+#include "intg.h"
+#include "gen.h"
+#include "pool.h"
+#include "radiation.h"
+#include "pool_img.h"
+#include "photon_gen_img.h"
+
+namespace prob
+{
+////////////////////////////////////////////////////////////
 //  Line-RT imaging driver (parasite of radiation_t).
 //
 //  Enrolled alongside radiation_t in usr.cpp via
@@ -18,21 +33,6 @@
 //  w.r.t. j_cam so it does not wipe the MC
 //  accumulation.
 
-#include <chrono>
-
-#include "photon.h"
-#include "photon_img.h"
-#include "block_data.h"
-#include "intg.h"
-#include "gen.h"
-#include "pool.h"
-#include "radiation.h"
-#include "pool_img.h"
-#include "photon_gen_img.h"
-
-namespace prob
-{
-
 class rad_img_t : public particle::radiation::base_t
 {
 public:  //  Data
@@ -46,8 +46,7 @@ protected:  //  Functions
         return;
     };
 
-public:
-
+public:                         // Functions
     virtual void read( const input & args ) override
     {
         enabled = args.get< bool >
@@ -96,15 +95,13 @@ public:
     {
         if( enabled )
         {
-            auto t0
-                = std::chrono::steady_clock::now(  );
+            auto t0 = std::chrono::steady_clock::now(  );
             particle::radiation::base_t::step( mesh );
-            auto t1
-                = std::chrono::steady_clock::now(  );
+            auto t1 = std::chrono::steady_clock::now(  );
             if( profile )
                 std::cout << "[profile] imaging: "
-                    << std::chrono::duration< double >
-                    ( t1 - t0 ).count(  ) << " s\n";
+                          << std::chrono::duration< double >
+                           ( t1 - t0 ).count(  ) << " s\n";
         }
         return;
     };
