@@ -20,7 +20,7 @@ using type::float2_t;
 //
 //  Device methods:
 //    operator()  -- table indexing
-//    _invcdf     -- USampler inverse CDF
+//    invcdf      -- USampler inverse CDF
 //    sample_upar -- USampler sampling
 //    lookup      -- R_IIA trilinear lookup
 //
@@ -77,11 +77,10 @@ struct riia_table_t
         return dat[ io + n_xo * ( jp + n_xp * ig ) ];
     };
 
-    //  USampler inverse CDF (device, private).  Binary
-    //  search on log(CDF) row for log(r), linear
-    //  interpolation.
-    __device__ __forceinline__ float_t _invcdf
-    ( const float_t * log_cdf, float_t r ) const
+    // USampler inverse CDF (device, private). Binary
+    // search on log(CDF) row for log(r)
+    __device__ __forceinline__ float_t invcdf
+    ( const float_t * log_cdf, const float_t & r ) const
     {
         const float_t log_r = logf( fmaxf( r, 1e-38f ) );
         int k = 0;
@@ -109,7 +108,7 @@ struct riia_table_t
     //  restored): binary search on the xg grid, then interp
     //  between adjacent rows of the log(CDF) table.
     __device__ __forceinline__
-    float_t sample_upar( float_t xa ) const
+    float_t sample_upar( const float_t & xa ) const
     {
         const float_t sgn = ( xa >= 0.f ) ? 1.f : -1.f;
         const float_t ax = fabsf( xa );
@@ -132,9 +131,9 @@ struct riia_table_t
                      / ( d_xg[ j + 1 ] - d_xg[ j ] );
         const auto r = device::rand_dev(  );
 
-        const float_t u0 = _invcdf( d_cdf + j * n_u, r );
+        const float_t u0 = invcdf( d_cdf + j * n_u, r );
         const float_t u1
-            = _invcdf( d_cdf + ( j + 1 ) * n_u, r );
+            = invcdf( d_cdf + ( j + 1 ) * n_u, r );
         return sgn * ( u0 + f * ( u1 - u0 ) );
     };
 
@@ -224,10 +223,10 @@ struct riia_table_t
 
     //  Host method declarations
     __host__ void build( device::base_t & dev,
-                         float_t a_voigt );
+                         const  float_t & a_voigt );
     __host__ void free ( device::base_t & dev );
     __host__ void _build_usampler
-    ( device::base_t & dev, float_t a_voigt );
+    ( device::base_t & dev, const float_t & a_voigt );
     __host__ void _build_riia_gpu( device::base_t & dev );
 };
 
@@ -264,6 +263,7 @@ static __global__ void build_usampler_gpu_kernel
     for( int k = 0; k < riia.n_u; ++ k )
         row[ k ] = logf
                  ( fmaxf( cdf[ k ] * inv_sum, 1e-38f ) );
+    return;
 }
 
 ////////////////////////////////////////////////////////////
@@ -346,7 +346,7 @@ static __global__ void build_riia_gpu_kernel
 ////////////////////////////////////////////////////////////
 
 inline __host__ void riia_table_t::build
-( device::base_t & dev, float_t a_voigt )
+( device::base_t & dev, const float_t & a_voigt )
 {
     this->a_voigt = a_voigt;
     _build_usampler( dev, a_voigt );
@@ -366,7 +366,7 @@ inline __host__ void riia_table_t::build
 ////////////////////////////////////////////////////////////
 
 inline __host__ void riia_table_t::_build_usampler
-( device::base_t & dev, float_t a_voigt )
+( device::base_t & dev, const float_t & a_voigt )
 {
     //  Build xg grid on host (40 values, trivial).
     float_t * h_xg  = new float_t[ n_xg ];
