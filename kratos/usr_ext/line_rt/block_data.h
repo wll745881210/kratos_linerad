@@ -215,8 +215,9 @@ struct prx_t: particle::radiation::proxy_t< block_data_t >
       ::particle::base_t & mod ) override
     {
         auto & b_d( ref( d.d(  ) ) );
-        rad = b_d.rad;
+        rad  = b_d.rad;
         particle::proxy_base_t::setup( d, m_rank, mod );
+        return;
     }
 };
 

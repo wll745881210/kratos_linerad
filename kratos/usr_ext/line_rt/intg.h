@@ -87,9 +87,9 @@ struct intg_t : particle::integrate::base_t< intg_t >
         free_dev_mem = false;
 
         d_log_voigt_c = nullptr;
-        n_vu = 5000;
-        du_voigt = 0.01;
-        u_voigt_max = 50;
+        n_vu          =    5000;
+        du_voigt      =    0.01;
+        u_voigt_max   =      50;
 
         voigt_a_min = VOIGT_A_MIN;
         voigt_a_max = VOIGT_A_MAX;
@@ -98,22 +98,22 @@ struct intg_t : particle::integrate::base_t< intg_t >
 
         //  Imaging defaults (no-op
         //  when imaging == false).
-        d_v_chan = nullptr;
-        v_chan_min = 0;
-        v_chan_max = 0;
-        v_chan_dv  = 0;
+        d_v_chan   = nullptr;
+        v_chan_min =       0;
+        v_chan_max =       0;
+        v_chan_dv  =       0;
         img_step_max = 65535;
         for( int a = 0; a < 3; ++ a )
             dir_cam[ a ] = 0;
-        //  face-on by default
-        dir_cam[ 2 ] = 1.f;
+        dir_cam[ 2 ] = 1; //  face-on by default
         for( int a = 0; a < 2; ++ a )
         {
             img_x0[ a ] = 0;
             img_dx[ a ] = 0;
-            img_n[ a ] = 0;
+            img_n [ a ] = 0;
         }
-    }
+        return;
+    };
 
     __host__ virtual void init
     ( const input & args, particle::base_t & mod ) override

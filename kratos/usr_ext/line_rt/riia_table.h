@@ -47,26 +47,21 @@ using type::float2_t;
 
 struct riia_table_t
 {
-    //  Device pointers R_IIA table (n_xo, n_xp, n_g)
-    float_t * dat;
-    //  USampler log(CDF) (n_xg, n_u)
-    float_t * d_cdf;
-    //  USampler x grid (n_xg)
-    float_t * d_xg;
-    //  true -> const mem (ph_mode 2/3)
-    bool use_const_mem;
-
-    //  R_IIA table grid
+    ////////// Data //////////
+    bool use_const_mem;  //  true -> const mem (ph_mode 2/3)
+    
+    float_t          *   dat; //  R_IIA table grid
     int      n_xo, n_xp, n_g;
-    float_t  xo_max, xp_max;
-    float_t  dxo, dxp, dg;
+    float_t  xo_max,  xp_max;
+    float_t  dxo,    dxp, dg;
 
-    //  USampler params
+    float_t *    d_cdf;  //  USampler log(CDF) (n_xg, n_u)
+    float_t *     d_xg;  //  USampler x grid (n_xg)    
     int      n_u, n_xg;
     float_t  du, u_max;
-    float_t  a_voigt;
+    float_t    a_voigt;
 
-    //  Constructor
+    ////////// Functions //////////
     __host__ riia_table_t(  )
         : dat( nullptr ), d_cdf( nullptr ), d_xg( nullptr ),
           use_const_mem( false ),  n_xo( 200 ), n_xp( 200 ),
@@ -84,43 +79,36 @@ struct riia_table_t
     __device__ __forceinline__ float_t & operator(  )
         ( int io, int jp, int ig ) const
     {
-        return dat[ io + n_xo
-        * ( jp + n_xp * ig ) ]; }
+        return dat[ io + n_xo * ( jp + n_xp * ig ) ];
+    };
 
-    //  USampler inverse CDF (device,
-    //  private).  Binary search on
-    //  log(CDF) row for log(r), linear
+    //  USampler inverse CDF (device, private).  Binary
+    //  search on log(CDF) row for log(r), linear
     //  interpolation.
-    __device__ __forceinline__
-    float_t _invcdf
-    ( const float_t * log_cdf,
-      float_t r ) const
+    __device__ __forceinline__ float_t _invcdf
+    ( const float_t * log_cdf, float_t r ) const
     {
-        const float_t log_r
-            = logf( fmaxf( r, 1e-38f ) );
+        const float_t log_r = logf( fmaxf( r, 1e-38f ) );
         int k = 0;
-        for( int lo = 0, hi = n_u - 1;
-             lo <= hi; )
+        for( int lo = 0, hi = n_u - 1; lo <= hi; )
         {
             const int mid = ( lo + hi ) >> 1;
             if( log_cdf[ mid ] <= log_r )
-            { k = mid; lo = mid + 1; }
-            else hi = mid - 1;
+            {
+                k  = mid ;
+                lo = mid + 1;
+            }
+            else
+                hi = mid - 1;
         }
-        if( k > n_u - 2 ) k = n_u - 2;
-        if( k < 1 ) k = 1;
-        float_t denom
-            = log_cdf[ k ] - log_cdf[ k - 1 ];
-        if( denom < 1e-35f ) denom = 1e-35f;
-        const float_t frac = ( log_r
-            - log_cdf[ k - 1 ] ) / denom;
-        float_t u = ( - u_max
-            + du * float_t( k - 1 ) )
-            + frac * du;
-        if( u > u_max ) u = u_max;
-        if( u < - u_max ) u = - u_max;
-        return u;
-    }
+        k = utils::max( utils::min( k, n_u - 2 ), 1 );
+
+        auto  denom = log_cdf[ k ] - log_cdf[ k - 1 ];
+        denom = utils::max( denom, 1e-35f );
+        auto frac = ( log_r - log_cdf  [ k - 1 ] )  / denom;
+        auto u    = frac * du + ( du * ( k - 1 ) -  u_max );
+        return utils::max( utils::min( u, u_max ), -u_max );
+    };
 
     //  Sample u_par for a given xa (|xa| with sign
     //  restored): binary search on the xg grid, then interp
@@ -143,20 +131,17 @@ struct riia_table_t
             else
                 hi = mid - 1;
         }
-        if( j < 0 ) j = 0;
-        else if( j >= n_xg - 1 )
-            j = n_xg - 2;
+        j = utils::max( utils::min( j, n_xg - 2 ), 0 );
 
-        const float_t f = ( ax - d_xg[ j ] )
-             / ( d_xg[ j + 1 ] - d_xg[ j ] );
-        const float_t r = device::rand_dev(  );
+        const auto f = ( ax - d_xg[ j ] )
+                     / ( d_xg[ j + 1 ] - d_xg[ j ] );
+        const auto r = device::rand_dev(  );
 
-        const float_t u0 = _invcdf
-            ( d_cdf + j * n_u, r );
-        const float_t u1 = _invcdf
-            ( d_cdf + ( j + 1 ) * n_u, r );
+        const float_t u0 = _invcdf( d_cdf + j * n_u, r );
+        const float_t u1
+            = _invcdf( d_cdf + ( j + 1 ) * n_u, r );
         return sgn * ( u0 + f * ( u1 - u0 ) );
-    }
+    };
 
     //  R_IIA trilinear lookup (device).  R(x_out; x_pp, g)
     //  [x-space, integral R dx = 1] Uses the 3-D table
@@ -185,53 +170,40 @@ struct riia_table_t
       const float_t &    g ) const
     {
         const float_t ax_pp = fabsf( x_pp );
-
-        //  Asymptotic for |x_pp| >=
-        //  xp_max
+        //  Asymptotic for |x_pp| >= xp_max
+        const auto  sin_g
+            = sqrtf( fmaxf( 1.f - g * g, 1e-6f ) );        
         if( ax_pp >= xp_max )
         {
-            float_t sin_g = sqrtf
-                ( fmaxf( 1.f - g * g,
-                         1e-6f ) );
-            float_t gm1 = g - 1.f;
-            float_t denom = gm1 * gm1
-                + sin_g * sin_g;
+            float_t gm1   = g - 1;
+            float_t denom = gm1 * gm1 + sin_g * sin_g;
             float_t Delta = x_out - x_pp;
             return expf( - Delta * Delta / denom )
                 / ( 1.7724538509f * sqrtf( denom ) );
         }
-
         //  g ~ +/-1 fallback (last 2 grid points each side)
         if( fabsf( g ) > 1.f - dg )
         {
-            float_t sin_g =
-                sqrtf( fmaxf( 1.f - g * g,  1e-6f ) );
             float_t Delta = x_out - x_pp;
             return expf( - Delta * Delta
                          / ( sin_g * sin_g ) )
                    / ( sin_g * 1.7724538509f );
         }
 
-        const float_t sgn = ( x_pp >= 0.f )
-                          ? 1.f : -1.f;
-        const float_t t_delta = ( x_out - x_pp ) * sgn;
+        const float_t sgn( x_pp >= 0 ? 1 : -1 );
+        const float_t t_delta( ( x_out - x_pp ) * sgn );
 
         //  Kernel negligible for |delta| > xo_max
         if( fabsf( t_delta ) > xo_max )
-            return 0.f;
+            return 0;
 
-        int ixp = int( ax_pp / dxp );
-        if( ixp > n_xp - 2 )
-            ixp = n_xp - 2;
-        if( ixp < 0 )
-            ixp = 0;
-        float_t fxp
-            = ( ax_pp - ixp * dxp ) / dxp;
-        if( fxp > 1.f ) fxp = 1.f;
-        if( fxp < 0.f ) fxp = 0.f;
+        int  ixp = utils::max( int( ax_pp / dxp ), 0 );
+        ixp      = utils::min( ixp,         n_xp - 2 );
+        auto fxp = ( ax_pp - ixp * dxp ) / dxp;
+        fxp      = utils::min( fxp,  1 ) ;
+        fxp      = utils::max( fxp,  0 ) ;
 
-        int ixo = int(
-            ( t_delta + xo_max ) / dxo );
+        int ixo = int( ( t_delta + xo_max ) / dxo );
         if( ixo > n_xo - 2 )
             ixo = n_xo - 2;
         if( ixo < 0 ) ixo = 0;
@@ -248,34 +220,24 @@ struct riia_table_t
         if( fg > 1.f ) fg = 1.f;
         if( fg < 0.f ) fg = 0.f;
 
-        const auto c00 = operator()
-            ( ixo, ixp, ig )
-            * ( 1.f - fg )
-            + operator()
-            ( ixo, ixp, ig + 1 ) * fg;
-        const auto c01 = operator()
-            ( ixo, ixp + 1, ig )
-            * ( 1.f - fg )
-            + operator()
-            ( ixo, ixp + 1, ig + 1 ) * fg;
-        const auto c10 = operator()
-            ( ixo + 1, ixp, ig )
-            * ( 1.f - fg )
-            + operator()
-            ( ixo + 1, ixp, ig + 1 ) * fg;
-        const auto c11 = operator()
-            ( ixo + 1, ixp + 1, ig )
-            * ( 1.f - fg )
-            + operator()
-            ( ixo + 1, ixp + 1,
-              ig + 1 ) * fg;
+        // Multi-linear interpolation
+        const auto & self( * this );
+        const auto c00 
+            = self( ixo, ixp,     ig     ) * ( 1 - fg )
+            + self( ixo, ixp,     ig + 1 ) * fg;
+        const auto c01
+            = self( ixo, ixp + 1, ig     ) * ( 1 - fg )
+            + self( ixo, ixp + 1, ig + 1 ) * fg;
+        const auto c10
+            = self( ixo + 1, ixp, ig     ) * ( 1 - fg )
+            + self( ixo + 1, ixp, ig + 1 ) * fg;
+        const auto c11
+            = self( ixo + 1, ixp + 1, ig     ) * ( 1 - fg )
+            + self( ixo + 1, ixp + 1, ig + 1 ) * fg;
 
-        const auto c0 = c00
-            * ( 1.f - fxp ) + c01 * fxp;
-        const auto c1 = c10
-            * ( 1.f - fxp ) + c11 * fxp;
-        return c0 * ( 1.f - fxo )
-            + c1 * fxo;
+        const auto c0 = c00 * ( 1 - fxp ) + c01 * fxp;
+        const auto c1 = c10 * ( 1 - fxp ) + c11 * fxp;
+        return c0 * ( 1 - fxo ) + c1 * fxo;
     }
 
     //  Host method declarations
@@ -303,12 +265,11 @@ static __global__ void build_usampler_gpu_kernel
         return;
 
     float_t xg    = riia.d_xg[ j ];
-    float_t a_eff = riia.a_voigt > 1e-6f
-                  ? riia.a_voigt : 1e-6f;
+    float_t a_eff = utils::max( riia.a_voigt, 1e-6f );
     float_t a2    = a_eff * a_eff;
 
     float_t cdf[ 251 ];
-    float_t cum = 0;
+    float_t cum    = 0;
     for( int k = 0; k < riia.n_u; ++ k )
     {
         float_t uk = - riia.u_max + riia.du * float_t( k );
@@ -319,8 +280,8 @@ static __global__ void build_usampler_gpu_kernel
     float_t inv_sum = 1.f / cum;
     float_t *   row = riia.d_cdf + j * riia.n_u;
     for( int k = 0; k < riia.n_u; ++ k )
-        row[ k ] = logf( fmaxf( cdf[ k ] * inv_sum,
-                                1e-38f ) );
+        row[ k ] = logf
+                 ( fmaxf( cdf[ k ] * inv_sum, 1e-38f ) );
 }
 
 ////////////////////////////////////////////////////////////
@@ -368,10 +329,8 @@ static __global__ void build_riia_gpu_kernel
         else
             hi = mid - 1;
     }
-    if( jxg < 0 )
-        jxg = 0 ;
-    if( jxg >= riia.n_xg - 1 )
-        jxg  = riia.n_xg - 2 ;
+    jxg = utils::max( jxg,             0 );
+    jxg = utils::min( jxg, riia.n_xg - 2 );
 
     //  Read log(CDF) row, convert via expf to raw CDF,
     //  compute pdf on the fly, accumulate R.
@@ -427,9 +386,8 @@ inline __host__ void riia_table_t::build
 inline __host__ void riia_table_t::_build_usampler
 ( device::base_t & dev, float_t a_voigt )
 {
-    //  Build xg grid on host (40
-    //  values, trivial).
-    float_t * h_xg = new float_t[ n_xg ];
+    //  Build xg grid on host (40 values, trivial).
+    float_t * h_xg  = new float_t[ n_xg ];
     const int n_lin = 18;
     const int n_log = n_xg - n_lin;
     const float_t x_lin_max = 8.f;
@@ -470,7 +428,7 @@ inline __host__ void riia_table_t::_build_usampler
         dev.free_device( d_cdf );
         dev.free_device( d_xg  );
         d_cdf = d_cdf_c;
-        d_xg  = d_xg_c;
+        d_xg  =  d_xg_c;
     }
     delete [  ] h_xg;
     return;
@@ -519,15 +477,15 @@ inline __host__ void riia_table_t::free
     }
     if( ! use_const_mem )
     {
-        if( d_cdf )
+        if( d_cdf != nullptr )
         {
             dev.free_device( d_cdf );
-            d_cdf = nullptr;
+            d_cdf  = nullptr ;
         }
-        if( d_xg )
+        if( d_xg  != nullptr )
         {
             dev.free_device( d_xg );
-            d_xg = nullptr;
+            d_xg   = nullptr ;
         }
     }
     return;
