@@ -1,5 +1,11 @@
 #pragma once
 
+#include "../../src/types.h"
+#include "../../src/device/device.h"
+
+using type::float_t;
+using type::float2_t;
+
 ////////////////////////////////////////////////////////////
 //  riia_table_t: standalone R_IIA
 //  redistribution table.
@@ -32,17 +38,6 @@
 //    _build_riia_gpu() stays unchanged
 //    (reads d_cdf + d_xg from device,
 //    never touches host arrays).
-////////////////////////////////////////////////////////////
-
-#include "../../src/types.h"
-#include "../../src/device/device.h"
-
-using type::float_t;
-using type::float2_t;
-
-////////////////////////////////////////////////////////////
-//  GPU kernel: build R_IIA table from
-//  device-resident
 ////////////////////////////////////////////////////////////
 
 struct riia_table_t
@@ -157,14 +152,11 @@ struct riia_table_t
     //  sqrt((g-1)^2+sin^2_g)) which is used directly (no
     //  table lookup needed).
     //
-    //  For |g| > (1 - dg) -- the last 2 grid points on each
-    //  side -- the R_IIA kernel collapses to a narrow
-    //  Gaussian (delta-function limit as g -> +/-1).
-    //  Trilinear interpolation between a broad Gaussian
-    //  (g=0.949, sigma~0.22) and a delta spike (g=1.0,
-    //  sigma~0) cannot capture the qualitative shape
-    //  change, so use the analytic form R = Gauss(delta;
-    //  sigma=sin_g/ sqrt(pi)).
+    //  For |g| > 0.99f: Trilinear interpolation between a
+    //  broad Gaussian (g=0.949, sigma~0.22) and a delta
+    //  spike (g=1.0, sigma~0) cannot capture the
+    //  qualitative shape change, so use the analytic form R
+    //  = Gauss(delta; sigma=sin_g/ sqrt(pi)).
     __device__ __forceinline__ float_t lookup
     ( const float_t & x_out, const float_t & x_pp,
       const float_t &    g ) const
@@ -182,7 +174,7 @@ struct riia_table_t
                 / ( 1.7724538509f * sqrtf( denom ) );
         }
         //  g ~ +/-1 fallback (last 2 grid points each side)
-        if( fabsf( g ) > 1.f - dg )
+        if( fabsf( g ) > 0.99f )
         {
             float_t Delta = x_out - x_pp;
             return expf( - Delta * Delta

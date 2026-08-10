@@ -40,46 +40,39 @@ struct intg_t : particle::integrate::base_t< intg_t >
     float_t voigt_u_max;
     float_t     a_voigt;
 
-    //  1D Voigt table (ph_mode=2): constant memory,
-    //  log-space.  a_voigt is fixed per run, so 1D
-    //  H(a_fixed, u) suffices.
+    //  1D Voigt table (ph_mode=2): const mem, log-space.
+    //  a_voigt fixed per run -> 1D H(a_fixed, u) suffices
     intp2_t voigt_interp{ 2 };
     float_t *   d_log_voigt_c;
     int                  n_vu;
     float_t          du_voigt;
     float_t       u_voigt_max;
 
-    bool     imaging;
-    int      n_chan;
-    
-    float_t dir_cam[ 3 ];
-
-    // Quaternion-based camera rotation
-    float_t   q_cam[ 4 ];
+    bool         imaging; // Imaging
+    int           n_chan;
     float_t   v_chan_min;
     float_t   v_chan_max;
     float_t    v_chan_dv;
     float_t   * d_v_chan;
+    coord_t      dir_cam;
+    float_t   q_cam[ 4 ]; // Quaternion for camera rotation
+    
     //  Image-plane grid (used by the imaging photon;
     //  harmless when imaging is off).
     float_t img_x0 [ 2 ];
     float_t img_dx [ 2 ];
     int     img_n  [ 2 ];
     int     img_step_max;
-    //  When false, pre_proc does NOT zero j_cam (used by
-    //  the imaging integrator, which must consume the j_cam
-    //  accumulated by the scattering MC pass rather than
-    //  wipe it).
-    bool  zero_j_cam;
-    bool  build_tables; // Imaging needs not builds
-    bool  zero_fields;  // Imaging needs fields
+    bool      zero_j_cam; // Imaging needs j_cam, no zeroing
+    bool     zero_fields; // Imaging needs field, no zeroing
+    bool    build_tables; // Imaging needs not builds
 
-    float_t proper_min_frac;
+    float_t proper_min_frac; // Photon destroyed when dark
+    
+    bool        worker_mode; // Worker-server mode
+    int            n_worker;
 
-    bool  worker_mode;
-    int   n_worker;
-
-    //  Host-side interfaces
+    ////////// Host-side interfaces //////////
     __host__ intg_t(  ) : super_t(  )
     {
         //  riia_table_t has its own
