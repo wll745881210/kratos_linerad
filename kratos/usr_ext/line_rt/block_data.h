@@ -162,7 +162,7 @@ struct block_data_t : mesh::block::base_data_t
         if( ! output )
             return;
         rad.mfp_i_sca_0.write
-                ( f_w, rad.prefix(  ) + "mfp_i_sca_0_" );
+                 ( f_w, rad.prefix(  ) + "mfp_i_sca_0_" );
         rad.mfp_i_abs_0.write
                  ( f_w, rad.prefix(  ) + "mfp_i_abs_0_" );
         rad.b_sca.write( f_w, rad.prefix(  ) + "b_sca_" );

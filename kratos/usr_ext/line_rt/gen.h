@@ -138,9 +138,8 @@ struct gen_t : particle::generate::base_t< gen_t >
     generate_once( pol_T & pool, particle::base_t & mod )
     {
         if( mod.p_mesh->p_com->is_root(  ) )
-            std::cout
-                << "Generating/copying photons "
-                << "once ... " << std::flush;
+            std::cout << "Generating/copying photons "
+                      << "once ... " << std::flush;
 
         using par_t = typename pol_T::par_t;
         std::vector< par_t > pool_h;
@@ -170,7 +169,7 @@ struct gen_t : particle::generate::base_t< gen_t >
                       * ( par.x[ a ] - geo.x_fc( a, 0 ) );
             pool_h.push_back( par );
         }
-        free( data_h );
+        free  ( data_h );
         data_h = nullptr;
 
         pool.set_mem( mod, pool_h.size(  ) );

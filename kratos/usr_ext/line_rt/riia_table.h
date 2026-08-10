@@ -189,36 +189,26 @@ struct riia_table_t
                          / ( sin_g * sin_g ) )
                    / ( sin_g * 1.7724538509f );
         }
-
-        const float_t sgn( x_pp >= 0 ? 1 : -1 );
-        const float_t t_delta( ( x_out - x_pp ) * sgn );
-
         //  Kernel negligible for |delta| > xo_max
+        const auto sgn    ( x_pp >= 0 ? 1 : -1 );
+        const auto t_delta( ( x_out - x_pp ) * sgn );
         if( fabsf( t_delta ) > xo_max )
             return 0;
 
-        int  ixp = utils::max( int( ax_pp / dxp ), 0 );
-        ixp      = utils::min( ixp,         n_xp - 2 );
-        auto fxp = ( ax_pp - ixp * dxp ) / dxp;
-        fxp      = utils::min( fxp,  1 ) ;
-        fxp      = utils::max( fxp,  0 ) ;
+        int   ixp = ax_pp / dxp;
+        ixp = utils::max( utils::min( ixp, n_xp - 2 ), 0 );
+        auto  fxp = ( ax_pp - ixp * dxp ) / dxp;
+        fxp = utils::max( utils::min( fxp, 1 ),   0 );
 
-        int ixo = int( ( t_delta + xo_max ) / dxo );
-        if( ixo > n_xo - 2 )
-            ixo = n_xo - 2;
-        if( ixo < 0 ) ixo = 0;
-        float_t fxo = ( t_delta + xo_max
-            - ixo * dxo ) / dxo;
-        if( fxo > 1.f ) fxo = 1.f;
-        if( fxo < 0.f ) fxo = 0.f;
+        int   ixo = int( ( t_delta + xo_max ) / dxo );
+        ixo = utils::max( utils::min( ixo, n_xo - 2 ), 0 );
+        auto  fxo = ( t_delta + xo_max - ixo * dxo ) / dxo;
+        fxo = utils::max( utils::min( fxo, 1 ),   0 );
 
-        int ig = int( ( g + 1.f ) / dg );
-        if( ig > n_g - 2 ) ig = n_g - 2;
-        if( ig < 0 ) ig = 0;
-        float_t fg
-            = ( g + 1.f - ig * dg ) / dg;
-        if( fg > 1.f ) fg = 1.f;
-        if( fg < 0.f ) fg = 0.f;
+        int     ig = int( ( g + 1.f ) / dg );
+        ig = utils::max( utils::min( ig, n_g - 2 ), 0 );
+        float_t fg = ( g + 1 - ig * dg ) / dg;
+        fg = utils::max( utils::min( fg, 1 ),  0 );
 
         // Multi-linear interpolation
         const auto & self( * this );

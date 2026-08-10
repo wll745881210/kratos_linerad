@@ -17,20 +17,18 @@ __host__ void pol_img_t::init
 {
     particle::driver::base_t::init( args, mod );
 
-    auto & rimg
-        = dynamic_cast< rad_img_t & >( mod );
+    auto   & rimg = dynamic_cast< rad_img_t & >( mod );
     output = rimg.enabled;
 
-    //  Read n_chan directly from par (the integrator
-    //  may not have been initialised yet at this
-    //  point in the module init sequence).
-    n_chan_img = args.get< int >
-        ( "imaging", "n_chan", 0 );
+    //  Read n_chan directly from par (the integrator may
+    //  not have been initialised yet at this point in the
+    //  module init sequence).
+    n_chan_img = args.get< int >( "imaging", "n_chan", 0 );
+    return;
 }
 
 __host__ void pol_img_t::write
-( const mesh::f_cp_t & f_cp,
-  const mesh::f_write_t & f_w )
+( const mesh::f_cp_t & f_cp, const mesh::f_write_t & f_w )
 {
     if( ! output )
         return;
@@ -66,7 +64,6 @@ __host__ void pol_img_t::write
             l_h[ j * nch + k ] = par_h[ i ].I_chan[ k ];
         ++ j;
     }
-
     const auto s_f( sizeof( float ) );
     const auto s_i( sizeof( int   ) );
     f_w( dir_h.data(  ),  j *   3, s_f, "_dir_img" );

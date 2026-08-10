@@ -49,8 +49,8 @@ struct intg_t : particle::integrate::base_t< intg_t >
     float_t          du_voigt;
     float_t       u_voigt_max;
 
-    bool     imaging  = false;
-    int      n_chan   = 0;
+    bool     imaging;
+    int      n_chan;
     
     float_t dir_cam[ 3 ];
 
@@ -70,14 +70,14 @@ struct intg_t : particle::integrate::base_t< intg_t >
     //  the imaging integrator, which must consume the j_cam
     //  accumulated by the scattering MC pass rather than
     //  wipe it).
-    bool  zero_j_cam = true;
-    bool  build_tables = true; // Imaging needs not builds
-    bool  zero_fields  = true; // Imaging needs fields
+    bool  zero_j_cam;
+    bool  build_tables; // Imaging needs not builds
+    bool  zero_fields;  // Imaging needs fields
 
-    float_t proper_min_frac = 0.0f;
-    
-    bool  worker_mode = true;
-    int   n_worker = 32768;
+    float_t proper_min_frac;
+
+    bool  worker_mode;
+    int   n_worker;
 
     //  Host-side interfaces
     __host__ intg_t(  ) : super_t(  )
@@ -85,6 +85,15 @@ struct intg_t : particle::integrate::base_t< intg_t >
         //  riia_table_t has its own
         //  constructor with defaults.
         free_dev_mem = false;
+
+        imaging          = false;
+        n_chan           =     0;
+        zero_j_cam       =  true;
+        build_tables     =  true;
+        zero_fields      =  true;
+        proper_min_frac  = 0.0f;
+        worker_mode      =  true;
+        n_worker         = 32768;
 
         d_log_voigt_c = nullptr;
         n_vu          =    5000;
