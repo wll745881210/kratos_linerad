@@ -14,10 +14,10 @@ SRCEXT     := cpp
 DEPEXT     := d
 OBJEXT     := o
 ARCH       ?= CUDA
-SM         ?= sm_80
 DEBUG      ?= 0
 MPI        ?= 0
 LIB_EXT    ?= 
+SM         ?= sm_80
 
 # Flags, Libraries and Includes
 CFLAGS_CMD :=
@@ -25,11 +25,11 @@ INCDEP     :=
 ifeq ($(ARCH),CUDA)
 	CC     := nvcc
 	ifeq ($(DEBUG),1)
-	CFLAGS := -std=c++17 -rdc=true -arch=sm_80 -O0 -g \
+	CFLAGS := -std=c++17 -rdc=true -arch=$(SM) -O0 -g \
               -include ./src/utilities/debug_macros.h \
 	          -D __GPU_DEBUG__ -diag-suppress 3
 	else   #DEBUG
-	CFLAGS := -std=c++17 -rdc=true -arch=sm_80 -O3 \
+	CFLAGS := -std=c++17 -rdc=true -arch=$(SM) -O3 \
               -include ./src/utilities/debug_macros.h \
 			  $(CFLAGS_CMD)               
 #			  --use_fast_math 

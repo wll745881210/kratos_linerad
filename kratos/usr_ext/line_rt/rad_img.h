@@ -85,9 +85,19 @@ public:                         // Functions
         auto & img_itg = dynamic_cast< intg_t & >
                        ( * p_itg );
         if( rad_itg.ph_mode <= 1 )
-            img_itg.voigt_interp  = rad_itg.voigt_interp;
+        {
+            //  Shallow copy: for ph_mode <= 1 the
+            //  scattering table already lives on the
+            //  device ( to_device ), so a deep copy
+            //  would memcpy from a device pointer on
+            //  the host and segfault.  Share the
+            //  read-only pointer instead.
+            img_itg.voigt_interp
+                .cp_shallow_from( rad_itg.voigt_interp );
+        }
         else if( rad_itg.ph_mode == 2 )
-            img_itg.d_log_voigt_c = rad_itg.d_log_voigt_c;
+            img_itg.d_log_voigt_c
+                = rad_itg.d_log_voigt_c;
         return;
     };
 

@@ -48,7 +48,11 @@ base_t:: base_t(  ) : idx_device( -1 ), num_device( -1 )
         const  int s_new( ( size + ali - 1 ) / ali * ali );
         const  int offset = const_offset_get( s_new );
         if( offset + s_new > size_const )
+        {
+            std::cerr << "required: " << offset + s_new <<
+                " vs. available: " << size_const << '\n';
             throw std::runtime_error( "const oversize" );
+        }
         void * p = ( ( char * ) head_const ) + offset;
         return p;
     };

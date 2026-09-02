@@ -269,22 +269,22 @@ def test_imaging_absorbing_slab( ):
 #    g = dir_source . dir_cam = (1,0,0).(0,0,1) = 0  (perpendicular)
 #
 #  For a->0, g=0:  R(x_out; x_pp, 0) = exp(-x_out^2) / sqrt(pi)
-#  Opacity:  phi(k) = exp(-x_out(k)^2),  x_out = (v_chan + v_z) / b
-#  Intensity (thin):  I(k) = F * mfp_s * L_slab * exp(-2*x_out^2)
+#  Emissivity (thin, j = mfp_s * s_cam):  j(k) = F * mfp_s
+#      * exp(-x_out^2) / (4*pi * sqrt(pi) * b)
+#  Intensity (thin):  I(k) = F * mfp_s * L_slab * exp(-x_out^2)
 #                                  / (4*pi * b * sqrt(pi))
-#  Total:  int I dv = F * mfp_s * L_slab / (4*pi * sqrt(2))
+#  Total:  int I dv = F * mfp_s * L_slab / (4*pi)
 # ----------------------------------------------------------------- #
 
 def _analytic_spectrum( v_chans, v_bulk, b, mfp_s, L_slab, F ):
     """I(v) for thin slab, perpendicular scattering, a->0."""
     x = ( v_chans + v_bulk ) / b;
-    return F * mfp_s * L_slab * exp( -2.0 * x ** 2 ) \
+    return F * mfp_s * L_slab * exp( -1.0 * x ** 2 ) \
            / ( 4.0 * pi * sqrt( pi ) * b );
 
-
 def _analytic_total( b, mfp_s, L_slab, F ):
-    """int I dv = F * mfp_s * L_slab / (4*pi*sqrt(2))."""
-    return F * mfp_s * L_slab / ( 4.0 * pi * sqrt( 2.0 ) );
+    """int I dv = F * mfp_s * L_slab / (4*pi)."""
+    return F * mfp_s * L_slab / ( 4.0 * pi );
 
 
 def _run_spectrum_imaging( mfp_sca_0_cgs, b_sca_cgs, v_z_cgs,
@@ -309,7 +309,7 @@ def _run_spectrum_imaging( mfp_sca_0_cgs, b_sca_cgs, v_z_cgs,
         b_sca = b_sca_cgs,
         mfp_i_sca_0 = mfp_callable,
         mfp_i_abs_0 = 0.0,
-        a_voigt = 0.0,
+        a_voigt = 0.01,
         ph_mode = 2,
         n_step = 200000,
         n_scat = 1000,

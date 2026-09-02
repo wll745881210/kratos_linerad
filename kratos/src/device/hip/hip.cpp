@@ -15,7 +15,13 @@ inline void hip_api( const hipError_t & e )
     }
 }
 
-static const size_t const_size( 60 * 1024 );
+
+static const size_t const_size
+#ifndef   __HIP_CPU_RT__
+( 60   * 1024 );
+#else
+( 1024 * 1024 );
+#endif 
 
 #ifndef   __HIP_CPU_RT__
 __constant__
