@@ -60,9 +60,8 @@ def test_basic_propagation( ):
     assert isclose( tr.freq_GHz, 115.271, rel_tol = 1e-12 );
     assert isclose( tr.wavelength_um, 299792.458 / 115.271, \
                     rel_tol = 1e-9 );
-    #  levels store energy in cm^-1 (LAMDA convention)
-    assert isclose( tr.E_u_cm, 115.271e9 / ( C_CGS * 100.0 ), \
-                    rel_tol = 1e-9 );
+    #  levels store energy in TRUE cm^-1 (LAMDA convention)
+    assert isclose( tr.E_u_cm, 115.271e9 / C_CGS, rel_tol = 1e-9 );
 
 
 def test_default_E_u_is_photon_energy( ):
@@ -71,16 +70,16 @@ def test_default_E_u_is_photon_energy( ):
     ti = make_ti( );
     levels = ti._species_data.levels;
     assert isclose( levels[ 0, 0 ], 0.0 );
-    #  cm^-1 = nu / (c * 100)
-    assert isclose( levels[ 1, 0 ], 115.271e9 / ( C_CGS * 100.0 ), \
+    #  cm^-1 = nu / c
+    assert isclose( levels[ 1, 0 ], 115.271e9 / C_CGS, \
                     rel_tol = 1e-9 );
 
 
 def test_explicit_E_u_K( ):
     """An explicit E_u_K sets the upper-level energy (converted to cm^-1)."""
     ti = make_ti( E_u_K = 500.0 );
-    #  E_u_K = 500 K -> E_u_cm = E_u_K * k_B / (h * c * 100)
-    expected_cm = 500.0 * K_B / ( H_CGS * C_CGS * 100.0 );
+    #  E_u_K = 500 K -> E_u_cm = E_u_K * k_B / (h * c)
+    expected_cm = 500.0 * K_B / ( H_CGS * C_CGS );
     assert isclose( ti._species_data.levels[ 1, 0 ], expected_cm, \
                     rel_tol = 1e-9 );
 
@@ -114,9 +113,9 @@ def test_value_unit_energy( ):
     """(value, unit) eV photon-energy form resolves a frequency."""
     ti = make_ti( value = 4.77e-4, unit = 'eV' );
     assert ti.transition.freq_GHz > 0;
-    #  E_u in cm^-1 (LAMDA convention); = nu / (c*100)
+    #  E_u in TRUE cm^-1 (LAMDA convention); = nu / c
     assert isclose( ti.transition.E_u_cm, \
-                    ti.transition.freq_GHz * 1e9 / ( C_CGS * 100.0 ), \
+                    ti.transition.freq_GHz * 1e9 / C_CGS, \
                     rel_tol = 1e-9 );
 
 

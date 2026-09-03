@@ -82,7 +82,7 @@ def solve_populations( species_data, exc_flux, n_total, T = None, \
                     #  detailed balance -> excitation (lower -> upper)
                     dE_coll = float( species_data.levels[ j, 0 ] - \
                                      species_data.levels[ i, 0 ] ) * \
-                              h_cgs * c_cgs * 100.0;
+                              h_cgs * c_cgs;
                     g_j = species_data.get_level_weight( j );
                     g_i = species_data.get_level_weight( i );
                     C_lu_tot += rate * n_coll_3d * ( g_j / g_i ) * \
@@ -208,7 +208,7 @@ def solve_populations( species_data, exc_flux, n_total, T = None, \
             #  LTE at high collider density.  Uses the GAS temperature T.
             dE_coll = float( species_data.levels[ j, 0 ] - \
                              species_data.levels[ i, 0 ] ) * h_cgs * \
-                      c_cgs * 100.0;
+                      c_cgs;
             g_j = species_data.get_level_weight( j );
             g_i = species_data.get_level_weight( i );
             T_gas_safe = maximum( T_flat, 1e-10 );

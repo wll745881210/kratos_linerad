@@ -132,7 +132,7 @@ class SpeciesData:
     def partition_function( self, T ):
         g = asarray( self.levels[ :, 1 ], dtype = float64 );
         E_cm = asarray( self.levels[ :, 0 ], dtype = float64 );
-        E_erg = E_cm * h_cgs * c_cgs * 100.0;
+        E_erg = E_cm * h_cgs * c_cgs;
         T_arr = asarray( T, dtype = float64 );
         exponent = E_erg[ :, None ] / ( k_B * T_arr );
         return ( g[ :, None ] * exp( -exponent ) ).sum( axis = 0 );
@@ -141,7 +141,7 @@ class SpeciesData:
         n_t = asarray( n_total, dtype = float64 ).ravel( );
         T_arr = asarray( T, dtype = float64 );
         E_cm = asarray( self.levels[ :, 0 ], dtype = float64 );
-        E_erg = E_cm * h_cgs * c_cgs * 100.0;
+        E_erg = E_cm * h_cgs * c_cgs;
         g = asarray( self.levels[ :, 1 ], dtype = float64 );
         Z = self.partition_function( T_arr );
         pops = { };

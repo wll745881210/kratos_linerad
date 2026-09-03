@@ -128,8 +128,8 @@ def check_consistency( *, species = None, transition_idx = 0, \
                 E_u_cm = float( species.levels[ upper, 0 ] );
                 E_l_cm = float( species.levels[ lower, 0 ] );
                 h = 6.62607015e-27; c = 2.99792458e10; kB = 1.380649e-16;
-                E_u_K = E_u_cm * h * c * 100.0 / kB;
-                E_l_K = E_l_cm * h * c * 100.0 / kB;
+                E_u_K = E_u_cm * h * c / kB;
+                E_l_K = E_l_cm * h * c / kB;
                 lam_um = 299792.458 / nu_GHz if nu_GHz > 0 else float( 'inf' );
 
                 print( "  Transition #%d: J=%d->%d, " \
