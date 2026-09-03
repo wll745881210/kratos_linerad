@@ -234,15 +234,15 @@ def main( ):
     wave_check( );
 
     #  --- Anchor verification (hydrogenic formula) ---
-    #  Lyman/Balmer A from literature f-values via
-    #  A = 7.4091e-22 * nu^2 * f * (g_l/g_u).  The exact nonrelativistic
-    #  values are reproduced to <0.5% (2p, 3p, 3d, 4d lines); the Halpha
-    #  literature number (6.465e7, NIST fine-structure component) sits
-    #  ~0.9% below the exact nl-summed value.
-    a_ref = { 'Lya': 6.265e8, 'Lyb': 1.672e8, 'Lyg': 6.810e7,
-              'Ha':  6.465e7, 'Hb':  2.065e7, 'Hg':  9.460e6 }
-    tol = { 'Lya': 5e-3, 'Lyb': 1e-2, 'Lyg': 1e-2,
-            'Ha':  1.5e-2, 'Hb':  1.5e-2, 'Hg':  1.5e-2 }
+    #  References: NIST ASD (physics.nist.gov) H I lines query
+    #  (fs-averaged over upper-J components, all lower-J branches
+    #  summed; retrieved 2026-09).  The exact nonrelativistic values
+    #  sit 0.10-0.11% below NIST's (relativistic Dirac) rates -- a
+    #  consistent, understood offset.  He II analog: -0.04..-0.06%.
+    a_ref = { 'Lya': 6.2647e8, 'Lyb': 1.6725e8, 'Lyg': 6.8185e7,
+              'Ha':  6.4651e7, 'Hb':  2.0625e7, 'Hg':  9.4255e6 }
+    tol = { 'Lya': 5e-3, 'Lyb': 5e-3, 'Lyg': 5e-3,
+            'Ha':  5e-3, 'Hb':  5e-3, 'Hg':  5e-3 }
     print( 'Hydrogenic anchors (HI):' )
     for ( u, l_, name ) in HI_LINES:
         n_u, l_u = level_of( u, HI_LEVELS )

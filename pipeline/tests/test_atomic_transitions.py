@@ -97,17 +97,31 @@ def test_hi_lya_stat_weights( ):
 # ---------------------------------------------------------------- #
 
 def test_hi_lines_all( ):
-    ref = { ( 'Lyb', 1025.723 ): 1.672e8,
-            ( 'Lyg', 972.537 ): 6.810e7,
-            ( 'Ha', 6564.625 ): 6.465e7,
-            ( 'Hb', 4862.685 ): 2.065e7,
-            ( 'Hg', 4341.683 ): 9.460e6 };
+    """NIST ASD (fs-averaged) references, retrieved 2026-09."""
+    ref = { ( 'Lyb', 1025.7222 ): 1.6725e8,
+            ( 'Lyg', 972.5367 ): 6.8185e7,
+            ( 'Ha', 6564.6394 ): 6.4651e7,
+            ( 'Hb', 4862.7036 ): 2.0625e7,
+            ( 'Hg', 4341.7015 ): 9.4255e6 };
     for ( name, lam ), a_ref in ref.items( ):
         ti = TransitionInfo( 'HI', value = lam, unit = 'angstrom' );
         assert ti.transition[ 2 ] == pytest.approx( a_ref,
-                                                    rel = TOL ), \
-            '%s: A=%.3e vs %.3e' % ( name, ti.transition[ 2 ],
-                                     a_ref );
+                                                    rel = 0.005 ), \
+            '%s: A=%.3e vs NIST %.3e' % ( name, ti.transition[ 2 ],
+                                          a_ref );
+
+
+def test_heii_lines_nist( ):
+    """NIST ASD (fs-averaged) references for He II (Z = 2)."""
+    ref = { ( 'Lya', 303.7822 ): 1.0029e10,
+            ( 'Ha', 1640.4489 ): 1.0351e9,
+            ( 'Hg', 1084.9617 ): 1.5091e8 };
+    for ( name, lam ), a_ref in ref.items( ):
+        ti = TransitionInfo( 'HeII', value = lam, unit = 'angstrom' );
+        assert ti.transition[ 2 ] == pytest.approx( a_ref,
+                                                    rel = 0.005 ), \
+            '%s: A=%.3e vs NIST %.3e' % ( name, ti.transition[ 2 ],
+                                          a_ref );
 
 
 # ---------------------------------------------------------------- #
