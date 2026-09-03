@@ -55,7 +55,9 @@ class SpeciesData:
     n_transitions: int
     transitions: ndarray
     collision_partners: List[ Dict ] = field( default_factory = list );
-    mol_mass: float = 28.0;      # [amu], used for the emission Doppler b
+    mol_mass: Optional[ float ] = None;  # [amu], emission Doppler b;
+                              # set by TransitionInfo (mass table or
+                              # explicit arg) -- no silent amu default.
 
     @property
     def transitions_list( self ):
@@ -439,6 +441,12 @@ class SpeciesData:
 
         temp_ph = asarray( temperature, dtype = float64 ) \
                   .ravel( )[ flat_ph ];
+        if self.mol_mass is None:
+            raise ValueError(
+                "SpeciesData.mol_mass is not set for '%s'. Construct "
+                "the species via TransitionInfo (which resolves the "
+                "mass table) or set mol_mass explicitly."
+                % self.name );
         b_thermal = sqrt( 1.66289e8 * temp_ph / self.mol_mass + 1e-35 );
         sigma_ph = b_thermal / sqrt( 2.0 );
         vel_draw = rng.normal( 0.0, sigma_ph, n_total );

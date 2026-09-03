@@ -1,0 +1,25 @@
+! Neutral helium (LS terms, fine structure averaged,
+! vacuum wavelengths).  Level energies and A coefficients
+! from NIST ASD (rounded); see gen_atomic_dat.py.
+! Collision rates: none (pure resonant scattering).
+!MOLECULE
+HeI
+!NUMBER OF ENERGY LEVELS
+7
+!LEVEL + ENERGIES(cm^-1) + WEIGHT
+1        0.0000  1
+2   159856.0800  3
+3   166277.5400  1
+4   169087.0000  9
+5   171135.0000  3
+6   185570.2000  9
+7   186209.4300  3
+!NUMBER OF RADIATIVE TRANSITIONS
+4
+!TRANSITION + UPPER + LOWER + EINSTEINA(s^-1) + FREQ(GHz)
+1  5  1  1.7980e+09  5130498.2300
+2  7  1  5.6500e+08  5582418.2722
+3  4  2  1.0200e+07  276736.0196
+4  6  2  9.5000e+06  770889.9240
+!NUMBER OF COLL PARTNERS
+0

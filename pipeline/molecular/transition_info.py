@@ -31,7 +31,11 @@ _MOL_MASS = { 'CO'    : 28.0, 'OH'    : 17.0, 'H2O'   : 18.0, \
               'N2H+'  : 29.0, 'SO'    : 48.0, 'SO2'   : 64.0, \
               'H2CO'  : 30.0, 'H2S'   : 34.0, 'CN'    : 26.0, \
               'NO'    : 30.0, 'C2H'   : 25.0, 'HNC'   : 27.0, \
-              'C3H2'  : 38.0 };  # amu (keys uppercased for case-insensitive lookup)
+              'C3H2'  : 38.0, \
+              #  Atoms (amu; HI/HeI/HeII embedded species):
+              'HI'    : 1.008, 'H'     : 1.008, \
+              'HEI'   : 4.0026, 'HE'    : 4.0026, \
+              'HEII'  : 4.0026, 'H2'    : 2.016 };  # amu (keys uppercased for case-insensitive lookup)
 
 
 ############################################################
@@ -80,6 +84,17 @@ def _embedded_names( ):
 def _available_species( ):
     names = set( _embedded_names( ) ) | set( get_cached_species( ) );
     return sorted( names );
+
+def _lookup_mol_mass( species_name ):
+    """Case-insensitive mass lookup; raise MolecularMassError if absent
+    (never silently default -- a wrong mass skews the Doppler b)."""
+    key = str( species_name ).upper( );
+    if key in _MOL_MASS:
+        return _MOL_MASS[ key ];
+    raise MolecularMassError(
+        "No molecular mass for species '%s'. Pass mol_mass=... " \
+        "explicitly, or add it to _MOL_MASS in " \
+        "molecular/transition_info.py." % species_name );
 
 def _find_species_path( name ):
     """Resolve a species name to a file path.
@@ -431,8 +446,7 @@ class TransitionInfo:
                                    dtype = float64 ),
             collision_partners = coll_partners,
             mol_mass      = float( mol_mass ) if mol_mass is not None \
-                            else _MOL_MASS.get( \
-                                str( species_name ).upper( ), 28.0 ),
+                            else _lookup_mol_mass( species_name ),
         );
 
         ti = cls( species, transition_idx = 0, mol_mass = mol_mass,

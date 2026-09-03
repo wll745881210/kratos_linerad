@@ -1,0 +1,32 @@
+! He+ (hydrogenic, Z=2, nl-resolved, vacuum wavelengths).
+! Energies: 4 R_HeII = 438889.07 cm^-1 (fine structure
+! averaged).  A coefficients computed exactly from hydrogenic
+! wavefunctions with Z=2 (gen_atomic_dat.py).
+! Collision rates: none (pure resonant scattering).
+!MOLECULE
+HeII
+!NUMBER OF ENERGY LEVELS
+11
+!LEVEL + ENERGIES(cm^-1) + WEIGHT
+1        0.0000  2
+2   329166.8040  2
+3   329166.8040  6
+4   390123.6196  2
+5   390123.6196  6
+6   390123.6196  10
+7   411458.5050  2
+8   411458.5050  6
+9   411458.5050  10
+10   421333.5091  6
+11   421333.5091  10
+!NUMBER OF RADIATIVE TRANSITIONS
+6
+!TRANSITION + UPPER + LOWER + EINSTEINA(s^-1) + FREQ(GHz)
+1  3  1  1.0025e+10  9868172.5263
+2  5  1  2.6764e+09  11695611.8830
+3  8  1  1.0911e+09  12335215.6579
+4  6  3  1.0346e+09  1827439.3567
+5  9  3  3.3005e+08  2467043.1316
+6  11  3  1.5083e+08  2763088.3074
+!NUMBER OF COLL PARTNERS
+0
